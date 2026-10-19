@@ -86,6 +86,8 @@ static void *compiler_reallocator(void *old, unsigned long size)
 static void clean_preprocessor(struct TCCState *state)
 {
 	CHECK(!state->pp->macro_stack && !state->pp->macro_ptr);
+	CHECK(!state->pp->source && !state->pp->token && !state->pp->value.i);
+	CHECK(!state->pp->debug_indent);
 	CHECK(!state->pp->parsed.data && !state->pp->spelling.data);
 	CHECK(!state->pp->predefs.data);
 	CHECK(!state->pp->expansion.str && !state->pp->unget.str);
@@ -123,14 +125,15 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject each object constructor without leaking the preceding graphs. */
-	for (failure = 1; failure <= 3; failure++) {
+	/* Reject three constructors and the aligned preprocessor workspace. */
+	for (failure = 1; failure <= 4; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
 		state = tcc_new();
 		CHECK(state);
 		tcc_delete(state);
+		CHECK(live == initial_live);
 	}
 	for (failure = 1; failure <= 3; failure++) {
 		state = tcc_new();

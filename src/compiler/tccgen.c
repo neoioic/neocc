@@ -415,9 +415,9 @@ ST_FUNC int tccgen_compile(TCCState *s1)
     arm_init(s1);
 #endif
 #ifdef INC_DEBUG
-    printf("%s: **** new file\n", file->filename);
+    printf("%s: **** new file\n", s1->pp->source->filename);
 #endif
-    tcc_state->pp->parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
+    s1->pp->parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
     next();
     decl(VT_CONST);
     gen_inline_functions(s1);
@@ -885,7 +885,7 @@ static void vcheck_cmp(void)
         gv(RC_INT);
 }
 
-static void vsetc(CType *type, int r, CValue *vc)
+static void vsetc(CType *type, int r, union neocc_value *vc)
 {
     if (vtop >= vstack + (VSTACK_SIZE - 1))
         tcc_error("memory full (vstack)");
@@ -936,7 +936,7 @@ static void vpush(CType *type)
 /* push arbitrary 64bit constant */
 static void vpush64(int ty, unsigned long long v)
 {
-    CValue cval;
+    union neocc_value cval;
     CType ctype;
     ctype.t = ty;
     ctype.ref = NULL;
@@ -964,7 +964,7 @@ static inline void vpushll(long long v)
 
 ST_FUNC void vset(CType *type, int r, int v)
 {
-    CValue cval;
+    union neocc_value cval;
     cval.i = v;
     vsetc(type, r, &cval);
 }
@@ -1117,7 +1117,7 @@ static void gen_test_zero(int op)
 /* push a symbol value of TYPE */
 ST_FUNC void vpushsym(CType *type, Sym *sym)
 {
-    CValue cval;
+    union neocc_value cval;
     cval.i = 0;
     vsetc(type, VT_CONST | VT_SYM, &cval);
     vtop->sym = sym;
@@ -3907,12 +3907,12 @@ ST_FUNC void inc(int post, int c)
 ST_FUNC struct neocc_string* parse_mult_str (const char *msg)
 {
     /* read the string */
-    if (tok != TOK_STR)
+    if (tcc_state->pp->token != TOK_STR)
         expect(msg);
     cstr_reset(&initstr);
-    while (tok == TOK_STR) {
+    while (tcc_state->pp->token == TOK_STR) {
         /* XXX: add \0 handling too ? */
-        cstr_cat(&initstr, tokc.str.data, -1);
+        cstr_cat(&initstr, tcc_state->pp->value.str.data, -1);
         next();
     }
     cstr_ccat(&initstr, '\0');
@@ -3945,7 +3945,7 @@ static void parse_attribute(AttributeDef *ad)
     AttributeDef ad_tmp;
     
 redo:
-    if (tok != TOK_ATTRIBUTE1 && tok != TOK_ATTRIBUTE2)
+    if (tcc_state->pp->token != TOK_ATTRIBUTE1 && tcc_state->pp->token != TOK_ATTRIBUTE2)
         return;
     if (NULL == ad) /* skip over / ignore attributes */
         ad = &ad_tmp;
@@ -3953,10 +3953,10 @@ redo:
     next();
     skip('(');
     skip('(');
-    while (tok != ')') {
-        if (tok < TOK_IDENT)
+    while (tcc_state->pp->token != ')') {
+        if (tcc_state->pp->token < TOK_IDENT)
             expect("attribute name");
-        t = tok;
+        t = tcc_state->pp->token;
         next();
         switch(t) {
 	case TOK_CLEANUP1:
@@ -3965,13 +3965,13 @@ redo:
 	    Sym *s;
 
 	    skip('(');
-	    s = sym_find(tok);
+	    s = sym_find(tcc_state->pp->token);
 	    if (!s) {
 	        tcc_warning_c(warn_implicit_function_declaration)(
-                    "implicit declaration of function '%s'", get_tok_str(tok, &tokc));
-	        s = external_global_sym(tok, &func_old_type);
+                    "implicit declaration of function '%s'", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+	        s = external_global_sym(tcc_state->pp->token, &func_old_type);
             } else if ((s->type.t & VT_BTYPE) != VT_FUNC)
-                tcc_error("'%s' is not declared as function", get_tok_str(tok, &tokc));
+                tcc_error("'%s' is not declared as function", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
 	    ad->cleanup_func = s;
 	    next();
             skip(')');
@@ -4024,7 +4024,7 @@ redo:
             break;
         case TOK_ALIGNED1:
         case TOK_ALIGNED2:
-            if (tok == '(') {
+            if (tcc_state->pp->token == '(') {
                 next();
                 n = expr_const();
                 if (n <= 0 || (n & (n - 1)) != 0) 
@@ -4110,7 +4110,7 @@ redo:
 #endif
         case TOK_MODE:
             skip('(');
-            switch(tok) {
+            switch(tcc_state->pp->token) {
                 case TOK_MODE_DI:
                     ad->attr_mode = VT_LLONG + 1;
                     break;
@@ -4125,7 +4125,7 @@ redo:
                     ad->attr_mode = VT_INT + 1;
                     break;
                 default:
-                    tcc_warning("__mode__(%s) not supported\n", get_tok_str(tok, NULL));
+                    tcc_warning("__mode__(%s) not supported\n", get_tok_str(tcc_state->pp->token, NULL));
                     break;
             }
             next();
@@ -4144,19 +4144,19 @@ redo:
             tcc_warning_c(warn_unsupported)("'%s' attribute ignored", get_tok_str(t, NULL));
             /* skip parameters */
 skip_param:
-            if (tok == '(') {
+            if (tcc_state->pp->token == '(') {
                 int parenthesis = 0;
                 do {
-                    if (tok == '(') 
+                    if (tcc_state->pp->token == '(')
                         parenthesis++;
-                    else if (tok == ')') 
+                    else if (tcc_state->pp->token == ')')
                         parenthesis--;
                     next();
-                } while (parenthesis && tok != -1);
+                } while (parenthesis && tcc_state->pp->token != -1);
             }
             break;
         }
-        if (tok != ',')
+        if (tcc_state->pp->token != ',')
             break;
         next();
     }
@@ -4486,13 +4486,13 @@ static void struct_decl(CType *type, int u)
     parse_attribute(&ad);
 
     v = 0;
-    if (tok >= TOK_IDENT) /* struct/enum tag */
-        v = tok, next();
+    if (tcc_state->pp->token >= TOK_IDENT) /* struct/enum tag */
+        v = tcc_state->pp->token, next();
 
     bt = ut = 0;
     if (u == VT_ENUM) {
         ut = VT_INT;
-        if (tok == ':') { /* C2x enum : <type> ... */
+        if (tcc_state->pp->token == ':') { /* C2x enum : <type> ... */
             next();
             if (!parse_btype(&btype, &ad1, 0)
              || !is_integer_btype(btype.t & VT_BTYPE))
@@ -4504,7 +4504,7 @@ static void struct_decl(CType *type, int u)
     if (v) {
         /* struct already defined ? return it */
         s = struct_find(v);
-        if (s && (s->sym_scope == local_scope || (tok != '{' && tok != ';'))) {
+        if (s && (s->sym_scope == local_scope || (tcc_state->pp->token != '{' && tcc_state->pp->token != ';'))) {
             if (u == s->type.t)
                 goto do_decl;
             if (u == VT_ENUM && IS_ENUM(s->type.t)) /* XXX: check integral types */
@@ -4512,7 +4512,7 @@ static void struct_decl(CType *type, int u)
             tcc_error("redeclaration of '%s'", get_tok_str(v, NULL));
         }
     } else {
-        if (tok != '{')
+        if (tcc_state->pp->token != '{')
             expect("struct/union/enum name");
         v = anon_sym++;
     }
@@ -4526,7 +4526,7 @@ do_decl:
     type->t = s->type.t;
     type->ref = s;
 
-    if (tok == '{') {
+    if (tcc_state->pp->token == '{') {
         next();
         if (s->c != -1
             && !(u == VT_ENUM && s->c == 0)) /* not yet defined typed enum */
@@ -4545,11 +4545,11 @@ do_decl:
             if (bt)
                 t.t = bt|VT_STATIC|VT_ENUM_VAL;
             for(;;) {
-                v = tok;
+                v = tcc_state->pp->token;
                 if (v < TOK_UIDENT)
                     expect("identifier");
                 next();
-                if (tok == '=') {
+                if (tcc_state->pp->token == '=') {
                     next();
 		    ll = expr_const64();
                 }
@@ -4563,12 +4563,12 @@ do_decl:
                     nl = ll;
                 if (ll > pl)
                     pl = ll;
-                if (tok != ',')
+                if (tcc_state->pp->token != ',')
                     break;
                 next();
                 ll++;
                 /* NOTE: we accept a trailing comma */
-                if (tok == '}')
+                if (tcc_state->pp->token == '}')
                     break;
             }
             skip('}');
@@ -4608,9 +4608,9 @@ do_decl:
         } else {
             c = 0;
             flexible = 0;
-            while (tok != '}') {
+            while (tcc_state->pp->token != '}') {
                 if (!parse_btype(&btype, &ad1, 0)) {
-                    if (tok == TOK_STATIC_ASSERT) {
+                    if (tcc_state->pp->token == TOK_STATIC_ASSERT) {
                         do_Static_assert();
                         continue;
                     }
@@ -4624,8 +4624,8 @@ do_decl:
                     bit_size = -1;
                     v = 0;
                     type1 = btype;
-                    if (tok != ':') {
-			if (tok != ';')
+                    if (tcc_state->pp->token != ':') {
+			if (tcc_state->pp->token != ';')
                             type_decl(&type1, &ad1, &v, TYPE_DIRECT);
                         if (v == 0) {
                     	    if ((type1.t & VT_BTYPE) != VT_STRUCT)
@@ -4651,7 +4651,7 @@ do_decl:
                             tcc_error("invalid type for '%s'", 
                                   get_tok_str(v, NULL));
                     }
-                    if (tok == ':') {
+                    if (tcc_state->pp->token == ':') {
                         next();
                         bit_size = expr_const();
                         /* XXX: handle v = 0 case for messages */
@@ -4707,7 +4707,7 @@ do_decl:
                         *ps = ss;
                         ps = &ss->next;
                     }
-                    if (tok == ';' || tok == TOK_EOF)
+                    if (tcc_state->pp->token == ';' || tcc_state->pp->token == TOK_EOF)
                         break;
                     skip(',');
                 }
@@ -4763,7 +4763,7 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
     type->ref = NULL;
 
     while(1) {
-        switch(tok) {
+        switch(tcc_state->pp->token) {
         case TOK_EXTENSION:
             /* currently, we really ignore extension */
             next();
@@ -4867,7 +4867,7 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
             type->t = t;
             parse_btype_qualify(type, VT_ATOMIC);
             t = type->t;
-            if (tok == '(') {
+            if (tcc_state->pp->token == '(') {
                 parse_expr_type(&type1);
                 /* remove all storage modifiers except typedef */
                 type1.t &= ~(VT_STORAGE&~VT_TYPEDEF);
@@ -4978,12 +4978,12 @@ static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
         default:
             if (typespec_found)
                 goto the_end;
-            s = sym_find(tok);
+            s = sym_find(tcc_state->pp->token);
             if (!s || !(s->type.t & VT_TYPEDEF))
                 goto the_end;
 
-            n = tok, next();
-            if (tok == ':' && ignore_label) {
+            n = tcc_state->pp->token, next();
+            if (tcc_state->pp->token == ':' && ignore_label) {
                 /* ignore if it's a label */
                 unget_tok(n);
                 goto the_end;
@@ -5073,7 +5073,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
     struct neocc_token_string *vla_array_tok = NULL;
     int *vla_array_str = NULL;
 
-    if (tok == '(') {
+    if (tcc_state->pp->token == '(') {
         /* function type, or recursive declarator (return if so) */
         next();
 	if (TYPE_DIRECT == (td & (TYPE_DIRECT|TYPE_ABSTRACT)))
@@ -5085,7 +5085,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
         ++local_scope;
         sr = sym_push2(ps, SYM_FIELD, 0, 0);
 
-	if (tok == ')')
+	if (tcc_state->pp->token == ')')
 	  l = 0;
 	else if (parse_btype(&pt, &ad1, 0))
 	  l = FUNC_NEW;
@@ -5104,7 +5104,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
             for(;;) {
                 /* read param name and compute offset */
                 if (l != FUNC_OLD) {
-                    if ((pt.t & VT_BTYPE) == VT_VOID && tok == ')')
+                    if ((pt.t & VT_BTYPE) == VT_VOID && tcc_state->pp->token == ')')
                         break;
                     type_decl(&pt, &ad1, &n, TYPE_DIRECT | TYPE_ABSTRACT | TYPE_PARAM);
                     if ((pt.t & VT_BTYPE) == VT_VOID)
@@ -5112,7 +5112,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
                     if (n == 0 || (td & TYPE_PARAM))
                         n |= SYM_FIELD;
                 } else {
-                    n = tok;
+                    n = tcc_state->pp->token;
                     pt.t = VT_INT | VT_EXTERN; /* default type */
                     pt.ref = NULL;
                     next();
@@ -5126,10 +5126,10 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
                 s = sym_push(n, &pt, VT_LOCAL|VT_LVAL, 0);
                 *plast = s;
                 plast = &s->next;
-                if (tok == ')')
+                if (tcc_state->pp->token == ')')
                     break;
                 skip(',');
-                if (l == FUNC_NEW && tok == TOK_DOTS) {
+                if (l == FUNC_NEW && tcc_state->pp->token == TOK_DOTS) {
                     l = FUNC_ELLIPSIS;
                     next();
                     break;
@@ -5147,7 +5147,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
         /* some ancient pre-K&R C allows a function to return an array
            and the array brackets to be put after the arguments, such 
            that "int c()[]" means something like "int[] c()" */
-        if (tok == '[') {
+        if (tcc_state->pp->token == '[') {
             next();
             skip(']'); /* only handle simple "[]" */
             mk_pointer(type);
@@ -5164,7 +5164,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
         sym_pop(ps, sr, 1);
         --local_scope;
 
-    } else if (tok == '[') {
+    } else if (tcc_state->pp->token == '[') {
 	int saved_nocode_wanted = nocode_wanted;
         int array_qualifiers = 0;
         /* array definition */
@@ -5175,7 +5175,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
 	    /* XXX The optional type-quals and static should only be accepted
 	       in parameter decls.  The '*' as well, and then even only
 	       in prototypes (not function defs).  */
-	    switch (tok) {
+	    switch (tcc_state->pp->token) {
 	    case TOK_CONST1: case TOK_CONST2: case TOK_CONST3:
 		array_qualifiers |= VT_CONSTANT;
 		next();
@@ -5195,7 +5195,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
 	    default:
 		break;
 	    }
-            if (tok != ']') {
+            if (tcc_state->pp->token != ']') {
 		/* Code generation is not done now but has to be done
 		   at start of function. Save code here for later use. */
 	        nocode_wanted = 1;
@@ -5211,7 +5211,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
             }
             break;
 
-	} else if (tok != ']') {
+	} else if (tcc_state->pp->token != ']') {
             if (!local_stack || (storage & VT_STATIC))
                 vpushi(expr_const());
             else {
@@ -5302,11 +5302,11 @@ static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td)
     type->t &= ~VT_STORAGE;
     post = ret = type;
 
-    while (tok == '*') {
+    while (tcc_state->pp->token == '*') {
         qualifiers = 0;
     redo:
         next();
-        switch(tok) {
+        switch(tcc_state->pp->token) {
         case TOK__Atomic:
             qualifiers |= VT_ATOMIC;
             goto redo;
@@ -5338,7 +5338,7 @@ static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td)
 	    ret = pointed_type(type);
     }
 
-    if (tok == '(') {
+    if (tcc_state->pp->token == '(') {
 	/* This is possibly a parameter type list for abstract declarators
 	   ('int ()'), use post_type for testing this.  */
 	if (!post_type(type, ad, 0, td)) {
@@ -5351,9 +5351,9 @@ static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td)
 	    skip(')');
 	} else
 	  goto abstract;
-    } else if (tok >= TOK_IDENT && (td & TYPE_DIRECT)) {
+    } else if (tcc_state->pp->token >= TOK_IDENT && (td & TYPE_DIRECT)) {
 	/* type identifier */
-	*v = tok;
+	*v = tcc_state->pp->token;
 	next();
     } else {
   abstract:
@@ -5657,7 +5657,7 @@ ST_FUNC void unary(void)
     /* XXX: GCC 2.95.3 does not generate a table although it should be
        better here */
  tok_next:
-    switch(tok) {
+    switch(tcc_state->pp->token) {
     case TOK_EXTENSION:
         next();
         goto tok_next;
@@ -5671,7 +5671,7 @@ ST_FUNC void unary(void)
 	t = VT_INT;
  push_tokc:
 	type.t = t;
-	vsetc(&type, VT_CONST, &tokc);
+	vsetc(&type, VT_CONST, &tcc_state->pp->value);
         next();
         break;
     case TOK_CUINT:
@@ -5692,7 +5692,7 @@ ST_FUNC void unary(void)
     case TOK_CLDOUBLE:
 #ifdef TCC_USING_DOUBLE_FOR_LDOUBLE
         t = VT_DOUBLE | VT_LONG;
-        tokc.d = tokc.ld;
+        tcc_state->pp->value.d = tcc_state->pp->value.ld;
 #else
         t = VT_LDOUBLE;
 #endif
@@ -5708,11 +5708,11 @@ ST_FUNC void unary(void)
             goto tok_identifier;
         /* fall thru */
     case TOK___FUNC__:
-        tok = TOK_STR;
+        tcc_state->pp->token = TOK_STR;
         cstr_reset(&tcc_state->pp->parsed);
         cstr_cat(&tcc_state->pp->parsed, funcname, 0);
-        tokc.str.size = tcc_state->pp->parsed.size;
-        tokc.str.data = tcc_state->pp->parsed.data;
+        tcc_state->pp->value.str.size = tcc_state->pp->parsed.size;
+        tcc_state->pp->value.str.data = tcc_state->pp->parsed.data;
         goto case_TOK_STR;
     case TOK_LSTR:
 #ifdef TCC_TARGET_PE
@@ -5737,14 +5737,14 @@ ST_FUNC void unary(void)
         break;
     case TOK_SOTYPE:
     case '(':
-        t = tok;
+        t = tcc_state->pp->token;
         next();
         /* cast ? */
         if (parse_btype(&type, &ad, 0)) {
             type_decl(&type, &ad, &n, TYPE_ABSTRACT);
             skip(')');
             /* check ISOC99 compound literal */
-            if (tok == '{') {
+            if (tcc_state->pp->token == '{') {
                     /* data is allocated locally by default */
                 if (global_expr)
                     r = VT_CONST;
@@ -5762,7 +5762,7 @@ ST_FUNC void unary(void)
                 unary();
                 gen_cast(&type);
             }
-        } else if (tok == '{') {
+        } else if (tcc_state->pp->token == '{') {
 	    int saved_nocode_wanted = nocode_wanted;
             if (CONST_WANTED && !NOEVAL_WANTED)
                 expect("constant");
@@ -5839,10 +5839,10 @@ ST_FUNC void unary(void)
     case TOK_ALIGNOF1:
     case TOK_ALIGNOF2:
     case TOK_ALIGNOF3:
-        t = tok;
+        t = tcc_state->pp->token;
         next();
-        if (tok == '(')
-            tok = TOK_SOTYPE;
+        if (tcc_state->pp->token == '(')
+            tcc_state->pp->token = TOK_SOTYPE;
         expr_type(&type, unary);
         if (t == TOK_SIZEOF) {
             vpush_type_size(&type, &align);
@@ -5915,7 +5915,7 @@ ST_FUNC void unary(void)
     case TOK_builtin_frame_address:
     case TOK_builtin_return_address:
         {
-            int tok1 = tok;
+            int tok1 = tcc_state->pp->token;
             int level;
             next();
             skip('(');
@@ -6044,13 +6044,13 @@ ST_FUNC void unary(void)
     case TOK___atomic_xor_fetch:
     case TOK___atomic_and_fetch:
     case TOK___atomic_nand_fetch:
-        parse_atomic(tok);
+        parse_atomic(tcc_state->pp->token);
         break;
 
     /* pre operations */
     case TOK_INC:
     case TOK_DEC:
-        t = tok;
+        t = tcc_state->pp->token;
         next();
         unary();
         inc(0, t);
@@ -6071,11 +6071,11 @@ ST_FUNC void unary(void)
             goto tok_identifier;
         next();
         /* allow to take the address of a label */
-        if (tok < TOK_UIDENT)
+        if (tcc_state->pp->token < TOK_UIDENT)
             expect("label identifier");
-        s = label_find(tok);
+        s = label_find(tcc_state->pp->token);
         if (!s) {
-            s = label_push(&global_label_stack, tok, LABEL_FORWARD);
+            s = label_push(&global_label_stack, tcc_state->pp->token, LABEL_FORWARD);
         } else {
             if (s->r == LABEL_DECLARED)
                 s->r = LABEL_FORWARD;
@@ -6109,7 +6109,7 @@ ST_FUNC void unary(void)
         for (;;) {
 	    learn = 0;
 	    skip(',');
-	    if (tok == TOK_DEFAULT) {
+	    if (tcc_state->pp->token == TOK_DEFAULT) {
 		if (has_default)
 		    tcc_error("too many 'default'");
 		has_default = 1;
@@ -6136,7 +6136,7 @@ ST_FUNC void unary(void)
 	    } else {
 		skip_or_save_block(NULL);
 	    }
-	    if (tok == ')')
+	    if (tcc_state->pp->token == ')')
 		break;
 	}
 	if (!str) {
@@ -6147,7 +6147,7 @@ ST_FUNC void unary(void)
 	begin_macro(str, 1);
 	next();
 	expr_eq();
-	if (tok != TOK_EOF)
+	if (tcc_state->pp->token != TOK_EOF)
 	    expect(",");
 	end_macro();
         next();
@@ -6170,14 +6170,14 @@ special_math_val:
 
     default:
     tok_identifier:
-        if (tok < TOK_UIDENT)
-            tcc_error("expression expected before '%s'", get_tok_str(tok, &tokc));
-        t = tok;
+        if (tcc_state->pp->token < TOK_UIDENT)
+            tcc_error("expression expected before '%s'", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+        t = tcc_state->pp->token;
         next();
         s = sym_find(t);
         if (!s || IS_ASM_SYM(s)) {
             const char *name = get_tok_str(t, NULL);
-            if (tok != '(')
+            if (tcc_state->pp->token != '(')
                 tcc_error("'%s' undeclared", name);
             /* for simple function calls, we tolerate undeclared
                external reference to int() function */
@@ -6216,19 +6216,19 @@ special_math_val:
     
     /* post operations */
     while (1) {
-        if (tok == TOK_INC || tok == TOK_DEC) {
-            inc(1, tok);
+        if (tcc_state->pp->token == TOK_INC || tcc_state->pp->token == TOK_DEC) {
+            inc(1, tcc_state->pp->token);
             next();
-        } else if (tok == '.' || tok == TOK_ARROW) {
+        } else if (tcc_state->pp->token == '.' || tcc_state->pp->token == TOK_ARROW) {
             int qualifiers, cumofs;
             /* field */ 
-            if (tok == TOK_ARROW) 
+            if (tcc_state->pp->token == TOK_ARROW)
                 indir();
             qualifiers = vtop->type.t & VT_QUAL;
             test_lvalue();
             /* expect pointer on structure */
             next();
-	    s = find_field(&vtop->type, tok, &cumofs);
+	    s = find_field(&vtop->type, tcc_state->pp->token, &cumofs);
             /* add field offset to pointer */
             gaddrof();
             vtop->type = char_pointer_type; /* change type to 'char *' */
@@ -6248,13 +6248,13 @@ special_math_val:
 #endif
             }
             next();
-        } else if (tok == '[') {
+        } else if (tcc_state->pp->token == '[') {
             next();
             gexpr();
             gen_op('+');
             indir();
             skip(']');
-        } else if (tok == '(') {
+        } else if (tcc_state->pp->token == '(') {
             SValue ret;
             Sym *sa;
             int nb_args, ret_nregs, ret_align, regsize, variadic;
@@ -6325,7 +6325,7 @@ special_math_val:
             }
 
             p = NULL;
-            if (tok != ')') {
+            if (tcc_state->pp->token != ')') {
                 r = tcc_state->reverse_funcargs;
                 for(;;) {
                     if (r) {
@@ -6338,7 +6338,7 @@ special_math_val:
                     nb_args++;
                     if (sa)
                         sa = sa->next;
-                    if (tok == ')')
+                    if (tcc_state->pp->token == ')')
                         break;
                     skip(',');
                 }
@@ -6444,7 +6444,7 @@ static void expr_prod(void)
     int t;
 
     unary();
-    while ((t = tok) == '*' || t == '/' || t == '%') {
+    while ((t = tcc_state->pp->token) == '*' || t == '/' || t == '%') {
         next();
         unary();
         gen_op(t);
@@ -6456,7 +6456,7 @@ static void expr_sum(void)
     int t;
 
     expr_prod();
-    while ((t = tok) == '+' || t == '-') {
+    while ((t = tcc_state->pp->token) == '+' || t == '-') {
         next();
         expr_prod();
         gen_op(t);
@@ -6468,7 +6468,7 @@ static void expr_shift(void)
     int t;
 
     expr_sum();
-    while ((t = tok) == TOK_SHL || t == TOK_SAR) {
+    while ((t = tcc_state->pp->token) == TOK_SHL || t == TOK_SAR) {
         next();
         expr_sum();
         gen_op(t);
@@ -6480,7 +6480,7 @@ static void expr_cmp(void)
     int t;
 
     expr_shift();
-    while (((t = tok) >= TOK_ULE && t <= TOK_GT) ||
+    while (((t = tcc_state->pp->token) >= TOK_ULE && t <= TOK_GT) ||
            t == TOK_ULT || t == TOK_UGE) {
         next();
         expr_shift();
@@ -6493,7 +6493,7 @@ static void expr_cmpeq(void)
     int t;
 
     expr_cmp();
-    while ((t = tok) == TOK_EQ || t == TOK_NE) {
+    while ((t = tcc_state->pp->token) == TOK_EQ || t == TOK_NE) {
         next();
         expr_cmp();
         gen_op(t);
@@ -6503,7 +6503,7 @@ static void expr_cmpeq(void)
 static void expr_and(void)
 {
     expr_cmpeq();
-    while (tok == '&') {
+    while (tcc_state->pp->token == '&') {
         next();
         expr_cmpeq();
         gen_op('&');
@@ -6513,7 +6513,7 @@ static void expr_and(void)
 static void expr_xor(void)
 {
     expr_and();
-    while (tok == '^') {
+    while (tcc_state->pp->token == '^') {
         next();
         expr_and();
         gen_op('^');
@@ -6523,7 +6523,7 @@ static void expr_xor(void)
 static void expr_or(void)
 {
     expr_xor();
-    while (tok == '|') {
+    while (tcc_state->pp->token == '|') {
         next();
         expr_xor();
         gen_op('|');
@@ -6535,15 +6535,15 @@ static void expr_landor(int op);
 static void expr_land(void)
 {
     expr_or();
-    if (tok == TOK_LAND)
-        expr_landor(tok);
+    if (tcc_state->pp->token == TOK_LAND)
+        expr_landor(tcc_state->pp->token);
 }
 
 static void expr_lor(void)
 {
     expr_land();
-    if (tok == TOK_LOR)
-        expr_landor(tok);
+    if (tcc_state->pp->token == TOK_LOR)
+        expr_landor(tcc_state->pp->token);
 }
 
 # define expr_landor_next(op) op == TOK_LAND ? expr_or() : expr_land()
@@ -6551,9 +6551,9 @@ static void expr_lor(void)
 # define expr_landor_next(op) unary(), expr_infix(precedence(op) + 1)
 # define expr_lor() unary(), expr_infix(1)
 
-static int precedence(int tok)
+static int precedence(int token)
 {
-    switch (tok) {
+    switch (token) {
         case TOK_LOR: return 1;
         case TOK_LAND: return 2;
 	case '|': return 3;
@@ -6565,7 +6565,7 @@ static int precedence(int tok)
 	case '+': case '-': return 9;
 	case '*': case '/': case '%': return 10;
 	default:
-	    if (tok >= TOK_ULE && tok <= TOK_GT)
+	    if (token >= TOK_ULE && token <= TOK_GT)
 	        goto relat;
 	    return 0;
     }
@@ -6583,18 +6583,18 @@ static void expr_landor(int op);
 
 static void expr_infix(int p)
 {
-    int t = tok, p2;
+    int t = tcc_state->pp->token, p2;
     while ((p2 = precedence(t)) >= p) {
         if (t == TOK_LOR || t == TOK_LAND) {
             expr_landor(t);
         } else {
             next();
             unary();
-            if (precedence(tok) > p2)
+            if (precedence(tcc_state->pp->token) > p2)
               expr_infix(p2 + 1);
             gen_op(t);
         }
-        t = tok;
+        t = tcc_state->pp->token;
     }
 }
 #endif
@@ -6624,7 +6624,7 @@ static void expr_landor(int op)
             save_regs(1), cc = 0;
         else if (c != i)
             nocode_wanted++, f = 1;
-        if (tok != op)
+        if (tcc_state->pp->token != op)
             break;
         if (c < 0)
             t = gvtst(i, t);
@@ -6660,10 +6660,10 @@ static void expr_cond(void)
     CType type;
 
     expr_lor();
-    if (tok == '?') {
+    if (tcc_state->pp->token == '?') {
         next();
 	c = condition_3way();
-        g = (tok == ':' && gnu_ext);
+        g = (tcc_state->pp->token == ':' && gnu_ext);
         tt = 0;
         if (!g) {
             if (c < 0) {
@@ -6788,7 +6788,7 @@ static void expr_eq(void)
     int t;
     
     expr_cond();
-    if ((t = tok) == '=' || TOK_ASSIGN(t)) {
+    if ((t = tcc_state->pp->token) == '=' || TOK_ASSIGN(t)) {
         test_lvalue();
         next();
         if (t == '=') {
@@ -6805,12 +6805,12 @@ static void expr_eq(void)
 ST_FUNC void gexpr(void)
 {
     expr_eq();
-    if (tok == ',') {
+    if (tcc_state->pp->token == ',') {
         do {
             vpop();
             next();
             expr_eq();
-        } while (tok == ',');
+        } while (tcc_state->pp->token == ',');
 
         /* convert array & function to pointer */
         convert_expression_type(&vtop->type);
@@ -7211,7 +7211,7 @@ static void lblock(int *bsym, int *csym)
 static void gexpr_decl(void)
 {
     int v = decl(VT_JMP);
-    if (v > 1 && tok != ';') {
+    if (v > 1 && tcc_state->pp->token != ';') {
         Sym *s = sym_find(v);
         vset(&s->type, s->r, (s->r & VT_SYM) ? 0 : s->c);
         vtop->sym = s;
@@ -7229,7 +7229,7 @@ static void block(int flags)
     Sym *s;
 
 again:
-    t = tok;
+    t = tcc_state->pp->token;
     /* If the token carries a value, next() might destroy it. Only with
        invalid code such as f(){"123"4;} */
     if (TOK_HAS_VALUE(t))
@@ -7246,7 +7246,7 @@ again:
         a = gvtst(1, 0);
         skip(')');
         block(0);
-        if (tok == TOK_ELSE) {
+        if (tcc_state->pp->token == TOK_ELSE) {
             d = gjmp(0);
             gsym(a);
             next();
@@ -7277,20 +7277,20 @@ again:
         new_scope(&o);
 
         /* handle local labels declarations */
-        while (tok == TOK_LABEL) {
+        while (tcc_state->pp->token == TOK_LABEL) {
             do {
                 next();
-                if (tok < TOK_UIDENT)
+                if (tcc_state->pp->token < TOK_UIDENT)
                     expect("label identifier");
-                label_push(&local_label_stack, tok, LABEL_DECLARED);
+                label_push(&local_label_stack, tcc_state->pp->token, LABEL_DECLARED);
                 next();
-            } while (tok == ',');
+            } while (tcc_state->pp->token == ',');
             skip(';');
         }
 
-        while (tok != '}') {
+        while (tcc_state->pp->token != '}') {
 	    decl(VT_LOCAL);
-            if (tok != '}') {
+            if (tcc_state->pp->token != '}') {
                 block(flags | STMT_COMPOUND);
             }
         }
@@ -7305,7 +7305,7 @@ again:
 
     } else if (t == TOK_RETURN) {
         b = (func_vt.t & VT_BTYPE) != VT_VOID;
-        if (tok != ';') {
+        if (tcc_state->pp->token != ';') {
             gexpr();
             if (b) {
                 gen_assign_cast(&func_vt);
@@ -7325,7 +7325,7 @@ again:
             gfunc_return(&func_vt);
         skip(';');
         /* jump unless last stmt in top-level block */
-        if (tok != '}' || local_scope != 1)
+        if (tcc_state->pp->token != '}' || local_scope != 1)
             rsym = gjmp(rsym);
         if (debug_modes)
 	    tcc_tcov_block_end (tcc_state, -1);
@@ -7354,7 +7354,7 @@ again:
         new_scope(&o);
 
         skip('(');
-        if (tok != ';') {
+        if (tcc_state->pp->token != ';') {
             /* c99 for-loop init decl? */
             if (!decl(VT_JMP)) {
                 /* no, regular for-loop init expr */
@@ -7365,12 +7365,12 @@ again:
         skip(';');
         a = b = 0;
         c = d = gind();
-        if (tok != ';') {
+        if (tcc_state->pp->token != ';') {
             gexpr();
             a = gvtst(1, 0);
         }
         skip(';');
-        if (tok != ')') {
+        if (tcc_state->pp->token != ')') {
             e = gjmp(0);
             d = gind();
             gexpr();
@@ -7450,7 +7450,7 @@ again:
         dynarray_add(&cur_switch->p, &cur_switch->n, cr);
         t = cur_switch->sv.type.t;
         cr->v1 = cr->v2 = value64(expr_const64(), t);
-        if (tok == TOK_DOTS && gnu_ext) {
+        if (tcc_state->pp->token == TOK_DOTS && gnu_ext) {
             next();
             cr->v2 = value64(expr_const64(), t);
             if (case_cmp(cr->v2, cr->v1) < 0)
@@ -7459,7 +7459,7 @@ again:
         /* case and default are unreachable from a switch under nocode_wanted */
         if (!cur_switch->nocode_wanted)
             cr->ind = gind();
-        cr->line = file->line_num;
+        cr->line = tcc_state->pp->source->line_num;
         skip(':');
         goto block_after_label;
 
@@ -7474,7 +7474,7 @@ again:
 
     } else if (t == TOK_GOTO) {
         vla_restore(cur_scope->vla.locorig);
-        if (tok == '*' && gnu_ext) {
+        if (tcc_state->pp->token == '*' && gnu_ext) {
             /* computed goto */
             next();
             gexpr();
@@ -7482,11 +7482,11 @@ again:
                 expect("pointer");
             ggoto();
 
-        } else if (tok >= TOK_UIDENT) {
-	    s = label_find(tok);
+        } else if (tcc_state->pp->token >= TOK_UIDENT) {
+	    s = label_find(tcc_state->pp->token);
 	    /* put forward definition if needed */
             if (!s)
-              s = label_push(&global_label_stack, tok, LABEL_FORWARD);
+              s = label_push(&global_label_stack, tcc_state->pp->token, LABEL_FORWARD);
             else if (s->r == LABEL_DECLARED)
               s->r = LABEL_FORWARD;
 
@@ -7514,7 +7514,7 @@ again:
         asm_instr();
 
     } else {
-        if (tok == ':' && t >= TOK_UIDENT) {
+        if (tcc_state->pp->token == ':' && t >= TOK_UIDENT) {
             /* label case */
 	    next();
             s = label_find(t);
@@ -7543,7 +7543,7 @@ again:
                 tcc_tcov_reset_ind(tcc_state);
             vla_restore(cur_scope->vla.loc);
 
-            if (tok != '}') {
+            if (tcc_state->pp->token != '}') {
                 if (0 == (flags & STMT_COMPOUND))
                     goto again;
                 /* C23: insert implicit null-statement whithin compound statement */
@@ -7579,13 +7579,13 @@ again:
    i.e. "({)}" is accepted.  */
 static void skip_or_save_block(struct neocc_token_string **str)
 {
-    int braces = tok == '{';
+    int braces = tcc_state->pp->token == '{';
     int level = 0;
     if (str)
       *str = tok_str_alloc();
 
     while (1) {
-	int t = tok;
+	int t = tcc_state->pp->token;
         if (level == 0
             && (t == ','
              || t == ';'
@@ -7727,21 +7727,21 @@ static int decl_designator(init_params *p, CType *type, unsigned long c,
     if (flags & DIF_HAVE_ELEM)
         goto no_designator;
 
-    if (gnu_ext && tok >= TOK_UIDENT) {
-        l = tok, next();
-        if (tok == ':')
+    if (gnu_ext && tcc_state->pp->token >= TOK_UIDENT) {
+        l = tcc_state->pp->token, next();
+        if (tcc_state->pp->token == ':')
             goto struct_field;
         unget_tok(l);
     }
 
     /* NOTE: we only support ranges for last designator */
-    while (nb_elems == 1 && (tok == '[' || tok == '.')) {
-        if (tok == '[') {
+    while (nb_elems == 1 && (tcc_state->pp->token == '[' || tcc_state->pp->token == '.')) {
+        if (tcc_state->pp->token == '[') {
             if (!(type->t & VT_ARRAY))
                 expect("array type");
             next();
             index = index_last = expr_const();
-            if (tok == TOK_DOTS && gnu_ext) {
+            if (tcc_state->pp->token == TOK_DOTS && gnu_ext) {
                 next();
                 index_last = expr_const();
             }
@@ -7759,7 +7759,7 @@ static int decl_designator(init_params *p, CType *type, unsigned long c,
         } else {
             int cumofs;
             next();
-            l = tok;
+            l = tcc_state->pp->token;
         struct_field:
             next();
 	    f = find_field(type, l, &cumofs);
@@ -7771,7 +7771,7 @@ static int decl_designator(init_params *p, CType *type, unsigned long c,
         cur_field = NULL;
     }
     if (!cur_field) {
-        if (tok == '=') {
+        if (tcc_state->pp->token == '=') {
             next();
         } else if (!gnu_ext) {
 	    expect("=");
@@ -8074,11 +8074,11 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
     if (debug_modes && !(flags & DIF_SIZE_ONLY) && !p->sec)
         tcc_debug_line(tcc_state), tcc_tcov_check_line (tcc_state, 1);
 
-    if (!(flags & DIF_HAVE_ELEM) && tok != '{' &&
+    if (!(flags & DIF_HAVE_ELEM) && tcc_state->pp->token != '{' &&
 	/* In case of strings we have special handling for arrays, so
 	   don't consume them as initializer value (which would commit them
 	   to some anonymous symbol).  */
-	tok != TOK_LSTR && tok != TOK_STR &&
+	tcc_state->pp->token != TOK_LSTR && tcc_state->pp->token != TOK_STR &&
 	(!(flags & DIF_SIZE_ONLY)
             /* a struct may be initialized from a struct of same type, as in
                     struct {int x,y;} a = {1,2}, b = {3,4}, c[] = {a,b};
@@ -8096,8 +8096,8 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
 
     if (type->t & VT_ARRAY) {
         no_oblock = 1;
-        if (((flags & DIF_FIRST) && tok != TOK_LSTR && tok != TOK_STR) ||
-            tok == '{') {
+        if (((flags & DIF_FIRST) && tcc_state->pp->token != TOK_LSTR && tcc_state->pp->token != TOK_STR) ||
+            tcc_state->pp->token == '{') {
             skip('{');
             no_oblock = 0;
         }
@@ -8109,34 +8109,34 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
 
         /* only parse strings here if correct type (otherwise: handle
            them as ((w)char *) expressions */
-        if ((tok == TOK_LSTR && 
+        if ((tcc_state->pp->token == TOK_LSTR &&
 #ifdef TCC_TARGET_PE
              (t1->t & VT_BTYPE) == VT_SHORT && (t1->t & VT_UNSIGNED)
 #else
              (t1->t & VT_BTYPE) == VT_INT
 #endif
-            ) || (tok == TOK_STR && (t1->t & VT_BTYPE) == VT_BYTE)) {
+            ) || (tcc_state->pp->token == TOK_STR && (t1->t & VT_BTYPE) == VT_BYTE)) {
 	    len = 0;
             cstr_reset(&initstr);
-            if (size1 != (tok == TOK_STR ? 1 : sizeof(nwchar_t)))
+            if (size1 != (tcc_state->pp->token == TOK_STR ? 1 : sizeof(nwchar_t)))
               tcc_error("unhandled string literal merging");
-            while (tok == TOK_STR || tok == TOK_LSTR) {
+            while (tcc_state->pp->token == TOK_STR || tcc_state->pp->token == TOK_LSTR) {
                 if (initstr.size)
                   initstr.size -= size1;
-                if (tok == TOK_STR)
-                  len += tokc.str.size;
+                if (tcc_state->pp->token == TOK_STR)
+                  len += tcc_state->pp->value.str.size;
                 else
-                  len += tokc.str.size / sizeof(nwchar_t);
+                  len += tcc_state->pp->value.str.size / sizeof(nwchar_t);
                 len--;
-                cstr_cat(&initstr, tokc.str.data, tokc.str.size);
+                cstr_cat(&initstr, tcc_state->pp->value.str.data, tcc_state->pp->value.str.size);
                 next();
             }
-            if (tok != ')' && tok != '}' && tok != ',' && tok != ';'
-                && tok != TOK_EOF) {
+            if (tcc_state->pp->token != ')' && tcc_state->pp->token != '}' && tcc_state->pp->token != ',' && tcc_state->pp->token != ';'
+                && tcc_state->pp->token != TOK_EOF) {
                 /* Not a lone literal but part of a bigger expression.  */
                 unget_tok(size1 == 1 ? TOK_STR : TOK_LSTR);
-                tokc.str.size = initstr.size;
-                tokc.str.data = initstr.data;
+                tcc_state->pp->value.str.size = initstr.size;
+                tcc_state->pp->value.str.data = initstr.data;
                 goto do_init_array;
             }
 
@@ -8175,7 +8175,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
                     }
                 }
             }
-            if (tok == ',' && !no_oblock) /* static const char s[] = { "123", }; */
+            if (tcc_state->pp->token == ',' && !no_oblock) /* static const char s[] = { "123", }; */
                 next();
         } else {
 
@@ -8195,7 +8195,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
                it's size is zero.  We won't enter the loop, so set the size
                now.  */
             decl_design_flex(p, s, len - 1);
-	    while (tok != '}' || (flags & DIF_HAVE_ELEM)) {
+	    while (tcc_state->pp->token != '}' || (flags & DIF_HAVE_ELEM)) {
 		len = decl_designator(p, type, c, &f, flags, len);
 		flags &= ~DIF_HAVE_ELEM;
 		if (type->t & VT_ARRAY) {
@@ -8214,7 +8214,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
 		        break;
 		}
 
-		if (tok == '}')
+		if (tcc_state->pp->token == '}')
 		    break;
 		skip(',');
 	    }
@@ -8231,7 +8231,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
 
     } else if ((type->t & VT_BTYPE) == VT_STRUCT) {
         no_oblock = 1;
-        if ((flags & DIF_FIRST) || tok == '{') {
+        if ((flags & DIF_FIRST) || tcc_state->pp->token == '{') {
             skip('{');
             no_oblock = 0;
         }
@@ -8241,7 +8241,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
         size1 = 1;
 	goto do_init_list;
 
-    } else if (tok == '{') {
+    } else if (tcc_state->pp->token == '{') {
         if (flags & DIF_HAVE_ELEM)
           skip(';');
         next();
@@ -8266,7 +8266,7 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
 	    /* This should happen only when we haven't parsed
 	       the init element above for fear of committing a
 	       string constant to memory too early.  */
-	    if (tok != TOK_STR && tok != TOK_LSTR)
+	    if (tcc_state->pp->token != TOK_STR && tcc_state->pp->token != TOK_LSTR)
 	      expect("string constant");
 	    parse_init_elem(!p->sec ? EXPR_ANY : EXPR_CONST);
 	}
@@ -8359,7 +8359,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
         if (has_init == 2) {
             /* only get strings */
             init_str = tok_str_alloc();
-            while (tok == TOK_STR || tok == TOK_LSTR) {
+            while (tcc_state->pp->token == TOK_STR || tcc_state->pp->token == TOK_LSTR) {
                 tok_str_add_tok(init_str);
                 next();
             }
@@ -8758,7 +8758,7 @@ static void do_Static_assert(void)
     skip('(');
     c = expr_const();
     msg = "_Static_assert fail";
-    if (tok == ',') {
+    if (tcc_state->pp->token == ',') {
         next();
         msg = parse_mult_str("string constant")->data;
     }
@@ -8807,34 +8807,34 @@ static int decl(int l)
             if (l == VT_JMP)
                 return 0;
             /* skip redundant ';' if not in old parameter decl scope */
-            if (tok == ';' && l != VT_CMP) {
+            if (tcc_state->pp->token == ';' && l != VT_CMP) {
                 next();
                 continue;
             }
-            if (tok == TOK_STATIC_ASSERT) {
+            if (tcc_state->pp->token == TOK_STATIC_ASSERT) {
                 do_Static_assert();
                 continue;
             }
             if (l != VT_CONST)
                 break;
-            if (tok == TOK_ASM1 || tok == TOK_ASM2 || tok == TOK_ASM3) {
+            if (tcc_state->pp->token == TOK_ASM1 || tcc_state->pp->token == TOK_ASM2 || tcc_state->pp->token == TOK_ASM3) {
                 /* global asm block */
                 asm_global_instr();
                 continue;
             }
-            if (tok >= TOK_UIDENT) {
+            if (tcc_state->pp->token >= TOK_UIDENT) {
                /* special test for old K&R protos without explicit int
                   type. Only accepted when defining global data */
                 btype.t = VT_INT;
                 oldint = 1;
             } else {
-                if (tok != TOK_EOF)
+                if (tcc_state->pp->token != TOK_EOF)
                     expect("declaration");
                 break;
             }
         }
 
-        if (tok == ';') {
+        if (tcc_state->pp->token == ';') {
             if ((btype.t & VT_BTYPE) == VT_STRUCT
                 && (btype.ref->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
                 ; /* struct decl with named tag */
@@ -8880,14 +8880,14 @@ static int decl(int l)
                 tcc_warning("type defaults to int");
             }
 
-            if (gnu_ext && (tok == TOK_ASM1 || tok == TOK_ASM2 || tok == TOK_ASM3)) {
+            if (gnu_ext && (tcc_state->pp->token == TOK_ASM1 || tcc_state->pp->token == TOK_ASM2 || tcc_state->pp->token == TOK_ASM3)) {
                 ad.asm_label = asm_label_instr();
                 /* parse one last attribute list, after asm label */
                 parse_attribute(&ad);
             #if 0
                 /* gcc does not allow __asm__("label") with function definition,
                    but why not ... */
-                if (tok == '{')
+                if (tcc_state->pp->token == '{')
                     expect(";");
             #endif
             }
@@ -8895,7 +8895,7 @@ static int decl(int l)
 #ifdef TCC_TARGET_PE
             pe_check_linkage(&type, &ad);
 #endif
-            if (tok == '{') {
+            if (tcc_state->pp->token == '{') {
                 if (l != VT_CONST)
                     tcc_error("cannot use local functions");
                 if ((type.t & VT_BTYPE) != VT_FUNC)
@@ -8923,8 +8923,8 @@ static int decl(int l)
                    the compilation unit only if they are used */
                 if (sym->type.t & VT_INLINE) {
                     struct InlineFunc *fn;
-                    fn = tcc_malloc(sizeof *fn + strlen(file->filename));
-                    strcpy(fn->filename, file->filename);
+                    fn = tcc_malloc(sizeof *fn + strlen(tcc_state->pp->source->filename));
+                    strcpy(fn->filename, tcc_state->pp->source->filename);
                     fn->sym = sym;
                     dynarray_add(&tcc_state->inline_fns,
 				 &tcc_state->nb_inline_fns, fn);
@@ -8990,7 +8990,7 @@ static int decl(int l)
                         r |= VT_LVAL;
                     }
 
-                    if (tok == '=')
+                    if (tcc_state->pp->token == '=')
                         has_init = 1;
 
                     if (((type.t & VT_EXTERN) && (!has_init || l != VT_CONST))
@@ -9030,7 +9030,7 @@ static int decl(int l)
                                         esym->st_value, esym->st_size, 1);
                     }
                 }
-                if (tok != ',') {
+                if (tcc_state->pp->token != ',') {
                     if (l == VT_JMP)
                         return has_init ? v : 1;
                     skip(';');

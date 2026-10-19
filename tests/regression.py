@@ -64,15 +64,20 @@ class Regression(unittest.TestCase):
         for source in ["tests/cases/preprocess.c", "tests/cases/semantics.c"]:
             with self.subTest(source=source):
                 preprocessed = []
-                objects = []
                 for compiler in (BASELINE, NEOCC):
                     preprocessed.append(output(self.success(
                         [*flags(compiler), "-E", "-P", source])))
-                    obj = OUT / f"{Path(source).stem}-{compiler.stem}.o"
-                    self.success([*flags(compiler), "-c", source, "-o", obj])
-                    objects.append(obj.read_bytes())
                 self.assertEqual(preprocessed[0], preprocessed[1])
-                self.assertEqual(objects[0], objects[1])
+                # Debug emission reads the source cursor through its context.
+                for debug in ([], ["-g"], ["-gdwarf-5"]):
+                    with self.subTest(debug=debug):
+                        objects = []
+                        for compiler in (BASELINE, NEOCC):
+                            obj = OUT / f"{Path(source).stem}-{compiler.stem}.o"
+                            self.success([*flags(compiler), *debug,
+                                          "-c", source, "-o", obj])
+                            objects.append(obj.read_bytes())
+                        self.assertEqual(objects[0], objects[1])
                 REPORT["passed_cases"].append(source + " preprocessing/object")
 
     def test_diagnostics_and_failure_exit(self):

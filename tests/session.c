@@ -63,6 +63,15 @@ int main(int argc, char **argv)
 		CHECK(tcc_compile_string(b,
 			"#define PRIVATE_MACRO 1\n"
 			"int second(void) { return 43 + __COUNTER__; }") == 0);
+		CHECK(tcc_compile_string(a,
+			"int number(void) { volatile long double x = "
+			"0x1.4p0L; "
+			"return (x - 1.0L) * 4.0L == 1.0L; }") == 0);
+		CHECK(tcc_compile_string(b,
+			"int number(void) { volatile double x = 2.5; "
+			"return x * 2.0 == 5.0; }") == 0);
+		CHECK(!a->pp->source && !a->pp->token && !a->pp->value.i);
+		CHECK(!b->pp->source && !b->pp->token && !b->pp->value.i);
 		clean_access(a->sources);
 		clean_access(b->sources);
 		CHECK(tcc_relocate(a) == 0);
@@ -70,6 +79,8 @@ int main(int argc, char **argv)
 		CHECK(function && function() == 17);
 		function = (int (*)(void))tcc_get_symbol(a, "second");
 		CHECK(function && function() == 31);
+		function = (int (*)(void))tcc_get_symbol(a, "number");
+		CHECK(function && function() == 1);
 		CHECK(!a->pp->parsed.data && !a->pp->spelling.data);
 		CHECK(!a->pp->macro_stack && !a->pp->macro_ptr && !a->pp->counter);
 		CHECK(tcc_relocate(b) == 0);
@@ -77,6 +88,8 @@ int main(int argc, char **argv)
 		CHECK(function && function() == 29);
 		function = (int (*)(void))tcc_get_symbol(b, "second");
 		CHECK(function && function() == 43);
+		function = (int (*)(void))tcc_get_symbol(b, "number");
+		CHECK(function && function() == 1);
 		tcc_delete(a);
 		tcc_delete(b);
 
@@ -92,6 +105,7 @@ int main(int argc, char **argv)
 			"#define OUTER(x) INNER(x)\n"
 			"int broken(void) { return OUTER(7); }\n") < 0);
 		CHECK(!a->pp->macro_stack && !a->pp->macro_ptr);
+		CHECK(!a->pp->source && !a->pp->token && !a->pp->value.i);
 		CHECK(!a->pp->parsed.data && !a->pp->spelling.data);
 		clean_access(a->sources);
 		tcc_delete(a);

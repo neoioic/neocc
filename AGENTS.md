@@ -6,7 +6,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 
 主要任务是用 NEOioic 写一遍 TinyCC，采用最小必要改动，保留既有编译算法、目标 ABI 和代码生成语义，逐步迁移状态所有权与模块协作。不要借重构另写一套语言、IR、优化框架或编译器算法，也不要仅给旧编译器套对象外壳便宣称完成重构。
 
-当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。当前 token/值和源游标、语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
+当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有当前 token/值、借用源游标、宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。预处理算法仍依赖全局会话入口，语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
 
 ## 工作区边界与可交接性
 

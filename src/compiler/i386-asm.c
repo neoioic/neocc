@@ -326,20 +326,20 @@ static int asm_parse_reg(unsigned int *type)
 {
     int reg = 0;
     *type = 0;
-    if (tok != '%')
+    if (tcc_state->pp->token != '%')
         goto error_32;
     next();
-    if (tok >= TOK_ASM_eax && tok <= TOK_ASM_edi) {
-        reg = tok - TOK_ASM_eax;
+    if (tcc_state->pp->token >= TOK_ASM_eax && tcc_state->pp->token <= TOK_ASM_edi) {
+        reg = tcc_state->pp->token - TOK_ASM_eax;
 	*type = OP_REG32;
 #ifdef TCC_TARGET_X86_64
-    } else if (tok >= TOK_ASM_rax && tok <= TOK_ASM_rdi) {
-        reg = tok - TOK_ASM_rax;
+    } else if (tcc_state->pp->token >= TOK_ASM_rax && tcc_state->pp->token <= TOK_ASM_rdi) {
+        reg = tcc_state->pp->token - TOK_ASM_rax;
 	*type = OP_REG64;
-    } else if (tok == TOK_ASM_rip) {
+    } else if (tcc_state->pp->token == TOK_ASM_rip) {
         reg = -2; /* Probably should use different escape code. */
 	*type = OP_REG64;
-    } else if ((reg = asm_parse_numeric_reg(tok, type)) >= 0
+    } else if ((reg = asm_parse_numeric_reg(tcc_state->pp->token, type)) >= 0
 	       && (*type == OP_REG32 || *type == OP_REG64)) {
 	;
 #endif
@@ -358,15 +358,15 @@ static void parse_operand(TCCState *s1, Operand *op)
     const char *p;
 
     indir = 0;
-    if (tok == '*') {
+    if (s1->pp->token == '*') {
         next();
         indir = OP_INDIR;
     }
 
-    if (tok == '%') {
+    if (s1->pp->token == '%') {
         next();
-        if (tok >= TOK_ASM_al && tok <= TOK_ASM_db7) {
-            reg = tok - TOK_ASM_al;
+        if (s1->pp->token >= TOK_ASM_al && s1->pp->token <= TOK_ASM_db7) {
+            reg = s1->pp->token - TOK_ASM_al;
             op->type = 1 << (reg >> 3); /* WARNING: do not change constant order */
             op->reg = reg & 7;
             if ((op->type & OP_REG) && op->reg == TREG_XAX)
@@ -375,21 +375,21 @@ static void parse_operand(TCCState *s1, Operand *op)
                 op->type |= OP_CL;
             else if (op->type == OP_REG16 && op->reg == TREG_XDX)
                 op->type |= OP_DX;
-        } else if (tok >= TOK_ASM_dr0 && tok <= TOK_ASM_dr7) {
+        } else if (s1->pp->token >= TOK_ASM_dr0 && s1->pp->token <= TOK_ASM_dr7) {
             op->type = OP_DB;
-            op->reg = tok - TOK_ASM_dr0;
-        } else if (tok >= TOK_ASM_es && tok <= TOK_ASM_gs) {
+            op->reg = s1->pp->token - TOK_ASM_dr0;
+        } else if (s1->pp->token >= TOK_ASM_es && s1->pp->token <= TOK_ASM_gs) {
             op->type = OP_SEG;
-            op->reg = tok - TOK_ASM_es;
-        } else if (tok == TOK_ASM_st) {
+            op->reg = s1->pp->token - TOK_ASM_es;
+        } else if (s1->pp->token == TOK_ASM_st) {
             op->type = OP_ST;
             op->reg = 0;
             next();
-            if (tok == '(') {
+            if (s1->pp->token == '(') {
                 next();
-                if (tok != TOK_PPNUM)
+                if (s1->pp->token != TOK_PPNUM)
                     goto reg_error;
-                p = tokc.str.data;
+                p = s1->pp->value.str.data;
                 reg = p[0] - '0';
                 if ((unsigned)reg >= 8 || p[1] != '\0')
                     goto reg_error;
@@ -401,19 +401,19 @@ static void parse_operand(TCCState *s1, Operand *op)
                 op->type |= OP_ST0;
             goto no_skip;
 #ifdef TCC_TARGET_X86_64
-	} else if (tok >= TOK_ASM_spl && tok <= TOK_ASM_dil) {
+	} else if (s1->pp->token >= TOK_ASM_spl && s1->pp->token <= TOK_ASM_dil) {
 	    op->type = OP_REG8 | OP_REG8_LOW;
-	    op->reg = 4 + tok - TOK_ASM_spl;
-        } else if ((op->reg = asm_parse_numeric_reg(tok, &op->type)) >= 0) {
+	    op->reg = 4 + s1->pp->token - TOK_ASM_spl;
+        } else if ((op->reg = asm_parse_numeric_reg(s1->pp->token, &op->type)) >= 0) {
 	    ;
 #endif
         } else {
         reg_error:
-            tcc_error("unknown register %%%s", get_tok_str(tok, &tokc));
+            tcc_error("unknown register %%%s", get_tok_str(s1->pp->token, &s1->pp->value));
         }
         next();
     no_skip: ;
-    } else if (tok == '$') {
+    } else if (s1->pp->token == '$') {
         /* constant value */
         next();
         asm_expr(s1, &e);
@@ -437,19 +437,19 @@ static void parse_operand(TCCState *s1, Operand *op)
         op->reg = -1;
         op->reg2 = -1;
         op->shift = 0;
-        if (tok != '(') {
+        if (s1->pp->token != '(') {
             asm_expr(s1, &e);
             op->e = e;
         } else {
             next();
-            if (tok == '%') {
+            if (s1->pp->token == '%') {
                 unget_tok('(');
                 op->e.v = 0;
                 op->e.sym = NULL;
             } else {
                 /* bracketed offset expression */
                 asm_expr(s1, &e);
-                if (tok != ')')
+                if (s1->pp->token != ')')
                     expect(")");
                 next();
                 op->e.v = e.v;
@@ -457,18 +457,18 @@ static void parse_operand(TCCState *s1, Operand *op)
             }
 	    op->e.pcrel = 0;
         }
-        if (tok == '(') {
+        if (s1->pp->token == '(') {
 	    unsigned int type = 0;
             next();
-            if (tok != ',') {
+            if (s1->pp->token != ',') {
                 op->reg = asm_parse_reg(&type);
             }
-            if (tok == ',') {
+            if (s1->pp->token == ',') {
                 next();
-                if (tok != ',') {
+                if (s1->pp->token != ',') {
                     op->reg2 = asm_parse_reg(&type);
                 }
-                if (tok == ',') {
+                if (s1->pp->token == ',') {
                     next();
                     op->shift = get_reg_shift(s1);
                 }
@@ -708,13 +708,13 @@ ST_FUNC void asm_opcode(TCCState *s1, int opcode)
     seg_prefix = 0;
     alltypes = 0;
     for(;;) {
-        if (tok == ';' || tok == TOK_LINEFEED)
+        if (s1->pp->token == ';' || s1->pp->token == TOK_LINEFEED)
             break;
         if (nb_ops >= MAX_OPERANDS) {
             tcc_error("incorrect number of operands");
         }
         parse_operand(s1, pop);
-        if (tok == ':') {
+        if (s1->pp->token == ':') {
            if (!(pop->type & OP_SEG) || seg_prefix)
                tcc_error("incorrect prefix");
            seg_prefix = segment_prefixes[pop->reg];
@@ -726,7 +726,7 @@ ST_FUNC void asm_opcode(TCCState *s1, int opcode)
         }
         pop++;
         nb_ops++;
-        if (tok != ',')
+        if (s1->pp->token != ',')
             break;
         next();
     }

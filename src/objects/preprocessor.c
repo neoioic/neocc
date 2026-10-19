@@ -75,15 +75,15 @@ void neocc_string_clear(struct neocc_string *string)
 	*string = (struct neocc_string){ 0 };
 }
 
-static void preprocessor_clear(struct em_preprocessor *members)
+static void preprocessor_clear(struct neocc_preprocessor *state)
 {
-	neocc_string_clear(&members->state.parsed);
-	neocc_string_clear(&members->state.spelling);
-	neocc_string_clear(&members->state.predefs);
+	neocc_string_clear(&state->parsed);
+	neocc_string_clear(&state->spelling);
+	neocc_string_clear(&state->predefs);
 	/* Token streams are borrowed from the tokens arena, reset afterwards. */
-	memset(members, 0, sizeof(*members));
-	members->state.expansion.last_line_num = -1;
-	members->state.unget.last_line_num = -1;
+	memset(state, 0, sizeof(*state));
+	state->expansion.last_line_num = -1;
+	state->unget.last_line_num = -1;
 	/* TinyCC's byte classification, independent of locale. */
 	for (int c = 0; c < 256; c++) {
 		int flags = 0;
@@ -96,37 +96,51 @@ static void preprocessor_clear(struct em_preprocessor *members)
 			flags = NEOCC_CHAR_ID;
 		else if (c >= '0' && c <= '9')
 			flags = NEOCC_CHAR_NUMBER;
-		members->state.character[c + 1] = flags;
+		state->character[c + 1] = flags;
 	}
 }
 
 static int preprocessor_open(struct object *self,
 	const struct vr *caller_context)
 {
+	struct em_preprocessor *members = self->members;
+
 	OBS_OBJECT_OPEN_;
-	if (self->ref_count == 1)
-		preprocessor_clear(self->members);
+	if (self->ref_count != 1)
+		return R_P;
+	members->state = calloc(1, sizeof(*members->state));
+	if (!members->state)
+		return R_N; /* The opened base must still be closed by the caller. */
+	preprocessor_clear(members->state);
 	return R_P;
 }
 
 static int preprocessor_close(struct object *self,
 	const struct vr *caller_context)
 {
+	struct em_preprocessor *members = self->members;
+
 	OBS_OBJECT_CLOSE_;
-	if (!self->ref_count)
-		preprocessor_clear(self->members);
+	if (self->ref_count || !members->state)
+		return R_P;
+	preprocessor_clear(members->state);
+	free(members->state);
+	members->state = NULL;
 	return R_P;
 }
 
 static int preprocessor_interact0(struct object *self, unsigned int action,
 	const struct vr *caller_context)
 {
+	struct em_preprocessor *members = self->members;
+
 	if (action != NEOCC_AC0_PREPROCESSOR_RESET) {
 		SBO_OBJECT_INTERACT0;
 	}
-	if (!self->ref_count)
+
+	if (!self->ref_count || !members->state)
 		return RN_INVALIDARG;
-	preprocessor_clear(self->members);
+	preprocessor_clear(members->state);
 	return R_P;
 }
 
@@ -163,14 +177,14 @@ static int preprocessor_interact1(struct object *self, unsigned int action,
 	unsigned int *output_quantity, const struct vr *caller_context)
 {
 	struct em_preprocessor *members = self->members;
-	struct neocc_preprocessor *state = &members->state;
+	struct neocc_preprocessor *state = members->state;
 
 	*output_quantity = 0;
 	if (action != NEOCC_AC1_PREPROCESSOR_BORROW &&
 	    action != NEOCC_AC1_PREPROCESSOR_POP) {
 		SBO_OBJECT_INTERACT1;
 	}
-	if (!self->ref_count)
+	if (!self->ref_count || !state)
 		return RN_INVALIDARG;
 	if (action == NEOCC_AC1_PREPROCESSOR_POP) {
 		struct neocc_token_string *stream = state->macro_stack;
@@ -204,14 +218,14 @@ static int preprocessor_interact2(struct object *self, unsigned int action,
 	const struct vr *caller_context)
 {
 	struct em_preprocessor *members = self->members;
-	struct neocc_preprocessor *state = &members->state;
+	struct neocc_preprocessor *state = members->state;
 	struct neocc_macro_push request;
 	struct neocc_token_string *stream;
 
 	if (action != NEOCC_AC2_PREPROCESSOR_PUSH) {
 		SBO_OBJECT_INTERACT2;
 	}
-	if (!self->ref_count || quantity != sizeof(request))
+	if (!self->ref_count || !state || quantity != sizeof(request))
 		return RN_INVALIDARG;
 	memcpy(&request, input_stream, sizeof(request));
 	stream = request.stream;

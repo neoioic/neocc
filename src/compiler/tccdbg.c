@@ -669,25 +669,25 @@ static void dwarf_file(TCCState *s1)
     char *filename;
     int index_offset = s1->dwarf < 5;
 
-    if (!strcmp(file->filename, "<command line>")) {
+    if (!strcmp(s1->pp->source->filename, "<command line>")) {
         dwarf_line.cur_file = 1;
 	return;
     }
-    filename = strrchr(file->filename, '/');
+    filename = strrchr(s1->pp->source->filename, '/');
     if (filename == NULL) {
         for (i = 1; i < dwarf_line.filename_size; i++)
             if (dwarf_line.filename_table[i].dir_entry == 0 &&
 		strcmp(dwarf_line.filename_table[i].name,
-		       file->filename) == 0) {
+		       s1->pp->source->filename) == 0) {
 		    dwarf_line.cur_file = i + index_offset;
 	            return;
 		}
 	i = -index_offset;
-	filename = file->filename;
+	filename = s1->pp->source->filename;
     }
     else {
 	char *undo = filename;
-	char *dir = file->filename;
+	char *dir = s1->pp->source->filename;
 
 	*filename++ = '\0';
         for (i = 0; i < dwarf_line.dir_size; i++)
@@ -1106,7 +1106,8 @@ ST_FUNC void tcc_debug_start(TCCState *s1)
     char *filename;
 
     /* we might currently #include the <command-line> */
-    filename = file->prev ? file->prev->filename : file->filename;
+    filename = s1->pp->source->prev ?
+        s1->pp->source->prev->filename : s1->pp->source->filename;
 
     /* an elf symbol of type STT_FILE must be put so that STB_LOCAL
        symbols can be safely used */
@@ -1420,7 +1421,7 @@ ST_FUNC void tcc_debug_end(TCCState *s1)
 
 static struct neocc_source_buffer* put_new_file(TCCState *s1)
 {
-    struct neocc_source_buffer *f = file;
+    struct neocc_source_buffer *f = s1->pp->source;
     /* use upper file if from inline ":asm:" */
     if (f->filename[0] == ':')
         f = f->prev;
@@ -1452,7 +1453,7 @@ ST_FUNC void tcc_debug_bincl(TCCState *s1)
     if (s1->dwarf)
         dwarf_file(s1);
     else
-        put_stabs(s1, file->filename, N_BINCL, 0, 0, 0);
+        put_stabs(s1, s1->pp->source->filename, N_BINCL, 0, 0, 0);
     new_file = 1;
 }
 
@@ -1553,7 +1554,7 @@ static void tcc_debug_stabs (TCCState *s1, const char *str, int type, unsigned l
         s->sym_index = sym_index;
         s->info = info;
         s->file = dwarf_line.cur_file;
-        s->line = file->line_num;
+        s->line = s1->pp->source->line_num;
     }
     else if (sec)
         put_stabs_r (s1, str, type, 0, 0, value, sec, sym_index);
@@ -1581,7 +1582,7 @@ static void fix_debug_forw_hash(TCCState *s1, int global, int start)
                        ? "" : get_tok_str(t->v, NULL));
             dwarf_uleb128(dwarf_info_section, 0);
             dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-            dwarf_uleb128(dwarf_info_section, file->line_num);
+            dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	    for (j = 0; j < hash[i].n_debug_type; j++)
 		write32le(dwarf_info_section->data +
 			  hash[i].debug_type[j],
@@ -1954,7 +1955,7 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
                        ? "" : get_tok_str(t->v, NULL));
 	    dwarf_uleb128(dwarf_info_section, t->c);
 	    dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-	    dwarf_uleb128(dwarf_info_section, file->line_num);
+	    dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	    if (t->next) {
 	        pos_sib = dwarf_info_section->data_offset;
 	        dwarf_data4(dwarf_info_section, 0);
@@ -1971,7 +1972,7 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
 		dwarf_strp(dwarf_info_section,
 			   get_tok_str(e->v, NULL));
 		dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-		dwarf_uleb128(dwarf_info_section, file->line_num);
+		dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 		pos_type[i++] = dwarf_info_section->data_offset;
 		dwarf_data4(dwarf_info_section, 0);
                 if (e->type.t & VT_BITFIELD) {
@@ -2021,7 +2022,7 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
 	    dwarf_data1(dwarf_info_section, 4);
 	    dwarf_data4(dwarf_info_section, pos_type - dwarf_info.start);
 	    dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-	    dwarf_uleb128(dwarf_info_section, file->line_num);
+	    dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	    pos_sib = dwarf_info_section->data_offset;
 	    dwarf_data4(dwarf_info_section, 0);
 	    e = t;
@@ -2322,7 +2323,7 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, Sym *sym)
     if (s1->dwarf) {
         tcc_debug_line(s1);
         dwarf_info.func = sym;
-        dwarf_info.line = file->line_num;
+        dwarf_info.line = s1->pp->source->line_num;
 	if (s1->do_backtrace) {
 	    int i, len;
 
@@ -2440,7 +2441,7 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, Sym *sym, int sh_num, int sym_bi
 		    : DWARF_ABBREV_VARIABLE_STATIC);
 	dwarf_strp(dwarf_info_section, get_tok_str(sym->v, NULL));
 	dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-	dwarf_uleb128(dwarf_info_section, file->line_num);
+	dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	tcc_debug_check_forw(s1, sym, dwarf_info_section->data_offset);
 	dwarf_data4(dwarf_info_section, debug_type - dwarf_info.start);
 	if (sym_bind == STB_GLOBAL)
@@ -2490,7 +2491,7 @@ ST_FUNC void tcc_debug_typedef(TCCState *s1, Sym *sym)
 	    dwarf_data1(dwarf_info_section, DWARF_ABBREV_TYPEDEF);
 	    dwarf_strp(dwarf_info_section, get_tok_str(sym->v, NULL));
 	    dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
-	    dwarf_uleb128(dwarf_info_section, file->line_num);
+	    dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	    tcc_debug_check_forw(s1, sym, dwarf_info_section->data_offset);
 	    dwarf_data4(dwarf_info_section, debug_type - dwarf_info.start);
 	}
@@ -2523,7 +2524,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 
     if (tcov_data.last_file_name == 0 ||
 	strcmp ((const char *)(tcov_section->data + tcov_data.last_file_name),
-		file->true_filename) != 0) {
+		s1->pp->source->true_filename) != 0) {
 	char wd[1024];
 	struct neocc_string cstr;
 
@@ -2533,14 +2534,14 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	    section_ptr_add(tcov_section, 1);
 	tcov_data.last_func_name = 0;
 	cstr_new (&cstr);
-	if (file->true_filename[0] == '/') {
+	if (s1->pp->source->true_filename[0] == '/') {
 	    tcov_data.last_file_name = tcov_section->data_offset;
-	    cstr_printf (&cstr, "%s", file->true_filename);
+	    cstr_printf (&cstr, "%s", s1->pp->source->true_filename);
 	}
 	else {
 	    getcwd (wd, sizeof(wd));
 	    tcov_data.last_file_name = tcov_section->data_offset + strlen(wd) + 1;
-	    cstr_printf (&cstr, "%s/%s", wd, file->true_filename);
+	    cstr_printf (&cstr, "%s/%s", wd, s1->pp->source->true_filename);
 	}
 	ptr = section_ptr_add(tcov_section, cstr.size + 1);
 	strcpy((char *)ptr, cstr.data);
@@ -2562,16 +2563,16 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	strcpy((char *)ptr, funcname);
 	section_ptr_add(tcov_section, -tcov_section->data_offset & 7);
 	ptr = section_ptr_add(tcov_section, 8);
-	write64le (ptr, file->line_num);
+	write64le (ptr, s1->pp->source->line_num);
     }
-    if (ind == tcov_data.ind && tcov_data.line == file->line_num)
+    if (ind == tcov_data.ind && tcov_data.line == s1->pp->source->line_num)
         tcov_data.offset = last_offset;
     else {
         Sym label = {0};
         label.type.t = VT_LLONG | VT_STATIC;
 
         ptr = section_ptr_add(tcov_section, 16);
-        tcov_data.line = file->line_num;
+        tcov_data.line = s1->pp->source->line_num;
         write64le (ptr, (tcov_data.line << 8) | 0xff);
         put_extern_sym(&label, tcov_section,
 		       ((unsigned char *)ptr - tcov_section->data) + 8, 0);
@@ -2602,7 +2603,7 @@ ST_FUNC void tcc_tcov_block_end(TCCState *s1, int line)
         line = tcov_data.line;
     if (tcov_data.offset) {
 	void *ptr = tcov_section->data + tcov_data.offset;
-	unsigned long long nline = line ? line : file->line_num;
+	unsigned long long nline = line ? line : s1->pp->source->line_num;
 
 	write64le (ptr, (read64le (ptr) & 0xfffffffffull) | (nline << 36));
 	tcov_data.offset = 0;
@@ -2613,14 +2614,14 @@ ST_FUNC void tcc_tcov_check_line(TCCState *s1, int start)
 {
     if (s1->test_coverage == 0)
 	return;
-    if (tcov_data.line != file->line_num) {
-        if ((tcov_data.line + 1) != file->line_num) {
+    if (tcov_data.line != s1->pp->source->line_num) {
+        if ((tcov_data.line + 1) != s1->pp->source->line_num) {
 	    tcc_tcov_block_end (s1, -1);
 	    if (start)
                 tcc_tcov_block_begin (s1);
 	}
 	else
-	    tcov_data.line = file->line_num;
+	    tcov_data.line = s1->pp->source->line_num;
     }
 }
 

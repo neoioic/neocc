@@ -436,22 +436,6 @@ typedef struct CType {
     struct Sym *ref;
 } CType;
 
-/* long double words on host(!) platform */
-#define LDOUBLE_WORDS ((sizeof(long double)+3)/4)
-
-/* constant value */
-typedef union CValue {
-    long double ld;
-    double d;
-    float f;
-    uint64_t i;
-    struct {
-        char *data;
-        int size;
-    } str;
-    int tab[LDOUBLE_WORDS];
-} CValue;
-
 /* value on stack */
 typedef struct SValue {
     CType type;      /* type */
@@ -460,7 +444,7 @@ typedef struct SValue {
                               type. If not used, set to VT_CONST */
     union {
       struct { int jtrue, jfalse; }; /* forward jmps */
-      CValue c;         /* constant, if VT_CONST */
+      union neocc_value c;         /* constant, if VT_CONST */
     };
     union {
       struct { unsigned short cmp_op, cmp_r; }; /* VT_CMP operation */
@@ -1285,10 +1269,6 @@ ST_FUNC int normalized_PATHCMP(const char *f1, const char *f2);
 
 /* ------------ tccpp.c ------------ */
 
-ST_DATA struct neocc_source_buffer *file;
-ST_DATA int tok;
-ST_DATA CValue tokc;
-
 #define TOK_FLAG_BOL   0x0001 /* beginning of line before */
 #define TOK_FLAG_BOF   0x0002 /* beginning of file before */
 #define TOK_FLAG_ENDIF 0x0004 /* a endif was found matching starting #ifdef */
@@ -1314,7 +1294,7 @@ ST_FUNC struct neocc_token *tok_alloc(const char *str, int len);
 ST_FUNC struct neocc_token *neocc_token_at(TCCState *s1, int id);
 ST_FUNC int neocc_token_next(TCCState *s1);
 ST_FUNC int tok_alloc_const(const char *str);
-ST_FUNC const char *get_tok_str(int v, CValue *cv);
+ST_FUNC const char *get_tok_str(int v, union neocc_value *cv);
 ST_FUNC void begin_macro(struct neocc_token_string *str, int alloc);
 ST_FUNC void end_macro(void);
 ST_FUNC int set_idnum(int c, int val);

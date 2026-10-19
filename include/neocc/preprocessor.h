@@ -15,6 +15,25 @@
 #define NEOCC_CHAR_NUMBER 4
 #define NEOCC_PREPROCESSOR_STRING_MAX 1024
 
+/* Constant payload and long-double words use the host representation,
+ * preserving TinyCC's token-stream and direct code-generation layout.
+ */
+#define NEOCC_LDOUBLE_WORDS ((sizeof(long double) + 3) / 4)
+
+union neocc_value {
+	long double ld;
+	double d;
+	float f;
+	uint64_t i;
+	struct {
+		char *data;
+		int size;
+	} str;
+	int tab[NEOCC_LDOUBLE_WORDS];
+};
+
+struct neocc_source_buffer;
+
 struct neocc_string {
 	int size; /* size in bytes */
 	int size_allocated;
@@ -51,10 +70,15 @@ struct neocc_macro_pop {
 };
 
 /* In-process mutable borrow for the compiler algorithms, valid while open.
- * Reset invalidates string contents and stream references. Unwind macros
- * before resetting this object, then reset the tokens arena last.
+ * Reset clears the cursor and invalidates string contents and stream references.
+ * Unwind macros and pop sources before reset, then reset the tokens arena last.
+ * Final close frees the workspace and ends the borrow; reopen must borrow again.
  */
 struct neocc_preprocessor {
+	int token;
+	union neocc_value value;
+	struct neocc_source_buffer *source; /* Borrowed from source object. */
+	int debug_indent;
 	int token_flags;
 	int parse_flags;
 	const int *macro_ptr;

@@ -1,4 +1,5 @@
 #include "neocc/preprocessor.h"
+#include "neocc/source.h"
 #include "host/host.h"
 #include "check.h"
 #include <string.h>
@@ -63,6 +64,7 @@ int main(void)
 	struct object *object = NULL, *other = NULL, *root;
 	struct neocc_preprocessor *state, *second;
 	struct neocc_token_string streams[257] = { 0 };
+	struct neocc_source_buffer source = { 0 };
 	struct neocc_macro_pop result;
 	int data[] = { 1, 2, 0 };
 	int (*saved_close)(struct object *, const struct vr *);
@@ -76,6 +78,15 @@ int main(void)
 	state = borrow(object);
 	second = borrow(other);
 	CHECK(state != second);
+	CHECK((uintptr_t)state % _Alignof(struct neocc_preprocessor) == 0);
+	CHECK((uintptr_t)&state->value % _Alignof(union neocc_value) == 0);
+	CHECK(!state->token && !state->value.i && !state->source);
+	state->token = 123;
+	state->value.ld = 0x1.000000000000001p0L;
+	state->source = &source;
+	state->debug_indent = 7;
+	CHECK(!second->token && !second->value.i && !second->source);
+	CHECK(!second->debug_indent);
 	CHECK(!state->character[0]);
 	CHECK(state->character[' ' + 1] == NEOCC_CHAR_SPACE);
 	CHECK(!state->character['\n' + 1]);
@@ -91,6 +102,9 @@ int main(void)
 	CHECK(state == borrow(object) && state->counter == 73);
 	CHECK(RP(vo_close(object, &neocc_host_caller)));
 	CHECK(state->counter == 73);
+	CHECK(state->token == 123 && state->source == &source);
+	CHECK(state->value.ld == 0x1.000000000000001p0L);
+	CHECK(state->debug_indent == 7);
 
 	CHECK(pop(object, &result, sizeof(result)) == RO_VAINLY);
 	CHECK(push(object, NULL, 0, 1) == RN_INVALIDARG);
@@ -136,6 +150,9 @@ int main(void)
 		&neocc_host_caller)));
 	CHECK(!state->parsed.data && !state->spelling.data && !state->predefs.data);
 	CHECK(!state->counter && !state->character['$' + 1]);
+	CHECK(borrow(object) == state);
+	CHECK(!state->token && !state->value.i && !state->source);
+	CHECK(!state->debug_indent);
 
 	CHECK(neocc_string_reserve(&state->predefs, 10));
 	root = get_base_node(object, MSN_NEOIOIC);
@@ -146,9 +163,16 @@ int main(void)
 	CHECK(!host_destroy_object(object));
 	root->close = saved_close;
 	CHECK(RP(vo_close(object, &neocc_host_caller)));
-	CHECK(!state->predefs.data);
+	/* Final close ends the workspace borrow, including its aligned storage. */
+	quantity = 123;
+	CHECK(vo_interact1(object, NEOCC_AC1_PREPROCESSOR_BORROW,
+		(unsigned char *)&state, sizeof(state), &quantity,
+		&neocc_host_caller) == RN_INVALIDARG);
+	CHECK(!quantity);
 	CHECK(RP(vo_open(object, &neocc_host_caller)));
-	CHECK(borrow(object) == state && !state->counter);
+	state = borrow(object);
+	CHECK(!state->counter && !state->source && !state->token);
+	CHECK(!state->value.i && !state->debug_indent);
 	CHECK(RP(vo_close(object, &neocc_host_caller)));
 	CHECK(RP(vo_close(other, &neocc_host_caller)));
 	clean_access(object);

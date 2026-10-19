@@ -4,7 +4,8 @@
 #include "neocc/preprocessor.h"
 
 struct em_preprocessor {
-	struct neocc_preprocessor state;
+	/* Separate allocation honors the host long-double alignment. */
+	struct neocc_preprocessor *state;
 };
 
 #endif

@@ -548,9 +548,9 @@ static void tcc_split_path(TCCState *s, void *p_ary, int *p_nb_ary, const char *
                     cstr_cat(&str, s->tcc_lib_path, -1);
                 if (c == 'R')
                     cstr_cat(&str, CONFIG_SYSROOT, -1);
-                if (c == 'f' && file) {
+                if (c == 'f' && s->pp->source) {
                     /* substitute current file's dir */
-                    const char *f = file->true_filename;
+                    const char *f = s->pp->source->true_filename;
                     const char *b = tcc_basename(f);
                     if (b > f)
                         cstr_cat(&str, f, b - f - 1);
@@ -614,7 +614,7 @@ static void error1(int mode, const char *fmt, va_list ap)
     f = NULL;
     if (s1->error_set_jmp_enabled) { /* we're called while parsing a file */
         /* use upper file if inline ":asm:" or token ":paste:" */
-        for (f = file; f && f->filename[0] == ':'; f = f->prev)
+        for (f = s1->pp->source; f && f->filename[0] == ':'; f = f->prev)
             ;
     }
     if (f) {
@@ -711,7 +711,7 @@ static void neocc_source_push(TCCState *s1, const char *filename,
 		tcc_error("cannot create source buffer for '%s' (result %d)",
 			filename, result);
 	}
-	file = output.current;
+	s1->pp->source = output.current;
 	s1->pp->token_flags = TOK_FLAG_BOL | TOK_FLAG_BOF;
 }
 
@@ -730,7 +730,7 @@ ST_FUNC void tcc_close(void)
 		&neocc_host_caller);
 	if (!RP(result) || quantity != sizeof(output))
 		tcc_error("cannot release source buffer (result %d)", result);
-	file = output.current;
+	s1->pp->source = output.current;
 	s1->pp->token_flags = output.tok_flags;
 	total_lines += output.lines;
 }
@@ -776,7 +776,7 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
         if (fd == -1) {
             size_t len = strlen(str);
             neocc_source_push(s1, "<string>", len, -1);
-            memcpy(file->buffer, str, len);
+            memcpy(s1->pp->source->buffer, str, len);
         } else {
             neocc_source_push(s1, str, 0, fd);
         }
@@ -802,7 +802,7 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
         tccgen_finish(s1);
         preprocess_end(s1);
     } else {
-        while (file)
+        while (s1->pp->source)
             tcc_close();
     }
     s1->error_set_jmp_enabled = 0;
