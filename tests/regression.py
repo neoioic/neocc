@@ -44,6 +44,7 @@ class Regression(unittest.TestCase):
     def test_standard_c_and_linking(self):
         for case, sources in {
             "semantics": ["tests/cases/semantics.c"],
+            "scope": ["tests/cases/scope.c"],
             "link": ["tests/cases/link_a.c", "tests/cases/link_b.c"],
         }.items():
             with self.subTest(case=case):

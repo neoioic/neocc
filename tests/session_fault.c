@@ -91,6 +91,9 @@ static void clean_preprocessor(struct TCCState *state)
 {
 	CHECK(!((struct em_symbols *)state->symbols->members)->blocks);
 	CHECK(!((struct em_symbols *)state->symbols->members)->free_first);
+	CHECK(!((struct em_symbols *)state->symbols->members)->scope);
+	for (unsigned int i = 0; i < NEOCC_SYMBOL_STACK_COUNT; i++)
+		CHECK(!((struct em_symbols *)state->symbols->members)->stacks[i]);
 	for (unsigned int i = 0; i < state->symbols->node_count; i++) {
 		struct object *node = state->symbols->nodes + i;
 
@@ -114,7 +117,7 @@ static void clean_preprocessor(struct TCCState *state)
 static void quiet_error(void *unused, const char *text)
 {
 	(void)unused;
-	if (strstr(text, "cannot allocate semantic symbol"))
+	if (strstr(text, "semantic symbol"))
 		symbol_error = 1;
 }
 

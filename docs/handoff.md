@@ -1,7 +1,7 @@
 # NeoCC 迁移交接
 
-截至 2026-10-19，最近完成语义符号池对象迁移及项目许可设置，Debug/Release 全量验证通过。
-后续迁移使用仓库内材料，不访问外部项目；Agent 不执行 Git 暂存、提交或推送，
+截至 2026-10-20，最近完成语义符号栈、作用域层级对象迁移及对应回归，Debug/Release
+全量验证结果见下文。后续迁移使用仓库内材料，不访问外部项目；Agent 不执行 Git 暂存、提交或推送，
 TinyCC 基线保持不变。详细设计、命令和验证边界见
 [架构](architecture.md)、[构建](build.md) 和 [测试](testing.md)。
 
@@ -9,7 +9,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
 
 1. 先读根 `AGENTS.md`、本记录及 `third_party/README.md`，再按指南阅读仓库内
    NEOioic/OpenOICC 契约、相关源码和测试。检查 Git 状态，保留已有修改；不要依赖
-   会话记忆、旧构建缓存或外部项目目录。可直接使用[交接提示词](next-agent-prompt.md)。
+   会话记忆、旧构建缓存或外部项目目录。接手入口以本记录和根 `AGENTS.md` 为准。
 2. 继续编译器职责迁移，每次只完成一个可独立审查、可验证的完整阶段。常规实现和
    验证直接推进，不反复请求确认；不得把所有剩余状态一次性塞进巨型对象。
 3. 实现、必要回归和受影响文档同阶段完成。编译器迁移阶段串行执行 Debug/Release
@@ -36,13 +36,17 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
   保留常量与宏流表示。工作区单独 calloc 以满足宿主 long double 对齐，首次打开分配、
   末次关闭释放；reset 保持借用地址，关闭再打开需重新借用。分配失败清理已打开基节点。
   根回归覆盖新增分配失败、token/源游标隔离、reset、浮点编译执行及关闭后拒绝借用。
-- symbols 对象拥有语义符号池和回收链，经 VO 分配/归还普通符号记录，保留 TinyCC
-  批量分配、逆序挂链与 LIFO 复用。删除全局 sym_free_first、sym_pools、nb_sym_pools
-  及 SYM_DEBUG 分支；不再在编译器分配域维护池指针数组。失败先返回 VO，再诊断跳转。
+- symbols 对象拥有语义符号池、回收链、global/local/宏定义/global label/local label
+  五类栈头及当前作用域层级，经 VO 分配、入栈、复制、移动、出栈和归还普通符号记录，
+  保留 TinyCC 批量分配、逆序挂链、LIFO 复用和 move-ref 栈顺序。删除全局
+  sym_free_first、sym_pools、nb_sym_pools、五个栈头、local_scope 及 SYM_DEBUG 分支；
+  不再在编译器分配域维护池指针数组。失败先返回 VO，再诊断跳转。
   共用 neocc_symbol/neocc_type 和属性结构，删除 Sym/CType typedef，保留布局与算法。
-  符号栈、宏定义和作用域仍归算法管理；清理这些引用及 switch 后才 reset 符号池。
-  回归覆盖 600 个符号的增长/复用、对象隔离、未对齐消息、共享打开、部分关闭、池分配
-  失败保留旧内容，以及编译中三处池分配失败后的清理和新会话恢复。
+  宏定义和作用域结构仍由算法解释；清理 token 的符号/宏/标签链接及 switch 后才 reset。
+  正常收尾检查标签，错误收尾由 label_discard 静默撤销剩余标签链接。
+  回归覆盖 600 个符号的增长/复用、五类栈、作用域边界、copy/move、对象隔离、未对齐
+  消息、共享打开、部分关闭、push/池分配失败保留原状态，以及编译中三处池分配失败和
+  未定义标签错误后的清理、新会话恢复。
 - 不含 tinycc/、不带既有缓存的干净副本已验证构建、十二组回归和第二/三阶段自举。
   参考树只影响可选 tinycc_baseline 与差分语料，不是生产依赖。
 - 缓冲/文件名分配失败先正常返回 VO，再执行编译器错误跳转；主文件缓冲失败关闭
@@ -63,52 +67,57 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-包含十二组 C 回归、六组编译集成检查、TinyCC tests2 差分，NeoCC 编译并运行 NEOioic
-健壮性/分派/菱形及源对象/token 对象/预处理对象/符号池对象/目录测试。未纳入当前平台的输入及原因保留在脚本和结果
-JSON，不把共同失败当作 C 功能正确的证据。
+2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含十二组 C 回归、
+六组编译集成检查（含新增 `scope` 语义样例和 120 个 TinyCC 输入差分）、NeoCC 编译并运行
+NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/目录测试。
+未纳入当前平台的输入及原因保留在脚本和结果 JSON，不把共同失败当作 C 功能正确的证据。
 
 第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：19 个目标文件及
 两个可执行文件共 21 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
-source/tokens/preprocessor/symbols 构造区无变化，并使用该阶段 NeoCC 重新编译运行四个对象测试。
-统一入口还分别对 GCC 构建和第三阶段构建的 OpenOICC 运行 39 项回归。
+source/tokens/preprocessor/symbols 构造区无变化，并使用该阶段 NeoCC 重新编译运行
+四个对象测试、C11 语义样例和新增作用域样例。统一入口还分别对 GCC 构建和第三阶段
+构建的 OpenOICC 运行 39 项回归。
 结果记录在对应构建目录的 regression/results.json、bootstrap/results.json；
-生成器测试辅助 C 程序仍由 GCC 编译。构造再生、阶段稳定性与职责迁移分别记载。
-最近一次编译器迁移的 Debug/Release 统一命令已完整通过，分别写入对应构建目录的
+生成器测试辅助 C 程序仍由 GCC 编译。两次验证分别写入 Debug/Release 的
 verification.json 成功记录；120 个差分输入及 21 个排除项见脚本和结果文件。
 这些 build/ 结果受忽略，不要求随源码交付，新环境需重新生成，不能当作后续修改的验证结果。
+构造区检查确认本次 `em_symbols` 布局变化由生成代码的 `sizeof`/对齐参数覆盖，无需改写生成文本。
 来源清单与 UTF-8/LF 随迁移复核；Git 由开发者管理，提交状态应在接手时重新检查。
 
 ## 待迁移与限制
 
 1. 逐步显式传递预处理算法协作上下文，移除对全局 tcc_state 入口的依赖；
-   token/值、源游标和宏展开工作区已有独立所有者，宏定义栈仍随语义符号管理，
-   不宣称预处理器全部迁移完成。
-2. 按 tccgen.c 边界迁移类型状态、符号栈、作用域和表达式栈，保持直接代码生成。
+   token/值、源游标、宏展开工作区和宏定义栈已有独立所有者，不宣称预处理器全部迁移完成。
+2. 按 tccgen.c 边界迁移类型状态、`vstack`/`vtop`、函数与代码生成状态，以及
+   `cur_scope`/`loop_scope`/`root_scope` 等作用域结构，保持直接代码生成。
 3. 分别迁移目标代码生成、链接输出和装载资源，删除被替代的活跃路径。
 4. 增加 Linux/其他目标的配置、ABI、运行库和差分验证。
 5. 扩展 TLS/pthread、回溯/边界检查和复杂 DLL/ELF 场景，当前尚未覆盖。
 
-当前仍有 tcc_state、宏定义/语义符号栈、作用域及代码生成全局状态，尚未完成整个 TinyCC 的
-对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态塞进一个对象外壳
-代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
+当前仍有 tcc_state、类型/表达式栈、函数与代码生成全局状态、作用域结构及清理/goto 链，
+尚未完成整个 TinyCC 的对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态
+塞进一个对象外壳代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
 
-本阶段完成项目 LGPL-2.1-or-later 许可声明，以及语义符号池的所有权、VO 分配/归还和失败清理迁移。
-完成阶段验证后停下供开发者提交备份；后续从符号栈、作用域、表达式状态和算法协作继续，
-不把本阶段等同于全套重写。
+本阶段完成语义符号池、五类符号栈头和作用域层级的所有权迁移，VO 分配/复制/移动/出栈，
+标签正常与错误收尾，以及栈和 token 链接的失败清理验证。完成阶段验证后停下供开发者
+提交备份；后续从类型/表达式栈、作用域结构和算法协作继续，不把本阶段等同于全套重写。
 
 ## 下一阶段入口与注意事项
 
-优先阅读 `src/compiler/tccgen.c` 的文件级状态、`tccgen_init`、`tccgen_finish`、
-`sym_push2`、`sym_pop` 及作用域进入/退出逻辑，连同 `src/compiler/tcc.h` 的共享声明、
-`tccpp.c` 的宏定义栈调用点，选择符号栈或相关语义状态的一个完整职责继续迁移。
-这不是要求下一阶段一次完成全部符号栈、作用域和表达式状态；边界应由调用和生命周期决定。
+优先阅读 `src/compiler/tccgen.c` 的 `vstack`/`vtop`、类型表、函数状态、
+`sym_push`/`sym_pop` 的剩余调用点及 `new_scope`/`prev_scope`/`leave_scope`，连同
+`tcc.h` 的共享声明，选择类型/表达式栈或作用域结构的一个完整职责继续迁移。
+`cur_scope`、`loop_scope`、`root_scope`、`all_cleanups` 和 `pending_gotos` 仍为文件级状态，
+不应直接塞入 `symbols` 对象。这不是要求下一阶段一次完成全部剩余语义状态；边界应由
+调用和生命周期决定。
 
-- 现有存储契约在 `include/neocc/symbols.h`，拥有者为 `src/objects/symbols.c`；
+- 现有存储与栈契约在 `include/neocc/symbols.h`，拥有者为 `src/objects/symbols.c`；
   `tokens` 的符号链接只是借用，不另复制一份符号所有权。
-- `tccgen_finish` 必须先清理符号/宏定义栈、内联函数、switch 和其他借用，再 reset
-  符号池；对象内失败先正常返回 VO，撤销访问记录后才允许驱动诊断跳转。
-- 参考 `tests/symbols.c`、`tests/session.c`、`tests/session_fault.c` 补充与迁移匹配的
-  隔离、生命周期和错误恢复验证；当前交替会话测试不代表支持重入或并行。
+- 五个栈头与作用域层级已经对象化；`tccgen_finish` 仍必须先撤销 token 链接、清理
+  宏定义、标签、内联函数、switch 和其他借用，再 reset 符号池。对象内失败先正常返回
+  VO，撤销访问记录后才允许驱动诊断跳转。
+- 参考 `tests/symbols.c`、`tests/session.c`、`tests/session_fault.c`、`tests/cases/scope.c`
+  补充与迁移匹配的隔离、生命周期和错误恢复验证；当前交替会话测试不代表支持重入或并行。
 - 新增活跃源码、对象或测试时同步根构建、`tests/bootstrap.py`、
   `tests/regression.py` 的显式列表与验证数量，以及来源和设计文档。
 - `ElfW(Sym)` 中的 `Sym` 是 ELF 格式宏参数，不是已删除的语义符号 typedef。

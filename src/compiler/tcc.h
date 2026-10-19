@@ -510,7 +510,7 @@ typedef struct DLLReference {
 #define LABEL_FORWARD  1 /* label is forward defined */
 #define LABEL_DECLARED 2 /* label is declared but never used */
 #define LABEL_GONE     3 /* label isn't in scope, but not yet popped
-                            from local_label_stack (stmt exprs) */
+                            from the local label stack (stmt exprs) */
 
 /* type_decl() types */
 #define TYPE_ABSTRACT  1 /* type without variable */
@@ -1275,11 +1275,6 @@ static inline int toup(int c) {
 
 /* ------------ tccgen.c ------------ */
 
-ST_DATA struct neocc_symbol *global_stack;
-ST_DATA struct neocc_symbol *local_stack;
-ST_DATA struct neocc_symbol *local_label_stack;
-ST_DATA struct neocc_symbol *global_label_stack;
-ST_DATA struct neocc_symbol *define_stack;
 ST_DATA struct neocc_type int_type, func_old_type, char_pointer_type;
 ST_DATA SValue *vtop;
 ST_DATA int rsym, anon_sym, ind, loc;
@@ -1313,14 +1308,25 @@ ST_FUNC void greloc(Section *s, struct neocc_symbol *sym, unsigned long offset, 
 ST_FUNC void greloca(Section *s, struct neocc_symbol *sym, unsigned long offset, int type, addr_t addend);
 
 ST_INLN void sym_free(struct neocc_symbol *sym);
+ST_FUNC struct neocc_symbol *sym_stack_push(unsigned int stack, int v, int t, int c);
+ST_FUNC struct neocc_symbol *sym_stack_copy(unsigned int stack, struct neocc_symbol *symbol);
+ST_FUNC struct neocc_symbol *sym_stack_top(unsigned int stack);
+ST_FUNC void sym_stack_drop(unsigned int stack, struct neocc_symbol *symbol);
+ST_FUNC int sym_stack_move(unsigned int source, unsigned int destination,
+                           struct neocc_symbol *symbol, int copy,
+                           struct neocc_symbol **replacement);
+ST_FUNC int sym_scope_get(void);
+ST_FUNC void sym_scope_set(int level);
+ST_FUNC void sym_scope_add(int change);
 ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c);
-ST_FUNC void sym_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep);
+ST_FUNC void sym_pop(unsigned int stack, struct neocc_symbol *b, int keep);
+ST_FUNC void sym_list_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep);
 ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c);
 ST_FUNC struct neocc_symbol *sym_find2(struct neocc_symbol *s, int v);
 ST_INLN struct neocc_symbol *sym_find(int v);
 ST_FUNC struct neocc_symbol *label_find(int v);
-ST_FUNC struct neocc_symbol *label_push(struct neocc_symbol **ptop, int v, int flags);
-ST_FUNC void label_pop(struct neocc_symbol **ptop, struct neocc_symbol *slast, int keep);
+ST_FUNC struct neocc_symbol *label_push(unsigned int stack, int v, int flags);
+ST_FUNC void label_pop(unsigned int stack, struct neocc_symbol *slast, int keep);
 ST_INLN struct neocc_symbol *struct_find(int v);
 
 ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c);

@@ -7,6 +7,7 @@
 #include "symbols.h"
 #include "../host/host.h"
 #include "neoioic.h"
+#include <limits.h>
 #include <string.h>
 
 /* <oicc> */
@@ -63,6 +64,29 @@ static void symbols_clear(struct em_symbols *members)
 		free(block);
 	}
 	members->free_first = NULL;
+	memset(members->stacks, 0, sizeof(members->stacks));
+	members->scope = 0;
+}
+
+static struct neocc_symbol *symbols_allocate(struct em_symbols *members)
+{
+	struct neocc_symbol *symbol;
+
+	if (!members->free_first) {
+		struct neocc_symbol_block *block = malloc(sizeof(*block));
+
+		if (!block)
+			return NULL;
+		block->next = members->blocks;
+		for (size_t i = 0; i < NEOCC_SYMBOLS_PER_BLOCK; i++) {
+			block->symbols[i].next = members->free_first;
+			members->free_first = &block->symbols[i];
+		}
+		members->blocks = block;
+	}
+	symbol = members->free_first;
+	members->free_first = symbol->next;
+	return symbol;
 }
 
 static int symbols_open(struct object *self, const struct vr *caller_context)
@@ -99,25 +123,24 @@ static int symbols_interact1(struct object *self, unsigned int action,
 	struct neocc_symbol *symbol;
 
 	*output_quantity = 0;
-	if (action != NEOCC_AC1_SYMBOLS_ALLOCATE) {
+	if (action != NEOCC_AC1_SYMBOLS_ALLOCATE &&
+	    action != NEOCC_AC1_SYMBOLS_SCOPE) {
 		SBO_OBJECT_INTERACT1;
 	}
-	if (!self->ref_count || capacity < sizeof(symbol))
+	if (!self->ref_count)
 		return RN_INVALIDARG;
-	if (!members->free_first) {
-		struct neocc_symbol_block *block = malloc(sizeof(*block));
-
-		if (!block)
-			return R_N;
-		block->next = members->blocks;
-		for (size_t i = 0; i < NEOCC_SYMBOLS_PER_BLOCK; i++) {
-			block->symbols[i].next = members->free_first;
-			members->free_first = &block->symbols[i];
-		}
-		members->blocks = block;
+	if (action == NEOCC_AC1_SYMBOLS_SCOPE) {
+		if (capacity < sizeof(members->scope))
+			return RN_INVALIDARG;
+		memcpy(output_stream, &members->scope, sizeof(members->scope));
+		*output_quantity = sizeof(members->scope);
+		return R_P;
 	}
-	symbol = members->free_first;
-	members->free_first = symbol->next;
+	if (capacity < sizeof(symbol))
+		return RN_INVALIDARG;
+	symbol = symbols_allocate(members);
+	if (!symbol)
+		return R_N;
 	memcpy(output_stream, &symbol, sizeof(symbol));
 	*output_quantity = sizeof(symbol);
 	return R_P;
@@ -130,6 +153,32 @@ static int symbols_interact2(struct object *self, unsigned int action,
 	struct em_symbols *members = self->members;
 	struct neocc_symbol *symbol;
 
+	if (action == NEOCC_AC2_SYMBOLS_SCOPE) {
+		struct neocc_symbol_scope scope;
+
+		if (!self->ref_count || quantity != sizeof(scope))
+			return RN_INVALIDARG;
+		memcpy(&scope, input_stream, sizeof(scope));
+		if (scope.change < -members->scope ||
+		    scope.change > INT_MAX - members->scope)
+			return RN_INVALIDARG;
+		members->scope += scope.change;
+		return R_P;
+	}
+	if (action == NEOCC_AC2_SYMBOLS_DROP) {
+		struct neocc_symbol_drop drop;
+
+		if (!self->ref_count || quantity != sizeof(drop))
+			return RN_INVALIDARG;
+		memcpy(&drop, input_stream, sizeof(drop));
+		if (drop.stack >= NEOCC_SYMBOL_STACK_COUNT || !drop.symbol ||
+		    members->stacks[drop.stack] != drop.symbol)
+			return RN_INVALIDARG;
+		members->stacks[drop.stack] = drop.symbol->prev;
+		drop.symbol->next = members->free_first;
+		members->free_first = drop.symbol;
+		return R_P;
+	}
 	if (action != NEOCC_AC2_SYMBOLS_RELEASE) {
 		SBO_OBJECT_INTERACT2;
 	}
@@ -148,7 +197,105 @@ static int symbols_interact3(struct object *self, unsigned int action,
 	unsigned char *output_stream, unsigned int capacity,
 	unsigned int *output_quantity, const struct vr *caller_context)
 {
-	SBO_OBJECT_INTERACT3;
+	struct em_symbols *members = self->members;
+
+	*output_quantity = 0;
+	if (!self->ref_count)
+		return RN_INVALIDARG;
+	switch (action) {
+	case NEOCC_AC3_SYMBOLS_PUSH: {
+		struct neocc_symbol_push push;
+		struct neocc_symbol_stack_result result;
+
+		if (quantity != sizeof(push) || capacity < sizeof(result))
+			return RN_INVALIDARG;
+		memcpy(&push, input_stream, sizeof(push));
+		if (push.stack >= NEOCC_SYMBOL_STACK_COUNT)
+			return RN_INVALIDARG;
+		result.top = symbols_allocate(members);
+		if (!result.top)
+			return R_N;
+		memset(result.top, 0, sizeof(*result.top));
+		result.top->v = push.v;
+		result.top->type.t = push.type;
+		result.top->c = push.c;
+		result.top->prev = members->stacks[push.stack];
+		members->stacks[push.stack] = result.top;
+		memcpy(output_stream, &result, sizeof(result));
+		*output_quantity = sizeof(result);
+		return R_P;
+	}
+	case NEOCC_AC3_SYMBOLS_COPY: {
+		struct neocc_symbol_copy copy;
+		struct neocc_symbol_stack_result result;
+
+		if (quantity != sizeof(copy) || capacity < sizeof(result))
+			return RN_INVALIDARG;
+		memcpy(&copy, input_stream, sizeof(copy));
+		if (copy.stack >= NEOCC_SYMBOL_STACK_COUNT || !copy.symbol)
+			return RN_INVALIDARG;
+		result.top = symbols_allocate(members);
+		if (!result.top)
+			return R_N;
+		*result.top = *copy.symbol;
+		result.top->prev = members->stacks[copy.stack];
+		members->stacks[copy.stack] = result.top;
+		memcpy(output_stream, &result, sizeof(result));
+		*output_quantity = sizeof(result);
+		return R_P;
+	}
+	case NEOCC_AC3_SYMBOLS_TOP: {
+		struct neocc_symbol_stack_query query;
+		struct neocc_symbol_stack_result result;
+
+		if (quantity != sizeof(query) || capacity < sizeof(result))
+			return RN_INVALIDARG;
+		memcpy(&query, input_stream, sizeof(query));
+		if (query.stack >= NEOCC_SYMBOL_STACK_COUNT)
+			return RN_INVALIDARG;
+		result.top = members->stacks[query.stack];
+		memcpy(output_stream, &result, sizeof(result));
+		*output_quantity = sizeof(result);
+		return R_P;
+	}
+	case NEOCC_AC3_SYMBOLS_MOVE: {
+		struct neocc_symbol_move move;
+		struct neocc_symbol_move_result result;
+		struct neocc_symbol **link;
+		struct neocc_symbol *replacement = NULL;
+
+		if (quantity != sizeof(move) || capacity < sizeof(result))
+			return RN_INVALIDARG;
+		memcpy(&move, input_stream, sizeof(move));
+		if (move.source >= NEOCC_SYMBOL_STACK_COUNT ||
+		    move.destination >= NEOCC_SYMBOL_STACK_COUNT ||
+		    move.source == move.destination || !move.symbol)
+			return RN_INVALIDARG;
+		link = &members->stacks[move.source];
+		while (*link && *link != move.symbol)
+			link = &(*link)->prev;
+		if (!*link)
+			return RO_VAINLY;
+		if (move.copy) {
+			replacement = symbols_allocate(members);
+			if (!replacement)
+				return R_N;
+			*replacement = *move.symbol;
+			replacement->prev = move.symbol->prev;
+			*link = replacement;
+		} else {
+			*link = move.symbol->prev;
+		}
+		move.symbol->prev = members->stacks[move.destination];
+		members->stacks[move.destination] = move.symbol;
+		result.replacement = replacement;
+		memcpy(output_stream, &result, sizeof(result));
+		*output_quantity = sizeof(result);
+		return R_P;
+	}
+	default:
+		SBO_OBJECT_INTERACT3;
+	}
 }
 
 static int symbols_input(struct object *self, unsigned char *input_stream,

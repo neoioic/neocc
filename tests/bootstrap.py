@@ -136,10 +136,11 @@ def main():
         report.append({"file": a.name, "stage2_sha256": digest(a),
                        "stage3_sha256": digest(b)})
     for compiler in [stage2, stage3]:
-        executable = compiler.parent / "semantics.exe"
-        run([compiler, "-B" + str(runtime), "-std=c11",
-             "tests/cases/semantics.c", "-o", executable])
-        run([executable])
+        for source in ["semantics", "scope"]:
+            executable = compiler.parent / (source + ".exe")
+            run([compiler, "-B" + str(runtime), "-std=c11",
+                 f"tests/cases/{source}.c", "-o", executable])
+            run([executable])
     (directory / "results.json").write_text(json.dumps({
         "platform": "Windows x86-64 PE", "source_standard": "C11 features used by these sources",
         "runtime": "rebuilt at every stage; libtcc1.a and runmain.o byte-identical",

@@ -18,7 +18,7 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs.",
       "additional_derivatives": [
         "include/neocc/tokens.h",
         "include/neocc/preprocessor.h",
@@ -29,7 +29,7 @@
       "source": "tinycc/tccpp.c",
       "destination": "src/compiler/tccpp.c",
       "sha256": "233c83c1087abe2c52eef23e03053bfd09dc6bcf5958aa463548ab455f016993",
-      "local_changes": "Use tokens VO for interning/arena storage and preprocessor VO for macro stream stack operations; borrow per-context token/value, source cursor, debug indentation, working strings, character table, modes and counters; reset working references before arena release; retain preprocessing algorithms.",
+      "local_changes": "Use tokens VO for interning/arena storage, preprocessor VO for macro stream stack operations and symbols VO for macro definition/parameter stack and token links; borrow per-context token/value, source cursor, debug indentation, working strings, character table, modes and counters; reset working references before arena release; retain preprocessing algorithms.",
       "additional_derivatives": [
         "src/objects/tokens.c",
         "src/objects/preprocessor.c",
@@ -40,7 +40,7 @@
       "source": "tinycc/tccgen.c",
       "destination": "src/compiler/tccgen.c",
       "sha256": "1a26ca7a7090ce6e43b6af3056cf7d81633283b298850fded2510579749c73f6",
-      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks and reuse chain into symbols object, allocate/release via VO and reset after semantic cleanup; remove global pools and SYM_DEBUG allocation branch.",
+      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks, reuse chain, five stack heads and scope level into symbols object; push/copy/move/drop and reset via VO after token-link cleanup; remove global pools, stacks, scope counter and SYM_DEBUG allocation branch.",
       "additional_derivatives": [
         "src/objects/symbols.c",
         "src/objects/symbols.h"
@@ -50,13 +50,13 @@
       "source": "tinycc/tccdbg.c",
       "destination": "src/compiler/tccdbg.c",
       "sha256": "62c14837a1e68283d4505e4837d3cc2f7e3df422a727124a5129cc71f74399fa",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; query the local symbol stack and push debug type records through symbols VO; preserve debug algorithms."
     },
     {
       "source": "tinycc/tccasm.c",
       "destination": "src/compiler/tccasm.c",
       "sha256": "390bd7a7af628e35c892b02e31d142f5f33ed88e393a4f29e03631f3b5e4c1eb",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; push assembler goto labels through the symbols object's global label stack; preserve assembler algorithms."
     },
     {
       "source": "tinycc/tccelf.c",

@@ -1394,7 +1394,8 @@ ST_FUNC void asm_instr(void)
 
                         csym = label_find(tcc_state->pp->token);
                         if (!csym) {
-                            csym = label_push(&global_label_stack, tcc_state->pp->token,
+                            csym = label_push(NEOCC_SYMBOL_STACK_GLOBAL_LABEL,
+                                              tcc_state->pp->token,
                                               LABEL_FORWARD);
                         } else {
                             if (csym->r == LABEL_DECLARED)

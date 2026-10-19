@@ -23,6 +23,13 @@ static void clean_access(struct object *object)
 	}
 }
 
+static void clean_symbols(struct em_symbols *symbols)
+{
+	CHECK(!symbols->blocks && !symbols->free_first && !symbols->scope);
+	for (int i = 0; i < NEOCC_SYMBOL_STACK_COUNT; i++)
+		CHECK(!symbols->stacks[i]);
+}
+
 static struct TCCState *session(const char *runtime)
 {
 	struct TCCState *state = tcc_new();
@@ -76,8 +83,8 @@ int main(int argc, char **argv)
 		clean_access(a->sources);
 		clean_access(b->sources);
 		CHECK(a->symbols != b->symbols);
-		CHECK(!((struct em_symbols *)a->symbols->members)->blocks);
-		CHECK(!((struct em_symbols *)b->symbols->members)->blocks);
+		clean_symbols(a->symbols->members);
+		clean_symbols(b->symbols->members);
 		CHECK(tcc_relocate(a) == 0);
 		function = (int (*)(void))tcc_get_symbol(a, "value");
 		CHECK(function && function() == 17);
@@ -111,6 +118,14 @@ int main(int argc, char **argv)
 		CHECK(!a->pp->macro_stack && !a->pp->macro_ptr);
 		CHECK(!a->pp->source && !a->pp->token && !a->pp->value.i);
 		CHECK(!a->pp->parsed.data && !a->pp->spelling.data);
+		clean_access(a->sources);
+		tcc_delete(a);
+		a = session(argv[1]);
+		CHECK(tcc_compile_string(a,
+			"int broken(void) { goto missing; }\n") < 0);
+		CHECK(strstr(diagnostic, "missing") &&
+			strstr(diagnostic, "used but not defined"));
+		clean_symbols(a->symbols->members);
 		clean_access(a->sources);
 		tcc_delete(a);
 		a = session(argv[1]);

@@ -31,15 +31,7 @@
 */
 ST_DATA int rsym, anon_sym, ind, loc;
 
-ST_DATA struct neocc_symbol *global_stack;
-ST_DATA struct neocc_symbol *local_stack;
-ST_DATA struct neocc_symbol *define_stack;
-ST_DATA struct neocc_symbol *global_label_stack;
-ST_DATA struct neocc_symbol *local_label_stack;
-
-
 static struct neocc_symbol *all_cleanups, *pending_gotos;
-static int local_scope;
 ST_DATA char debug_modes;
 
 ST_DATA SValue *vtop;
@@ -153,6 +145,7 @@ static void vpush(struct neocc_type *type);
 static int gvtst(int inv, int t);
 static void gen_inline_functions(TCCState *s);
 static void free_inline_functions(TCCState *s);
+static void label_discard(unsigned int stack);
 static void skip_or_save_block(struct neocc_token_string **str);
 static void gv_dup(void);
 static int get_temp_local_var(int size,int align,int *r2);
@@ -432,21 +425,20 @@ ST_FUNC void tccgen_finish(TCCState *s1)
 {
     tcc_debug_end(s1); /* just in case of errors: free memory */
     free_inline_functions(s1);
-    sym_pop(&global_stack, NULL, 0);
-    sym_pop(&local_stack, NULL, 0);
+    sym_pop(NEOCC_SYMBOL_STACK_GLOBAL, NULL, 0);
+    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     /* free preprocessor macros */
     free_defines(NULL);
     cstr_free(&initstr);
     dynarray_reset(&stk_data, &nb_stk_data);
     while (cur_switch)
         end_switch();
-    local_scope = 0;
+    label_discard(NEOCC_SYMBOL_STACK_GLOBAL_LABEL);
+    label_discard(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
     loop_scope = NULL;
     all_cleanups = NULL;
     pending_gotos = NULL;
     nb_temp_local_vars = 0;
-    global_label_stack = NULL;
-    local_label_stack = NULL;
     cur_text_section = NULL;
     if (!RP(vo_interact0(s1->symbols, NEOCC_AC0_SYMBOLS_RESET,
                          &neocc_host_caller)))
@@ -644,6 +636,114 @@ ST_INLN void sym_free(struct neocc_symbol *symbol)
         tcc_error("cannot release semantic symbol (result %d)", result);
 }
 
+ST_FUNC struct neocc_symbol *sym_stack_push(unsigned int stack, int v, int t,
+                                            int c)
+{
+    struct neocc_symbol_push request = { stack, v, t, c };
+    struct neocc_symbol_stack_result result;
+    unsigned int quantity = 0;
+    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_PUSH,
+        (unsigned char *)&request, sizeof(request),
+        (unsigned char *)&result, sizeof(result), &quantity,
+        &neocc_host_caller);
+
+    if (!RP(code) || quantity != sizeof(result) || !result.top)
+        tcc_error("cannot push semantic symbol (result %d)", code);
+    return result.top;
+}
+
+ST_FUNC struct neocc_symbol *sym_stack_copy(unsigned int stack,
+                                            struct neocc_symbol *symbol)
+{
+    struct neocc_symbol_copy request = { stack, symbol };
+    struct neocc_symbol_stack_result result;
+    unsigned int quantity = 0;
+    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_COPY,
+        (unsigned char *)&request, sizeof(request),
+        (unsigned char *)&result, sizeof(result), &quantity,
+        &neocc_host_caller);
+
+    if (!RP(code) || quantity != sizeof(result) || !result.top)
+        tcc_error("cannot copy semantic symbol (result %d)", code);
+    return result.top;
+}
+
+ST_FUNC struct neocc_symbol *sym_stack_top(unsigned int stack)
+{
+    struct neocc_symbol_stack_query request = { stack };
+    struct neocc_symbol_stack_result result;
+    unsigned int quantity = 0;
+    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_TOP,
+        (unsigned char *)&request, sizeof(request),
+        (unsigned char *)&result, sizeof(result), &quantity,
+        &neocc_host_caller);
+
+    if (!RP(code) || quantity != sizeof(result))
+        tcc_error("cannot query semantic symbol stack (result %d)", code);
+    return result.top;
+}
+
+ST_FUNC void sym_stack_drop(unsigned int stack, struct neocc_symbol *symbol)
+{
+    struct neocc_symbol_drop request = { stack, symbol };
+    int code = vo_interact2(tcc_state->symbols, NEOCC_AC2_SYMBOLS_DROP,
+        (unsigned char *)&request, sizeof(request), &neocc_host_caller);
+
+    if (!RP(code))
+        tcc_error("cannot drop semantic symbol (result %d)", code);
+}
+
+/* Return zero when the symbol is not on the source stack. */
+ST_FUNC int sym_stack_move(unsigned int source, unsigned int destination,
+                           struct neocc_symbol *symbol, int copy,
+                           struct neocc_symbol **replacement)
+{
+    struct neocc_symbol_move request = {
+        source, destination, symbol, copy
+    };
+    struct neocc_symbol_move_result result = { NULL };
+    unsigned int quantity = 0;
+    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_MOVE,
+        (unsigned char *)&request, sizeof(request),
+        (unsigned char *)&result, sizeof(result), &quantity,
+        &neocc_host_caller);
+
+    if (code == RO_VAINLY)
+        return 0;
+    if (!RP(code) || quantity != sizeof(result))
+        tcc_error("cannot move semantic symbol (result %d)", code);
+    *replacement = result.replacement;
+    return 1;
+}
+
+ST_FUNC int sym_scope_get(void)
+{
+    int scope;
+    unsigned int quantity = 0;
+    int code = vo_interact1(tcc_state->symbols, NEOCC_AC1_SYMBOLS_SCOPE,
+        (unsigned char *)&scope, sizeof(scope), &quantity,
+        &neocc_host_caller);
+
+    if (!RP(code) || quantity != sizeof(scope))
+        tcc_error("cannot query semantic scope (result %d)", code);
+    return scope;
+}
+
+ST_FUNC void sym_scope_add(int change)
+{
+    struct neocc_symbol_scope request = { change };
+    int code = vo_interact2(tcc_state->symbols, NEOCC_AC2_SYMBOLS_SCOPE,
+        (unsigned char *)&request, sizeof(request), &neocc_host_caller);
+
+    if (!RP(code))
+        tcc_error("cannot change semantic scope (result %d)", code);
+}
+
+ST_FUNC void sym_scope_set(int level)
+{
+    sym_scope_add(level - sym_scope_get());
+}
+
 /* push, without hashing */
 ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c)
 {
@@ -701,7 +801,7 @@ static inline void sym_link(struct neocc_symbol *s, int yes)
         ps = &ts->sym_identifier;
     if (yes) {
         s->prev_tok = *ps, *ps = s;
-        s->sym_scope = local_scope;
+        s->sym_scope = sym_scope_get();
     } else {
         *ps = s->prev_tok;
     }
@@ -718,19 +818,18 @@ static inline int sym_scope_ex(struct neocc_symbol *s)
 /* push a given symbol on the symbol stack */
 ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c)
 {
-    struct neocc_symbol *s, **ps;
-    if (local_stack)
-        ps = &local_stack;
-    else
-        ps = &global_stack;
-    s = sym_push2(ps, v, type->t, c);
+    struct neocc_symbol *s;
+    unsigned int stack = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ?
+        NEOCC_SYMBOL_STACK_LOCAL : NEOCC_SYMBOL_STACK_GLOBAL;
+
+    s = sym_stack_push(stack, v, type->t, c);
     s->type.ref = type->ref;
     s->r = r;
     /* don't record fields or anonymous symbols */
     if ((v & ~SYM_STRUCT) < SYM_FIRST_ANOM) {
         /* record symbol in token array */
         sym_link(s, 1);
-        if (s->prev_tok && sym_scope_ex(s->prev_tok) == local_scope)
+        if (s->prev_tok && sym_scope_ex(s->prev_tok) == s->sym_scope)
             tcc_error("redeclaration of '%s'", get_tok_str(s->v, NULL));
     }
     return s;
@@ -740,7 +839,7 @@ ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int
 ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c)
 {
     struct neocc_symbol *s, **ps;
-    s = sym_push2(&global_stack, v, t, c);
+    s = sym_stack_push(NEOCC_SYMBOL_STACK_GLOBAL, v, t, c);
     s->r = VT_CONST | VT_SYM;
     /* don't record anonymous symbol */
     if (v < SYM_FIRST_ANOM) {
@@ -755,26 +854,38 @@ ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c)
     return s;
 }
 
-/* pop symbols until top reaches 'b'.  If KEEP is non-zero don't really
-   pop them yet from the list, but do remove them from the token array.  */
-ST_FUNC void sym_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep)
+/* Pop an object-owned stack until top reaches 'b'. If KEEP is non-zero,
+   leave the records linked but remove their token lookup entries. */
+ST_FUNC void sym_pop(unsigned int stack, struct neocc_symbol *b, int keep)
 {
-    struct neocc_symbol *s, *ss;
-    int v;
+    struct neocc_symbol *s, *next;
+
+    s = sym_stack_top(stack);
+    while (s != b) {
+        next = s->prev;
+        if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
+            sym_link(s, 0);
+        if (!keep)
+            sym_stack_drop(stack, s);
+        s = next;
+    }
+}
+
+/* Pop a temporary chain not owned by the symbols object. */
+ST_FUNC void sym_list_pop(struct neocc_symbol **ptop, struct neocc_symbol *b,
+                          int keep)
+{
+    struct neocc_symbol *s, *next;
 
     s = *ptop;
-    while(s != b) {
-        ss = s->prev;
-        v = s->v;
-        /* remove symbol in token array */
-        if ((v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
-            sym_link(s, 0);
-	if (!keep)
-	    sym_free(s);
-        s = ss;
+    while (s != b) {
+        next = s->prev;
+        if (!keep)
+            sym_free(s);
+        s = next;
     }
     if (!keep)
-	*ptop = b;
+        *ptop = b;
 }
 
 /* label lookup */
@@ -786,13 +897,13 @@ ST_FUNC struct neocc_symbol *label_find(int v)
     return neocc_token_at(tcc_state, (v) + TOK_IDENT)->sym_label;
 }
 
-ST_FUNC struct neocc_symbol *label_push(struct neocc_symbol **ptop, int v, int flags)
+ST_FUNC struct neocc_symbol *label_push(unsigned int stack, int v, int flags)
 {
     struct neocc_symbol *s, **ps;
-    s = sym_push2(ptop, v, VT_STATIC, 0);
+    s = sym_stack_push(stack, v, VT_STATIC, 0);
     s->r = flags;
     ps = &neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_label;
-    if (ptop == &global_label_stack) {
+    if (stack == NEOCC_SYMBOL_STACK_GLOBAL_LABEL) {
         /* modify the top most local identifier, so that
            sym_identifier will point to 's' when popped */
         while (*ps != NULL)
@@ -803,13 +914,14 @@ ST_FUNC struct neocc_symbol *label_push(struct neocc_symbol **ptop, int v, int f
     return s;
 }
 
-/* pop labels until element last is reached. Look if any labels are
+/* Pop labels until element last is reached. Look if any labels are
    undefined. Define symbols if '&&label' was used. */
-ST_FUNC void label_pop(struct neocc_symbol **ptop, struct neocc_symbol *slast, int keep)
+ST_FUNC void label_pop(unsigned int stack, struct neocc_symbol *slast, int keep)
 {
-    struct neocc_symbol *s, *s1;
-    for(s = *ptop; s != slast; s = s1) {
-        s1 = s->prev;
+    struct neocc_symbol *s, *next;
+
+    for (s = sym_stack_top(stack); s != slast; s = next) {
+        next = s->prev;
         if (s->r == LABEL_DECLARED) {
             tcc_warning_c(warn_all)("label '%s' declared but not used", get_tok_str(s->v, NULL));
         } else if (s->r == LABEL_FORWARD) {
@@ -826,12 +938,24 @@ ST_FUNC void label_pop(struct neocc_symbol **ptop, struct neocc_symbol *slast, i
         if (s->r != LABEL_GONE)
             neocc_token_at(tcc_state, (s->v - TOK_IDENT) + TOK_IDENT)->sym_label = s->prev_tok;
         if (!keep)
-            sym_free(s);
+            sym_stack_drop(stack, s);
         else
             s->r = LABEL_GONE;
     }
-    if (!keep)
-        *ptop = slast;
+}
+
+/* Drop remaining label links without emitting or diagnosing at shutdown.
+   The symbols object clears the borrowed stack heads afterwards. */
+static void label_discard(unsigned int stack)
+{
+    struct neocc_symbol *s;
+
+    for (s = sym_stack_top(stack); s; s = s->prev)
+        if (s->r != LABEL_GONE) {
+            neocc_token_at(tcc_state,
+                (s->v - TOK_IDENT) + TOK_IDENT)->sym_label = s->prev_tok;
+            s->r = LABEL_GONE;
+        }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1285,22 +1409,22 @@ static void patch_storage(struct neocc_symbol *sym, AttributeDef *ad, struct neo
     update_storage(sym);
 }
 
-/* copy sym to other stack */
-static struct neocc_symbol *sym_copy(struct neocc_symbol *s0, struct neocc_symbol **ps)
+/* copy sym to another stack */
+static struct neocc_symbol *sym_copy(struct neocc_symbol *source,
+                                     unsigned int stack)
 {
-    struct neocc_symbol *s;
-    s = sym_malloc(), *s = *s0;
-    s->prev = *ps, *ps = s;
+    struct neocc_symbol *s = sym_stack_copy(stack, source);
+
     if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
         sym_link(s, 1);
     return s;
 }
 
 /* Symbol 's' was locally declared 'extern' (or as function), and is
-   on global_stack.  Now must copy its 'ref' to global_stack too */
+   on the global symbol stack. Now must copy its 'ref' there too */
 static void move_ref_to_global(struct neocc_symbol *s)
 {
-    struct neocc_symbol *l, **lp;
+    struct neocc_symbol *replacement;
     int n, bt;
 
     bt = s->type.t & VT_BTYPE;
@@ -1311,27 +1435,25 @@ static void move_ref_to_global(struct neocc_symbol *s)
         return;
 
     for (s = s->type.ref, n = 0; s; s = s->next) {
-        for (lp = &local_stack; !!(l = *lp); lp = &l->prev) {
-            if (l == s) {
-                *lp = s->prev;
-                s->prev = global_stack, global_stack = s;
-                if (n || bt == VT_PTR || bt == VT_FUNC) {
-                    move_ref_to_global(s);
-                } else {
-                    if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM) {
-                        /* copy struct/enum tag to local scope */
-                        s->v |= SYM_FIELD;
-                        l = sym_copy(s, lp);
-                        l->v &= ~SYM_FIELD;
-                    }
-                }
-                if (bt != VT_PTR)
-                    n = 1;
-                break;
-            }
-        }
-        if (n == 0) /* no next (VT_PTR) or ref not on local_stack */
+        int copy = !(n || bt == VT_PTR || bt == VT_FUNC)
+            && (s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM;
+
+        if (!sym_stack_move(NEOCC_SYMBOL_STACK_LOCAL,
+                            NEOCC_SYMBOL_STACK_GLOBAL, s, copy,
+                            &replacement))
             break;
+        if (n || bt == VT_PTR || bt == VT_FUNC) {
+            move_ref_to_global(s);
+        } else if (copy) {
+            /* Keep a local alias record for the moved struct/enum tag.
+               Marking the field space deliberately keeps it out of the
+               token lookup chain, matching the original stack move. */
+            s->v |= SYM_FIELD;
+            replacement->v |= SYM_FIELD;
+            replacement->v &= ~SYM_FIELD;
+        }
+        if (bt != VT_PTR)
+            n = 1;
     }
 }
 
@@ -1355,11 +1477,11 @@ static struct neocc_symbol *external_sym(int v, struct neocc_type *type, int r, 
     } else {
         patch_storage(s, ad, type);
     }
-    if (local_stack) {
+    if (sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL)) {
         /* make sure that type->ref is on global stack */
         move_ref_to_global(s);
         /* put into local scope */
-        sym_copy(s, &local_stack);
+        sym_copy(s, NEOCC_SYMBOL_STACK_LOCAL);
     }
     return s;
 }
@@ -1709,11 +1831,13 @@ static void add_local_bounds(struct neocc_symbol *s, struct neocc_symbol *e)
    register bounds */
 static void tcc_debug_end_scope(struct neocc_symbol *b, int bounds)
 {
+    struct neocc_symbol *local = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+
 #ifdef CONFIG_TCC_BCHECK
     if (tcc_state->do_bounds_check && bounds)
-        add_local_bounds(local_stack, b);
+        add_local_bounds(local, b);
 #endif
-    tcc_add_debug_info (tcc_state, local_stack, b);
+    tcc_add_debug_info (tcc_state, local, b);
 }
 
 /* increment an lvalue pointer */
@@ -4478,7 +4602,7 @@ static void struct_decl(struct neocc_type *type, int u)
     if (v) {
         /* struct already defined ? return it */
         s = struct_find(v);
-        if (s && (s->sym_scope == local_scope || (tcc_state->pp->token != '{' && tcc_state->pp->token != ';'))) {
+        if (s && (s->sym_scope == sym_scope_get() || (tcc_state->pp->token != '{' && tcc_state->pp->token != ';'))) {
             if (u == s->type.t)
                 goto do_decl;
             if (u == VT_ENUM && IS_ENUM(s->type.t)) /* XXX: check integral types */
@@ -4513,7 +4637,7 @@ do_decl:
             long long ll = 0, pl = 0, nl = 0;
 	    struct neocc_type t;
             t.ref = s;
-            s->sym_scope = local_scope; /* anonymous symbol won't have set */
+            s->sym_scope = sym_scope_get(); /* anonymous symbol won't have set */
             /* enum symbols have static storage */
             t.t = VT_INT|VT_STATIC|VT_ENUM_VAL;
             if (bt)
@@ -5041,7 +5165,8 @@ static int asm_label_instr(void)
 static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int td)
 {
     int n, l, t1, arg_size, align;
-    struct neocc_symbol **plast, *s, *first, **ps, *sr;
+    struct neocc_symbol **plast, *s, *first, *sr;
+    unsigned int stack;
     AttributeDef ad1;
     struct neocc_type pt;
     struct neocc_token_string *vla_array_tok = NULL;
@@ -5055,17 +5180,18 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 
         /* we push a anonymous symbol which will contain the function prototype */
         /* it also serves as a boundary for the function parameter scope */
-        ps = local_stack ? &local_stack : &global_stack;
-        ++local_scope;
-        sr = sym_push2(ps, SYM_FIELD, 0, 0);
+        stack = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ?
+            NEOCC_SYMBOL_STACK_LOCAL : NEOCC_SYMBOL_STACK_GLOBAL;
+        sym_scope_add(1);
+        sr = sym_stack_push(stack, SYM_FIELD, 0, 0);
 
 	if (tcc_state->pp->token == ')')
 	  l = 0;
 	else if (parse_btype(&pt, &ad1, 0))
 	  l = FUNC_NEW;
 	else if (td & (TYPE_DIRECT|TYPE_ABSTRACT)) {
-            sym_pop(ps, sr->prev, 0);
-            --local_scope;
+            sym_pop(stack, sr->prev, 0);
+            sym_scope_add(-1);
 	    merge_attr (ad, &ad1);
 	    return 0;
 	} else
@@ -5135,8 +5261,8 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
         type->t = VT_FUNC;
         type->ref = s;
         /* unlink parameter symbols from the token table, keep on stack */
-        sym_pop(ps, sr, 1);
-        --local_scope;
+        sym_pop(stack, sr, 1);
+        sym_scope_add(-1);
 
     } else if (tcc_state->pp->token == '[') {
 	int saved_nocode_wanted = nocode_wanted;
@@ -5186,10 +5312,11 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
             break;
 
 	} else if (tcc_state->pp->token != ']') {
-            if (!local_stack || (storage & VT_STATIC))
+            if (!sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ||
+                (storage & VT_STATIC))
                 vpushi(expr_const());
             else {
-		/* VLAs (which can only happen with local_stack && !VT_STATIC)
+		/* VLAs (which can only happen with a local stack and !VT_STATIC)
 		   length must always be evaluated, even under nocode_wanted,
 		   so that its size slot is initialized (e.g. under sizeof
 		   or typeof).  */
@@ -5740,7 +5867,7 @@ ST_FUNC void unary(void)
 	    int saved_nocode_wanted = nocode_wanted;
             if (CONST_WANTED && !NOEVAL_WANTED)
                 expect("constant");
-            if (0 == local_scope)
+            if (0 == sym_scope_get())
                 tcc_error("statement expression outside of function");
             /* save all registers */
             save_regs(0);
@@ -6049,7 +6176,8 @@ ST_FUNC void unary(void)
             expect("label identifier");
         s = label_find(tcc_state->pp->token);
         if (!s) {
-            s = label_push(&global_label_stack, tcc_state->pp->token, LABEL_FORWARD);
+            s = label_push(NEOCC_SYMBOL_STACK_GLOBAL_LABEL,
+                           tcc_state->pp->token, LABEL_FORWARD);
         } else {
             if (s->r == LABEL_DECLARED)
                 s->r = LABEL_FORWARD;
@@ -7106,9 +7234,9 @@ static void new_scope(struct scope *o)
     cur_scope->vla.num = 0;
 
     /* record local declaration stack position */
-    o->lstk = local_stack;
-    o->llstk = local_label_stack;
-    ++local_scope;
+    o->lstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    o->llstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
+    sym_scope_add(1);
 }
 
 static void prev_scope(struct scope *o, int is_expr)
@@ -7122,10 +7250,10 @@ static void prev_scope(struct scope *o, int is_expr)
         tcc_debug_end_scope(o->lstk, !is_expr);
 
     /* pop locally defined labels */
-    label_pop(&local_label_stack, o->llstk, is_expr);
+    label_pop(NEOCC_SYMBOL_STACK_LOCAL_LABEL, o->llstk, is_expr);
 
     /* In the is_expr case (a statement expression is finished here),
-       vtop might refer to symbols on the local_stack.  Either via the
+       vtop might refer to symbols on the local stack.  Either via the
        type or via vtop->sym.  We can't pop those nor any that in turn
        might be referred to.  To make it easier we don't roll back
        any symbols in that case; some upper level call to block() will
@@ -7133,9 +7261,9 @@ static void prev_scope(struct scope *o, int is_expr)
        tables, though.  sym_pop will do that.  */
 
     /* pop locally defined symbols */
-    sym_pop(&local_stack, o->lstk, is_expr);
+    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, o->lstk, is_expr);
     cur_scope = o->prev;
-    --local_scope;
+    sym_scope_add(-1);
 }
 
 /* leave a scope via break/continue(/goto) */
@@ -7151,14 +7279,14 @@ static void leave_scope(struct scope *o)
    declare only types (of struct/union/enum) */
 static void new_scope_s(struct scope *o)
 {
-    o->lstk = local_stack;
-    ++local_scope;
+    o->lstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    sym_scope_add(1);
 }
 
 static void prev_scope_s(struct scope *o)
 {
-    sym_pop(&local_stack, o->lstk, 0);
-    --local_scope;
+    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, o->lstk, 0);
+    sym_scope_add(-1);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -7256,7 +7384,8 @@ again:
                 next();
                 if (tcc_state->pp->token < TOK_UIDENT)
                     expect("label identifier");
-                label_push(&local_label_stack, tcc_state->pp->token, LABEL_DECLARED);
+                label_push(NEOCC_SYMBOL_STACK_LOCAL_LABEL,
+                           tcc_state->pp->token, LABEL_DECLARED);
                 next();
             } while (tcc_state->pp->token == ',');
             skip(';');
@@ -7272,7 +7401,7 @@ again:
         prev_scope(&o, flags & STMT_EXPR);
         if (debug_modes)
             tcc_debug_stabn(tcc_state, N_RBRAC, ind - func_ind);
-        if (local_scope)
+        if (sym_scope_get())
             next();
         else if (!nocode_wanted)
             check_func_return();
@@ -7299,7 +7428,7 @@ again:
             gfunc_return(&func_vt);
         skip(';');
         /* jump unless last stmt in top-level block */
-        if (tcc_state->pp->token != '}' || local_scope != 1)
+        if (tcc_state->pp->token != '}' || sym_scope_get() != 1)
             rsym = gjmp(rsym);
         if (debug_modes)
 	    tcc_tcov_block_end (tcc_state, -1);
@@ -7460,7 +7589,8 @@ again:
 	    s = label_find(tcc_state->pp->token);
 	    /* put forward definition if needed */
             if (!s)
-              s = label_push(&global_label_stack, tcc_state->pp->token, LABEL_FORWARD);
+              s = label_push(NEOCC_SYMBOL_STACK_GLOBAL_LABEL,
+                           tcc_state->pp->token, LABEL_FORWARD);
             else if (s->r == LABEL_DECLARED)
               s->r = LABEL_FORWARD;
 
@@ -7500,11 +7630,12 @@ again:
 		    struct neocc_symbol *pcl; /* pending cleanup goto */
 		    for (pcl = s->next; pcl; pcl = pcl->prev)
 		      gsym(pcl->jnext);
-		    sym_pop(&s->next, NULL, 0);
+		    sym_list_pop(&s->next, NULL, 0);
 		} else
 		  gsym(s->jnext);
             } else {
-                s = label_push(&global_label_stack, t, LABEL_DEFINED);
+                s = label_push(NEOCC_SYMBOL_STACK_GLOBAL_LABEL, t,
+                               LABEL_DEFINED);
             }
             s->jind = gind();
             s->cleanupstate = cur_scope->cl.s;
@@ -8596,7 +8727,7 @@ static void sym_push_params(struct neocc_symbol *ref)
         s = s->next;
     while (s != ref) {
         if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
-            sym_copy(s, &local_stack);
+            sym_copy(s, NEOCC_SYMBOL_STACK_LOCAL);
         s = s->prev;
     }
 }
@@ -8635,12 +8766,12 @@ static void gen_function(struct neocc_symbol *sym)
     tcc_debug_funcstart(tcc_state, sym);
 
     /* push a dummy symbol to enable local sym storage */
-    sym_push2(&local_stack, SYM_FIELD, 0, 0);
+    sym_stack_push(NEOCC_SYMBOL_STACK_LOCAL, SYM_FIELD, 0, 0);
     /* push parameters */
-    local_scope = 1;
+    sym_scope_set(1);
     sym_push_params(sym->type.ref);
 
-    local_scope = 0;
+    sym_scope_set(0);
     rsym = 0;
     nb_temp_local_vars = 0;
 
@@ -8661,10 +8792,10 @@ static void gen_function(struct neocc_symbol *sym)
     elfsym(sym)->st_size = ind - func_ind;
     cur_text_section->data_offset = ind;
 
-    sym_pop(&local_stack, NULL, 0);
-    label_pop(&global_label_stack, NULL, 0);
-    sym_pop(&all_cleanups, NULL, 0);
-    local_scope = 0;
+    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
+    label_pop(NEOCC_SYMBOL_STACK_GLOBAL_LABEL, NULL, 0);
+    sym_list_pop(&all_cleanups, NULL, 0);
+    sym_scope_set(0);
 
     /* It's better to crash than to generate wrong code */
     cur_text_section = NULL;
@@ -8835,9 +8966,9 @@ static int decl(int l)
                 sym = type.ref;
                 if (sym->f.func_type == FUNC_OLD && l == VT_CONST) {
                     func_vt = type;
-		    ++local_scope;
+		    sym_scope_add(1);
                     decl(VT_CMP);
-		    --local_scope;
+		    sym_scope_add(-1);
                 }
                 if ((type.t & (VT_EXTERN|VT_INLINE)) == (VT_EXTERN|VT_INLINE)) {
                     /* always_inline functions must be handled as if they
@@ -8936,7 +9067,7 @@ static int decl(int l)
                     /* save typedefed type  */
                     /* XXX: test storage specifiers ? */
                     sym = sym_find(v);
-                    if (sym && sym->sym_scope == local_scope) {
+                    if (sym && sym->sym_scope == sym_scope_get()) {
                         if (!is_compatible_types(&sym->type, &type)
                             || !(sym->type.t & VT_TYPEDEF))
                             tcc_error("incompatible redefinition of '%s'",

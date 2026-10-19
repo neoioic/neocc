@@ -6,7 +6,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 
 主要任务是用 NEOioic 写一遍 TinyCC，采用最小必要改动，保留既有编译算法、目标 ABI 和代码生成语义，逐步迁移状态所有权与模块协作。不要借重构另写一套语言、IR、优化框架或编译器算法，也不要仅给旧编译器套对象外壳便宣称完成重构。
 
-当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有当前 token/值、借用源游标、宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。`symbols` 对象现拥有语义符号池和回收链，分配/归还经 VO，原全局符号池已删除；作用域、符号栈和表达式状态仍待迁移。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。预处理算法仍依赖全局会话入口，语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
+当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有当前 token/值、借用源游标、宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。`symbols` 对象现拥有语义符号池、回收链、global/local/宏定义/global label/local label 五类栈头及当前作用域层级，分配、入栈、复制、移动、出栈和回收均经 VO，原全局符号池、五个栈头及 `local_scope` 已删除；作用域结构体、清理/goto 链、类型、表达式栈和后端状态仍待迁移。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。预处理算法仍依赖全局会话入口，语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
 
 ## 工作区边界与可交接性
 
@@ -96,7 +96,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 - 每次选择一个职责清晰、可独立审查和验证的完整阶段；说明边界后直接实施，常规实现、修复和仓库内验证不反复询问确认，不跨多个大阶段连续推进。
 - 同一阶段完成实现、删除被替代路径、补充必要回归并同步文档。编译器迁移阶段串行运行 `python tests/verify.py --mode debug` 与 `python tests/verify.py --mode release`；失败应修复并复验，不把失败或未执行说成通过。纯文档变更核对事实、链接、UTF-8/LF 和 `git diff --check`，无需为此重跑编译器全量测试。
 - 测试通过后停下，中文简述本阶段改动、实际验证及未完成边界，并给出一句简短中文 Git 提交信息，供开发者提交备份；不要自动开始下一阶段。收到“已提交，请继续”等指示后，再推进下一阶段。
-- Git 操作由开发者执行，不自动暂存、提交或推送；接手时重新检查实际状态，不假定上一个阶段或交接文档已经提交。交接提示词见 `docs/next-agent-prompt.md`，进度以源码及 `docs/handoff.md` 为准。
+- Git 操作由开发者执行，不自动暂存、提交或推送；接手时重新检查实际状态，不假定上一个阶段或交接文档已经提交。进度以源码及 `docs/handoff.md` 为准。
 
 ## 开源维护与许可
 

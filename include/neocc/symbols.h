@@ -9,7 +9,14 @@
 
 #define NEOCC_AC0_SYMBOLS_RESET AC0_
 #define NEOCC_AC1_SYMBOLS_ALLOCATE AC1_
+#define NEOCC_AC1_SYMBOLS_SCOPE (AC1_ + 1)
 #define NEOCC_AC2_SYMBOLS_RELEASE AC2_
+#define NEOCC_AC2_SYMBOLS_DROP (AC2_ + 1)
+#define NEOCC_AC2_SYMBOLS_SCOPE (AC2_ + 2)
+#define NEOCC_AC3_SYMBOLS_PUSH (AC3_ + 1)
+#define NEOCC_AC3_SYMBOLS_COPY (AC3_ + 2)
+#define NEOCC_AC3_SYMBOLS_TOP (AC3_ + 3)
+#define NEOCC_AC3_SYMBOLS_MOVE (AC3_ + 4)
 
 /* type definition */
 struct neocc_type {
@@ -82,11 +89,72 @@ struct neocc_symbol {
 	};
 };
 
+/* Stack identities preserve TinyCC's separate semantic, macro and label
+ * lookup orders. The object owns every head; callers receive borrowed nodes
+ * and may traverse prev links read-only. Token symbol links stay with the
+ * compiler and must be removed before dropping nodes or resetting storage.
+ */
+enum neocc_symbol_stack {
+	NEOCC_SYMBOL_STACK_GLOBAL = 0,
+	NEOCC_SYMBOL_STACK_LOCAL,
+	NEOCC_SYMBOL_STACK_DEFINE,
+	NEOCC_SYMBOL_STACK_GLOBAL_LABEL,
+	NEOCC_SYMBOL_STACK_LOCAL_LABEL,
+	NEOCC_SYMBOL_STACK_COUNT
+};
+
 /* In-process pointer messages, copied with memcpy. Allocate returns a
  * writable symbol owned by this object; its contents are not initialized.
- * Release accepts a live symbol from this same object, exactly once.
- * Reset/final close invalidate all pointers. Clear semantic and macro
- * stacks and token symbol links before resetting this storage.
+ * Push initializes a zeroed record and prepends it to the selected stack.
+ * Copy duplicates a live record and prepends the copy. Top returns a
+ * borrowed head or NULL for an empty stack. Drop releases the current head
+ * and rejects any other pointer. Move detaches a symbol found anywhere in
+ * the source stack and prepends it to the destination; copy requests first
+ * allocate an identical replacement at the source position and return it.
+ * Move returns RO_VAINLY without output when the symbol is not in the source.
+ * Scope reports the current level; its change is signed and may not make the
+ * level negative. Reset and final close clear all stacks and the pool.
+ * Release/drop accept a live symbol from this object exactly once, and all
+ * reset/close operations invalidate every previously borrowed pointer.
  */
+struct neocc_symbol_push {
+	unsigned int stack;
+	int v;
+	int type;
+	int c;
+};
+
+struct neocc_symbol_copy {
+	unsigned int stack;
+	struct neocc_symbol *symbol;
+};
+
+struct neocc_symbol_stack_query {
+	unsigned int stack;
+};
+
+struct neocc_symbol_stack_result {
+	struct neocc_symbol *top;
+};
+
+struct neocc_symbol_drop {
+	unsigned int stack;
+	struct neocc_symbol *symbol;
+};
+
+struct neocc_symbol_move {
+	unsigned int source;
+	unsigned int destination;
+	struct neocc_symbol *symbol;
+	int copy;
+};
+
+struct neocc_symbol_move_result {
+	struct neocc_symbol *replacement;
+};
+
+struct neocc_symbol_scope {
+	int change;
+};
 
 #endif

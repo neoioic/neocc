@@ -1007,7 +1007,7 @@ ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *f
     struct neocc_symbol *s, *o;
 
     o = define_find(v);
-    s = sym_push2(&define_stack, v, macro_type, 0);
+    s = sym_stack_push(NEOCC_SYMBOL_STACK_DEFINE, v, macro_type, 0);
     s->d = str;
     s->next = first_arg;
     neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_define = s;
@@ -1035,12 +1035,12 @@ ST_INLN struct neocc_symbol *define_find(int v)
 /* free define stack until top reaches 'b' */
 ST_FUNC void free_defines(struct neocc_symbol *b)
 {
-    while (define_stack != b) {
-        struct neocc_symbol *top = define_stack;
-        define_stack = top->prev;
+    struct neocc_symbol *top;
+
+    while ((top = sym_stack_top(NEOCC_SYMBOL_STACK_DEFINE)) != b) {
         tok_str_free_str(top->d);
         define_undef(top);
-        sym_free(top);
+        sym_stack_drop(NEOCC_SYMBOL_STACK_DEFINE, top);
     }
 }
 
@@ -1308,7 +1308,8 @@ ST_FUNC void parse_define(void)
             if (varg < TOK_IDENT)
         bad_list:
                 tcc_error("bad macro parameter list");
-            s = sym_push2(&define_stack, varg | SYM_FIELD, is_vaargs, 0);
+            s = sym_stack_push(NEOCC_SYMBOL_STACK_DEFINE,
+                               varg | SYM_FIELD, is_vaargs, 0);
             *ps = s;
             ps = &s->next;
             if (tcc_state->pp->token == ')')
@@ -1423,7 +1424,8 @@ static int pragma_parse(TCCState *s1)
                 define_push(v, 0, NULL, NULL);
             s->type.ref = s; /* set push boundary */
         } else {
-            for (s = define_stack; s; s = s->prev)
+            for (s = sym_stack_top(NEOCC_SYMBOL_STACK_DEFINE); s;
+                 s = s->prev)
                 if (s->v == v && s->type.ref == s) {
                     s->type.ref = NULL;
                     break;
