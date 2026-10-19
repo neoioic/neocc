@@ -31,17 +31,14 @@
 */
 ST_DATA int rsym, anon_sym, ind, loc;
 
-ST_DATA Sym *global_stack;
-ST_DATA Sym *local_stack;
-ST_DATA Sym *define_stack;
-ST_DATA Sym *global_label_stack;
-ST_DATA Sym *local_label_stack;
+ST_DATA struct neocc_symbol *global_stack;
+ST_DATA struct neocc_symbol *local_stack;
+ST_DATA struct neocc_symbol *define_stack;
+ST_DATA struct neocc_symbol *global_label_stack;
+ST_DATA struct neocc_symbol *local_label_stack;
 
-static Sym *sym_free_first;
-static void **sym_pools;
-static int nb_sym_pools;
 
-static Sym *all_cleanups, *pending_gotos;
+static struct neocc_symbol *all_cleanups, *pending_gotos;
 static int local_scope;
 ST_DATA char debug_modes;
 
@@ -68,13 +65,13 @@ ST_DATA int nocode_wanted; /* no code generation wanted */
 #define CONST_WANTED  (nocode_wanted & CONST_WANTED_MASK)
 
 ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
-ST_DATA CType func_vt; /* current function return type (used by return instruction) */
+ST_DATA struct neocc_type func_vt; /* current function return type (used by return instruction) */
 ST_DATA int func_var; /* true if current function is variadic (used by return instruction) */
 ST_DATA int func_vc; /* stack address for implicit struct return storage */
 ST_DATA int func_ind; /* function start address */
 static int func_old;
 ST_DATA const char *funcname;
-ST_DATA CType int_type, func_old_type, char_type, char_pointer_type;
+ST_DATA struct neocc_type int_type, func_old_type, char_type, char_pointer_type;
 static struct neocc_string initstr;
 
 #if PTR_SIZE == 4
@@ -113,15 +110,15 @@ static int nb_temp_local_vars;
 static struct scope {
     struct scope *prev;
     struct { int loc, locorig, num; } vla;
-    struct { Sym *s; int n; } cl;
+    struct { struct neocc_symbol *s; int n; } cl;
     int *bsym, *csym;
-    Sym *lstk, *llstk;
+    struct neocc_symbol *lstk, *llstk;
 } *cur_scope, *loop_scope, *root_scope;
 
 typedef struct {
     Section *sec;
     int local_offset;
-    Sym *flex_array_ref;
+    struct neocc_symbol *flex_array_ref;
 } init_params;
 
 #if 1
@@ -133,33 +130,33 @@ static void block(int flags);
 #define STMT_EXPR 1
 #define STMT_COMPOUND 2
 
-static void gen_cast(CType *type);
+static void gen_cast(struct neocc_type *type);
 static void gen_cast_s(int t);
-static inline CType *pointed_type(CType *type);
-static void check_restrict_type(CType *type);
-static int type_qualifiers(CType *type);
-static void parse_btype_qualify(CType *type, int qualifiers);
-static int is_compatible_types(CType *type1, CType *type2);
-static int parse_btype(CType *type, AttributeDef *ad, int ignore_label);
-static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td);
-static void parse_expr_type(CType *type);
-static void init_putv(init_params *p, CType *type, unsigned long c);
-static void decl_initializer(init_params *p, CType *type, unsigned long c, int flags);
-static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r, int has_init, int v, int scope);
+static inline struct neocc_type *pointed_type(struct neocc_type *type);
+static void check_restrict_type(struct neocc_type *type);
+static int type_qualifiers(struct neocc_type *type);
+static void parse_btype_qualify(struct neocc_type *type, int qualifiers);
+static int is_compatible_types(struct neocc_type *type1, struct neocc_type *type2);
+static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_label);
+static struct neocc_type *type_decl(struct neocc_type *type, AttributeDef *ad, int *v, int td);
+static void parse_expr_type(struct neocc_type *type);
+static void init_putv(init_params *p, struct neocc_type *type, unsigned long c);
+static void decl_initializer(init_params *p, struct neocc_type *type, unsigned long c, int flags);
+static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, int r, int has_init, int v, int scope);
 static int decl(int l);
 static void expr_eq(void);
-static void vpush_type_size(CType *type, int *a);
-static int is_compatible_unqualified_types(CType *type1, CType *type2);
+static void vpush_type_size(struct neocc_type *type, int *a);
+static int is_compatible_unqualified_types(struct neocc_type *type1, struct neocc_type *type2);
 static inline int64_t expr_const64(void);
 static void vpush64(int ty, unsigned long long v);
-static void vpush(CType *type);
+static void vpush(struct neocc_type *type);
 static int gvtst(int inv, int t);
 static void gen_inline_functions(TCCState *s);
 static void free_inline_functions(TCCState *s);
 static void skip_or_save_block(struct neocc_token_string **str);
 static void gv_dup(void);
 static int get_temp_local_var(int size,int align,int *r2);
-static void cast_error(CType *st, CType *dt);
+static void cast_error(struct neocc_type *st, struct neocc_type *dt);
 static void end_switch(void);
 static void do_Static_assert(void);
 
@@ -352,7 +349,7 @@ void pv (const char *lbl, int a, int b)
 }
 
 /* dump symbols on stack from s ... last */
-static inline void psyms(const char *msg, Sym *s, Sym *last)
+static inline void psyms(const char *msg, struct neocc_symbol *s, struct neocc_symbol *last)
 {
     printf("%-8s scope         v        c        r   type.t\n", msg);
     while (s && s != last) {
@@ -362,10 +359,10 @@ static inline void psyms(const char *msg, Sym *s, Sym *last)
     }
 }
 
-static void type_to_str(char *buf, int buf_size, CType *type, const char *varstr);
+static void type_to_str(char *buf, int buf_size, struct neocc_type *type, const char *varstr);
 
 /* print type */
-static void ptype(const char *msg, CType *type, int v)
+static void ptype(const char *msg, struct neocc_type *type, int v)
 {
     char buf[500];
     type_to_str(buf, sizeof(buf), type,
@@ -439,8 +436,6 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     sym_pop(&local_stack, NULL, 0);
     /* free preprocessor macros */
     free_defines(NULL);
-    /* free sym_pools */
-    dynarray_reset(&sym_pools, &nb_sym_pools);
     cstr_free(&initstr);
     dynarray_reset(&stk_data, &nb_stk_data);
     while (cur_switch)
@@ -453,11 +448,13 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     global_label_stack = NULL;
     local_label_stack = NULL;
     cur_text_section = NULL;
-    sym_free_first = NULL;
+    if (!RP(vo_interact0(s1->symbols, NEOCC_AC0_SYMBOLS_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset semantic symbol storage");
 }
 
 /* ------------------------------------------------------------------------- */
-ST_FUNC ElfSym *elfsym(Sym *s)
+ST_FUNC ElfSym *elfsym(struct neocc_symbol *s)
 {
   if (!s || !s->c)
     return NULL;
@@ -465,7 +462,7 @@ ST_FUNC ElfSym *elfsym(Sym *s)
 }
 
 /* apply storage attributes to Elf symbol */
-ST_FUNC void update_storage(Sym *sym)
+ST_FUNC void update_storage(struct neocc_symbol *sym)
 {
     ElfSym *esym;
     int sym_bind, old_sym_bind;
@@ -511,7 +508,7 @@ ST_FUNC void update_storage(Sym *sym)
 /* update sym->c so that it points to an external symbol in section
    'section' with value 'value' */
 
-ST_FUNC void put_extern_sym2(Sym *sym, int sh_num,
+ST_FUNC void put_extern_sym2(struct neocc_symbol *sym, int sh_num,
                             addr_t value, unsigned long size,
                             int can_add_underscore)
 {
@@ -542,7 +539,7 @@ ST_FUNC void put_extern_sym2(Sym *sym, int sh_num,
 
 #ifdef TCC_TARGET_PE
         if (sym_type == STT_FUNC && sym->type.ref) {
-            Sym *ref = sym->type.ref;
+            struct neocc_symbol *ref = sym->type.ref;
             if (ref->a.nodecorate) {
                 can_add_underscore = 0;
             }
@@ -581,7 +578,7 @@ ST_FUNC void put_extern_sym2(Sym *sym, int sh_num,
     update_storage(sym);
 }
 
-ST_FUNC void put_extern_sym(Sym *sym, Section *s, addr_t value, unsigned long size)
+ST_FUNC void put_extern_sym(struct neocc_symbol *sym, Section *s, addr_t value, unsigned long size)
 {
     if (nocode_wanted && (NODATA_WANTED || (s && s == cur_text_section)))
         return;
@@ -589,7 +586,7 @@ ST_FUNC void put_extern_sym(Sym *sym, Section *s, addr_t value, unsigned long si
 }
 
 /* add a new relocation entry to symbol 'sym' in section 's' */
-ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type,
+ST_FUNC void greloca(Section *s, struct neocc_symbol *sym, unsigned long offset, int type,
                      addr_t addend)
 {
     int c = 0;
@@ -604,7 +601,7 @@ ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type,
                 && (sym->type.t & (VT_STATIC|VT_EXTERN)) == (VT_STATIC|VT_EXTERN)) {
                 /* when a local function declaraion redeclares a global static one
                    then tccelf would not resolve them to the same symbol. */
-                Sym *s = sym;
+                struct neocc_symbol *s = sym;
                 while (s->prev_tok)
                     s = s->prev_tok;
                 s->c = sym->c;
@@ -618,62 +615,39 @@ ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type,
 }
 
 #if PTR_SIZE == 4
-ST_FUNC void greloc(Section *s, Sym *sym, unsigned long offset, int type)
+ST_FUNC void greloc(Section *s, struct neocc_symbol *sym, unsigned long offset, int type)
 {
     greloca(s, sym, offset, type, 0);
 }
 #endif
 
 /* ------------------------------------------------------------------------- */
-/* symbol allocator */
-static Sym *__sym_malloc(void)
+/* Symbols remain ordinary compiler records; the object owns their storage. */
+static struct neocc_symbol *sym_malloc(void)
 {
-    Sym *sym_pool, *sym, *last_sym;
-    int i;
+    struct neocc_symbol *symbol;
+    unsigned int quantity;
+    int result = vo_interact1(tcc_state->symbols, NEOCC_AC1_SYMBOLS_ALLOCATE,
+        (unsigned char *)&symbol, sizeof(symbol), &quantity, &neocc_host_caller);
 
-    sym_pool = tcc_malloc(SYM_POOL_NB * sizeof(Sym));
-    dynarray_add(&sym_pools, &nb_sym_pools, sym_pool);
-
-    last_sym = sym_free_first;
-    sym = sym_pool;
-    for(i = 0; i < SYM_POOL_NB; i++) {
-        sym->next = last_sym;
-        last_sym = sym;
-        sym++;
-    }
-    sym_free_first = last_sym;
-    return last_sym;
+    if (!RP(result) || quantity != sizeof(symbol))
+        tcc_error("cannot allocate semantic symbol (result %d)", result);
+    return symbol;
 }
 
-static inline Sym *sym_malloc(void)
+ST_INLN void sym_free(struct neocc_symbol *symbol)
 {
-    Sym *sym;
-#ifndef SYM_DEBUG
-    sym = sym_free_first;
-    if (!sym)
-        sym = __sym_malloc();
-    sym_free_first = sym->next;
-    return sym;
-#else
-    sym = tcc_malloc(sizeof(Sym));
-    return sym;
-#endif
-}
+    int result = vo_interact2(tcc_state->symbols, NEOCC_AC2_SYMBOLS_RELEASE,
+        (unsigned char *)&symbol, sizeof(symbol), &neocc_host_caller);
 
-ST_INLN void sym_free(Sym *sym)
-{
-#ifndef SYM_DEBUG
-    sym->next = sym_free_first;
-    sym_free_first = sym;
-#else
-    tcc_free(sym);
-#endif
+    if (!RP(result))
+        tcc_error("cannot release semantic symbol (result %d)", result);
 }
 
 /* push, without hashing */
-ST_FUNC Sym *sym_push2(Sym **ps, int v, int t, int c)
+ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c)
 {
-    Sym *s;
+    struct neocc_symbol *s;
 
     s = sym_malloc();
     memset(s, 0, sizeof *s);
@@ -688,7 +662,7 @@ ST_FUNC Sym *sym_push2(Sym **ps, int v, int t, int c)
 
 /* find a symbol and return its associated structure. 's' is the top
    of the symbol stack */
-ST_FUNC Sym *sym_find2(Sym *s, int v)
+ST_FUNC struct neocc_symbol *sym_find2(struct neocc_symbol *s, int v)
 {
     while (s) {
         if (s->v == v)
@@ -699,7 +673,7 @@ ST_FUNC Sym *sym_find2(Sym *s, int v)
 }
 
 /* structure lookup */
-ST_INLN Sym *struct_find(int v)
+ST_INLN struct neocc_symbol *struct_find(int v)
 {
     v -= TOK_IDENT;
     if ((unsigned)v >= (unsigned)(neocc_token_next(tcc_state) - TOK_IDENT))
@@ -708,7 +682,7 @@ ST_INLN Sym *struct_find(int v)
 }
 
 /* find an identifier */
-ST_INLN Sym *sym_find(int v)
+ST_INLN struct neocc_symbol *sym_find(int v)
 {
     v -= TOK_IDENT;
     if ((unsigned)v >= (unsigned)(neocc_token_next(tcc_state) - TOK_IDENT))
@@ -717,10 +691,10 @@ ST_INLN Sym *sym_find(int v)
 }
 
 /* make sym in-/visible to the parser */
-static inline void sym_link(Sym *s, int yes)
+static inline void sym_link(struct neocc_symbol *s, int yes)
 {
     struct neocc_token *ts = neocc_token_at(tcc_state, ((s->v & ~SYM_STRUCT) - TOK_IDENT) + TOK_IDENT);
-    Sym **ps;
+    struct neocc_symbol **ps;
     if (s->v & SYM_STRUCT)
         ps = &ts->sym_struct;
     else
@@ -733,7 +707,7 @@ static inline void sym_link(Sym *s, int yes)
     }
 }
 
-static inline int sym_scope_ex(Sym *s)
+static inline int sym_scope_ex(struct neocc_symbol *s)
 {
     /* enums have 'sym_scope' overwritten by 'enum_val' */
     return IS_ENUM_VAL (s->type.t)
@@ -742,9 +716,9 @@ static inline int sym_scope_ex(Sym *s)
 }
 
 /* push a given symbol on the symbol stack */
-ST_FUNC Sym *sym_push(int v, CType *type, int r, int c)
+ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c)
 {
-    Sym *s, **ps;
+    struct neocc_symbol *s, **ps;
     if (local_stack)
         ps = &local_stack;
     else
@@ -763,9 +737,9 @@ ST_FUNC Sym *sym_push(int v, CType *type, int r, int c)
 }
 
 /* push a global identifier */
-ST_FUNC Sym *global_identifier_push(int v, int t, int c)
+ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c)
 {
-    Sym *s, **ps;
+    struct neocc_symbol *s, **ps;
     s = sym_push2(&global_stack, v, t, c);
     s->r = VT_CONST | VT_SYM;
     /* don't record anonymous symbol */
@@ -783,9 +757,9 @@ ST_FUNC Sym *global_identifier_push(int v, int t, int c)
 
 /* pop symbols until top reaches 'b'.  If KEEP is non-zero don't really
    pop them yet from the list, but do remove them from the token array.  */
-ST_FUNC void sym_pop(Sym **ptop, Sym *b, int keep)
+ST_FUNC void sym_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep)
 {
-    Sym *s, *ss;
+    struct neocc_symbol *s, *ss;
     int v;
 
     s = *ptop;
@@ -804,7 +778,7 @@ ST_FUNC void sym_pop(Sym **ptop, Sym *b, int keep)
 }
 
 /* label lookup */
-ST_FUNC Sym *label_find(int v)
+ST_FUNC struct neocc_symbol *label_find(int v)
 {
     v -= TOK_IDENT;
     if ((unsigned)v >= (unsigned)(neocc_token_next(tcc_state) - TOK_IDENT))
@@ -812,9 +786,9 @@ ST_FUNC Sym *label_find(int v)
     return neocc_token_at(tcc_state, (v) + TOK_IDENT)->sym_label;
 }
 
-ST_FUNC Sym *label_push(Sym **ptop, int v, int flags)
+ST_FUNC struct neocc_symbol *label_push(struct neocc_symbol **ptop, int v, int flags)
 {
-    Sym *s, **ps;
+    struct neocc_symbol *s, **ps;
     s = sym_push2(ptop, v, VT_STATIC, 0);
     s->r = flags;
     ps = &neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_label;
@@ -831,9 +805,9 @@ ST_FUNC Sym *label_push(Sym **ptop, int v, int flags)
 
 /* pop labels until element last is reached. Look if any labels are
    undefined. Define symbols if '&&label' was used. */
-ST_FUNC void label_pop(Sym **ptop, Sym *slast, int keep)
+ST_FUNC void label_pop(struct neocc_symbol **ptop, struct neocc_symbol *slast, int keep)
 {
-    Sym *s, *s1;
+    struct neocc_symbol *s, *s1;
     for(s = *ptop; s != slast; s = s1) {
         s1 = s->prev;
         if (s->r == LABEL_DECLARED) {
@@ -885,7 +859,7 @@ static void vcheck_cmp(void)
         gv(RC_INT);
 }
 
-static void vsetc(CType *type, int r, union neocc_value *vc)
+static void vsetc(struct neocc_type *type, int r, union neocc_value *vc)
 {
     if (vtop >= vstack + (VSTACK_SIZE - 1))
         tcc_error("memory full (vstack)");
@@ -928,7 +902,7 @@ ST_FUNC void vpop(void)
 }
 
 /* push constant of type "type" with useless value */
-static void vpush(CType *type)
+static void vpush(struct neocc_type *type)
 {
     vset(type, VT_CONST, 0);
 }
@@ -937,7 +911,7 @@ static void vpush(CType *type)
 static void vpush64(int ty, unsigned long long v)
 {
     union neocc_value cval;
-    CType ctype;
+    struct neocc_type ctype;
     ctype.t = ty;
     ctype.ref = NULL;
     cval.i = v;
@@ -962,7 +936,7 @@ static inline void vpushll(long long v)
     vpush64(VT_LLONG, v);
 }
 
-ST_FUNC void vset(CType *type, int r, int v)
+ST_FUNC void vset(struct neocc_type *type, int r, int v)
 {
     union neocc_value cval;
     cval.i = v;
@@ -971,7 +945,7 @@ ST_FUNC void vset(CType *type, int r, int v)
 
 static void vseti(int r, int v)
 {
-    CType type;
+    struct neocc_type type;
     type.t = VT_INT;
     type.ref = NULL;
     vset(&type, r, v);
@@ -1115,7 +1089,7 @@ static void gen_test_zero(int op)
 
 /* ------------------------------------------------------------------------- */
 /* push a symbol value of TYPE */
-ST_FUNC void vpushsym(CType *type, Sym *sym)
+ST_FUNC void vpushsym(struct neocc_type *type, struct neocc_symbol *sym)
 {
     union neocc_value cval;
     cval.i = 0;
@@ -1124,10 +1098,10 @@ ST_FUNC void vpushsym(CType *type, Sym *sym)
 }
 
 /* Return a static symbol pointing to a section */
-ST_FUNC Sym *get_sym_ref(CType *type, Section *sec, unsigned long offset, unsigned long size)
+ST_FUNC struct neocc_symbol *get_sym_ref(struct neocc_type *type, Section *sec, unsigned long offset, unsigned long size)
 {
     int v;
-    Sym *sym;
+    struct neocc_symbol *sym;
 
     v = anon_sym++;
     sym = sym_push(v, type, VT_CONST | VT_SYM, 0);
@@ -1137,15 +1111,15 @@ ST_FUNC Sym *get_sym_ref(CType *type, Section *sec, unsigned long offset, unsign
 }
 
 /* push a reference to a section offset by adding a dummy symbol */
-static void vpush_ref(CType *type, Section *sec, unsigned long offset, unsigned long size)
+static void vpush_ref(struct neocc_type *type, Section *sec, unsigned long offset, unsigned long size)
 {
     vpushsym(type, get_sym_ref(type, sec, offset, size));  
 }
 
 /* define a new external reference to a symbol 'v' of type 'u' */
-ST_FUNC Sym *external_global_sym(int v, CType *type)
+ST_FUNC struct neocc_symbol *external_global_sym(int v, struct neocc_type *type)
 {
-    Sym *s;
+    struct neocc_symbol *s;
 
     s = sym_find(v);
     if (!s) {
@@ -1162,9 +1136,9 @@ ST_FUNC Sym *external_global_sym(int v, CType *type)
 
 /* create an external reference with no specific type similar to asm labels.
    This avoids type conflicts if the symbol is used from C too */
-ST_FUNC Sym *external_helper_sym(int v)
+ST_FUNC struct neocc_symbol *external_helper_sym(int v)
 {
-    CType ct = { VT_ASM_FUNC, NULL };
+    struct neocc_type ct = { VT_ASM_FUNC, NULL };
     return external_global_sym(v, &ct);
 }
 
@@ -1175,7 +1149,7 @@ ST_FUNC void vpush_helper_func(int v)
 }
 
 /* Merge symbol attributes.  */
-static void merge_symattr(struct SymAttr *sa, struct SymAttr *sa1)
+static void merge_symattr(struct neocc_symbol_attributes *sa, struct neocc_symbol_attributes *sa1)
 {
     if (sa1->aligned && !sa->aligned)
       sa->aligned = sa1->aligned;
@@ -1195,7 +1169,7 @@ static void merge_symattr(struct SymAttr *sa, struct SymAttr *sa1)
 }
 
 /* Merge function attributes.  */
-static void merge_funcattr(struct FuncAttr *fa, struct FuncAttr *fa1)
+static void merge_funcattr(struct neocc_function_attributes *fa, struct neocc_function_attributes *fa1)
 {
     if (fa1->func_call && !fa->func_call)
       fa->func_call = fa1->func_call;
@@ -1228,7 +1202,7 @@ static void merge_attr(AttributeDef *ad, AttributeDef *ad1)
 }
 
 /* Merge some type attributes.  */
-static void patch_type(Sym *sym, CType *type)
+static void patch_type(struct neocc_symbol *sym, struct neocc_type *type)
 {
     if (!(type->t & VT_EXTERN) || IS_ENUM_VAL(sym->type.t)) {
         if (!(sym->type.t & VT_EXTERN))
@@ -1270,7 +1244,7 @@ static void patch_type(Sym *sym, CType *type)
         }
 
         if (0 == (type->t & VT_EXTERN)) {
-            struct FuncAttr f = sym->type.ref->f;
+            struct neocc_function_attributes f = sym->type.ref->f;
             /* put complete type, use static from prototype */
             sym->type.t = (type->t & ~(VT_STATIC|VT_INLINE)) | static_proto;
             if (ft1 != FUNC_OLD)
@@ -1295,7 +1269,7 @@ static void patch_type(Sym *sym, CType *type)
 }
 
 /* Merge some storage attributes.  */
-static void patch_storage(Sym *sym, AttributeDef *ad, CType *type)
+static void patch_storage(struct neocc_symbol *sym, AttributeDef *ad, struct neocc_type *type)
 {
     if (type)
         patch_type(sym, type);
@@ -1312,9 +1286,9 @@ static void patch_storage(Sym *sym, AttributeDef *ad, CType *type)
 }
 
 /* copy sym to other stack */
-static Sym *sym_copy(Sym *s0, Sym **ps)
+static struct neocc_symbol *sym_copy(struct neocc_symbol *s0, struct neocc_symbol **ps)
 {
-    Sym *s;
+    struct neocc_symbol *s;
     s = sym_malloc(), *s = *s0;
     s->prev = *ps, *ps = s;
     if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
@@ -1324,9 +1298,9 @@ static Sym *sym_copy(Sym *s0, Sym **ps)
 
 /* Symbol 's' was locally declared 'extern' (or as function), and is
    on global_stack.  Now must copy its 'ref' to global_stack too */
-static void move_ref_to_global(Sym *s)
+static void move_ref_to_global(struct neocc_symbol *s)
 {
-    Sym *l, **lp;
+    struct neocc_symbol *l, **lp;
     int n, bt;
 
     bt = s->type.t & VT_BTYPE;
@@ -1362,9 +1336,9 @@ static void move_ref_to_global(Sym *s)
 }
 
 /* define a new external reference to a symbol 'v' */
-static Sym *external_sym(int v, CType *type, int r, AttributeDef *ad)
+static struct neocc_symbol *external_sym(int v, struct neocc_type *type, int r, AttributeDef *ad)
 {
-    Sym *s;
+    struct neocc_symbol *s;
 
     /* look for global symbol */
     s = sym_find(v);
@@ -1622,7 +1596,7 @@ static void gen_bounded_ptr_deref(void)
     addr_t func;
     int size, align;
     ElfW_Rel *rel;
-    Sym *sym;
+    struct neocc_symbol *sym;
 
     if (nocode_wanted)
         return;
@@ -1651,7 +1625,7 @@ static void gen_bounded_ptr_deref(void)
 /* generate lvalue bound code */
 static void gbound(void)
 {
-    CType type1;
+    struct neocc_type type1;
 
     vtop->r &= ~VT_MUSTBOUND;
     /* if lvalue, then use checking code before dereferencing */
@@ -1711,7 +1685,7 @@ ST_FUNC void gbound_args(int nb_args)
 }
 
 /* Add bounds for local symbols from S to E (via ->prev) */
-static void add_local_bounds(Sym *s, Sym *e)
+static void add_local_bounds(struct neocc_symbol *s, struct neocc_symbol *e)
 {
     for (; s != e; s = s->prev) {
         if (!s->v || (s->r & VT_VALMASK) != VT_LOCAL)
@@ -1733,7 +1707,7 @@ static void add_local_bounds(Sym *s, Sym *e)
 
 /* add debug info for locals or function parameters, optionally
    register bounds */
-static void tcc_debug_end_scope(Sym *b, int bounds)
+static void tcc_debug_end_scope(struct neocc_symbol *b, int bounds)
 {
 #ifdef CONFIG_TCC_BCHECK
     if (tcc_state->do_bounds_check && bounds)
@@ -1761,7 +1735,7 @@ static void incr_bf_adr(int o)
 }
 
 /* single-byte load mode for packed or otherwise unaligned bitfields */
-static void load_packed_bf(CType *type, int bit_pos, int bit_size)
+static void load_packed_bf(struct neocc_type *type, int bit_pos, int bit_size)
 {
     int n, o, bits;
     save_reg_upstack(vtop->r, 1);
@@ -1851,7 +1825,7 @@ ST_FUNC int gv(int rc)
 
     /* NOTE: get_reg can modify vstack[] */
     if (vtop->type.t & VT_BITFIELD) {
-        CType type;
+        struct neocc_type type;
 
         bit_pos = BIT_POS(vtop->type.t);
         bit_size = BIT_SIZE(vtop->type.t);
@@ -2658,10 +2632,10 @@ static void gen_opif(int op)
 /* XXX: union */
 /* XXX: add array and function pointers */
 static void type_to_str(char *buf, int buf_size,
-                 CType *type, const char *varstr)
+                 struct neocc_type *type, const char *varstr)
 {
     int bt, v, t;
-    Sym *s, *sa;
+    struct neocc_symbol *s, *sa;
     char buf1[256];
     const char *tstr;
 
@@ -2796,7 +2770,7 @@ static void type_to_str(char *buf, int buf_size,
  no_var: ;
 }
 
-static void type_incompatibility_error(CType* st, CType* dt, const char* fmt)
+static void type_incompatibility_error(struct neocc_type* st, struct neocc_type* dt, const char* fmt)
 {
     char buf1[256], buf2[256];
     type_to_str(buf1, sizeof(buf1), st, NULL);
@@ -2804,7 +2778,7 @@ static void type_incompatibility_error(CType* st, CType* dt, const char* fmt)
     tcc_error(fmt, buf1, buf2);
 }
 
-static void type_incompatibility_warning(CType* st, CType* dt, const char* fmt)
+static void type_incompatibility_warning(struct neocc_type* st, struct neocc_type* dt, const char* fmt)
 {
     char buf1[256], buf2[256];
     type_to_str(buf1, sizeof(buf1), st, NULL);
@@ -2812,7 +2786,7 @@ static void type_incompatibility_warning(CType* st, CType* dt, const char* fmt)
     tcc_warning(fmt, buf1, buf2);
 }
 
-static int pointed_size(CType *type)
+static int pointed_size(struct neocc_type *type)
 {
     int align;
     return type_size(pointed_type(type), &align);
@@ -2832,9 +2806,9 @@ static inline int is_null_pointer(SValue *p)
 }
 
 /* compare function types. OLD functions match any new functions */
-static int is_compatible_func(CType *type1, CType *type2)
+static int is_compatible_func(struct neocc_type *type1, struct neocc_type *type2)
 {
-    Sym *s1, *s2;
+    struct neocc_symbol *s1, *s2;
 
     s1 = type1->ref;
     s2 = type2->ref;
@@ -2861,7 +2835,7 @@ static int is_compatible_func(CType *type1, CType *type2)
 /* return true if type1 and type2 are the same.  If unqualified is
    true, qualifiers on the types are ignored.
  */
-static int compare_types(CType *type1, CType *type2, int unqualified)
+static int compare_types(struct neocc_type *type1, struct neocc_type *type2, int unqualified)
 {
     int bt1, t1, t2;
 
@@ -2917,9 +2891,9 @@ static int compare_types(CType *type1, CType *type2, int unqualified)
 
 /* Check if OP1 and OP2 can be "combined" with operation OP, the combined
    type is stored in DEST if non-null (except for pointer plus/minus) . */
-static int combine_types(CType *dest, SValue *op1, SValue *op2, int op)
+static int combine_types(struct neocc_type *dest, SValue *op1, SValue *op2, int op)
 {
-    CType *type1, *type2, type;
+    struct neocc_type *type1, *type2, type;
     int t1, t2, bt1, bt2;
     int ret = 1;
 
@@ -2959,8 +2933,8 @@ static int combine_types(CType *dest, SValue *op1, SValue *op2, int op)
               ret = 0;
             type = *(bt1 == VT_PTR ? type1 : type2);
         } else {
-            CType *pt1 = pointed_type(type1);
-            CType *pt2 = pointed_type(type2);
+            struct neocc_type *pt1 = pointed_type(type1);
+            struct neocc_type *pt2 = pointed_type(type2);
             int pbt1 = pt1->t & VT_BTYPE;
             int pbt2 = pt2->t & VT_BTYPE;
             int newquals, copied = 0;
@@ -3050,7 +3024,7 @@ static int combine_types(CType *dest, SValue *op1, SValue *op2, int op)
 ST_FUNC void gen_op(int op)
 {
     int t1, t2, bt1, bt2, t;
-    CType type1, combtype;
+    struct neocc_type type1, combtype;
     int op_class = op;
 
     if (op == TOK_SHR || op == TOK_SAR || op == TOK_SHL)
@@ -3253,14 +3227,14 @@ static void force_charshort_cast(void)
 
 static void gen_cast_s(int t)
 {
-    CType type;
+    struct neocc_type type;
     type.t = t;
     type.ref = NULL;
     gen_cast(&type);
 }
 
 /* cast 'vtop' to 'type'. Casting to bitfields is forbidden. */
-static void gen_cast(CType *type)
+static void gen_cast(struct neocc_type *type)
 {
     int sbt, dbt, sf, df, c;
     int dbt_bt, sbt_bt, ds, ss, bits, trunc;
@@ -3499,9 +3473,9 @@ done:
 }
 
 /* return type size as known at compile time. Put alignment at 'a' */
-ST_FUNC int type_size(CType *type, int *a)
+ST_FUNC int type_size(struct neocc_type *type, int *a)
 {
-    Sym *s;
+    struct neocc_symbol *s;
     int bt;
 
     bt = type->t & VT_BTYPE;
@@ -3554,7 +3528,7 @@ ST_FUNC int type_size(CType *type, int *a)
 
 /* push type size as known at runtime time on top of value stack. Put
    alignment at 'a' */
-static void vpush_type_size(CType *type, int *a)
+static void vpush_type_size(struct neocc_type *type, int *a)
 {
     if (type->t & VT_VLA) {
         type_size(&type->ref->type, a);
@@ -3568,12 +3542,12 @@ static void vpush_type_size(CType *type, int *a)
 }
 
 /* return the pointed type of t */
-static inline CType *pointed_type(CType *type)
+static inline struct neocc_type *pointed_type(struct neocc_type *type)
 {
     return &type->ref->type;
 }
 
-static void check_restrict_type(CType *type)
+static void check_restrict_type(struct neocc_type *type)
 {
     while ((type->t & VT_BTYPE) == VT_PTR) {
         if ((type->t & VT_RESTRICT)
@@ -3586,7 +3560,7 @@ static void check_restrict_type(CType *type)
 }
 
 /* Array qualifiers are represented on the element type. */
-static int type_qualifiers(CType *type)
+static int type_qualifiers(struct neocc_type *type)
 {
     while (type->t & VT_ARRAY)
         type = pointed_type(type);
@@ -3594,9 +3568,9 @@ static int type_qualifiers(CType *type)
 }
 
 /* modify type so that its it is a pointer to type. */
-ST_FUNC void mk_pointer(CType *type)
+ST_FUNC void mk_pointer(struct neocc_type *type)
 {
-    Sym *s;
+    struct neocc_symbol *s;
     s = sym_push(SYM_FIELD, type, 0, -1);
     type->t = VT_PTR | (type->t & VT_STORAGE);
     type->ref = s;
@@ -3605,27 +3579,27 @@ ST_FUNC void mk_pointer(CType *type)
 /* return true if type1 and type2 are exactly the same (including
    qualifiers). 
 */
-static int is_compatible_types(CType *type1, CType *type2)
+static int is_compatible_types(struct neocc_type *type1, struct neocc_type *type2)
 {
     return compare_types(type1,type2,0);
 }
 
 /* return true if type1 and type2 are the same (ignoring qualifiers).
 */
-static int is_compatible_unqualified_types(CType *type1, CType *type2)
+static int is_compatible_unqualified_types(struct neocc_type *type1, struct neocc_type *type2)
 {
     return compare_types(type1,type2,1);
 }
 
-static void cast_error(CType *st, CType *dt)
+static void cast_error(struct neocc_type *st, struct neocc_type *dt)
 {
     type_incompatibility_error(st, dt, "cannot convert '%s' to '%s'");
 }
 
 /* verify type compatibility to store vtop in 'dt' type */
-static void verify_assign_cast(CType *dt)
+static void verify_assign_cast(struct neocc_type *dt)
 {
-    CType *st, *type1, *type2;
+    struct neocc_type *st, *type1, *type2;
     int dbt, sbt, qualwarn, lvl;
 
     st = &vtop->type; /* source type */
@@ -3707,7 +3681,7 @@ static void verify_assign_cast(CType *dt)
     }
 }
 
-static void gen_assign_cast(CType *dt)
+static void gen_assign_cast(struct neocc_type *dt)
 {
     verify_assign_cast(dt);
     gen_cast(dt);
@@ -3962,7 +3936,7 @@ redo:
 	case TOK_CLEANUP1:
 	case TOK_CLEANUP2:
 	{
-	    Sym *s;
+	    struct neocc_symbol *s;
 
 	    skip('(');
 	    s = sym_find(tcc_state->pp->token);
@@ -4165,9 +4139,9 @@ skip_param:
     goto redo;
 }
 
-static Sym * find_field (CType *type, int v, int *cumofs)
+static struct neocc_symbol * find_field (struct neocc_type *type, int v, int *cumofs)
 {
-    Sym *s = type->ref;
+    struct neocc_symbol *s = type->ref;
     int v1 = v | SYM_FIELD;
     if (!(v & SYM_FIELD)) { /* top-level call */
         if ((type->t & VT_BTYPE) != VT_STRUCT)
@@ -4186,7 +4160,7 @@ static Sym * find_field (CType *type, int v, int *cumofs)
         if ((s->type.t & VT_BTYPE) == VT_STRUCT
           && s->v >= (SYM_FIRST_ANOM | SYM_FIELD)) {
             /* try to find field in anonymous sub-struct/union */
-            Sym *ret = find_field (&s->type, v1, cumofs);
+            struct neocc_symbol *ret = find_field (&s->type, v1, cumofs);
             if (ret) {
                 *cumofs += s->c;
                 return ret;
@@ -4198,9 +4172,9 @@ static Sym * find_field (CType *type, int v, int *cumofs)
     return s;
 }
 
-static void check_fields (CType *type, int check)
+static void check_fields (struct neocc_type *type, int check)
 {
-    Sym *s = type->ref;
+    struct neocc_symbol *s = type->ref;
 
     while ((s = s->next) != NULL) {
         int v = s->v & ~SYM_FIELD;
@@ -4214,13 +4188,13 @@ static void check_fields (CType *type, int check)
     }
 }
 
-static void struct_layout(CType *type, AttributeDef *ad)
+static void struct_layout(struct neocc_type *type, AttributeDef *ad)
 {
     int size, align, maxalign, offset, c, bit_pos, bit_size;
     int packed, a, bt, prevbt, prev_bit_size;
     int pcc = !tcc_state->ms_bitfields;
     int pragma_pack = *tcc_state->pack_stack_ptr;
-    Sym *f;
+    struct neocc_symbol *f;
 
     maxalign = 1;
     offset = 0;
@@ -4392,7 +4366,7 @@ static void struct_layout(CType *type, AttributeDef *ad)
     /* check whether we can access bitfields by their type */
     for (f = type->ref->next; f; f = f->next) {
         int s, px, cx, c0;
-        CType t;
+        struct neocc_type t;
 
         if (0 == (f->type.t & VT_BITFIELD))
             continue;
@@ -4473,13 +4447,13 @@ static int in_range(long long n, int t)
 }
 
 /* enum/struct/union declaration. u is VT_ENUM/VT_STRUCT/VT_UNION */
-static void struct_decl(CType *type, int u)
+static void struct_decl(struct neocc_type *type, int u)
 {
     int v, c, size, align, flexible;
     int bit_size, bsize, bt, ut;
-    Sym *s, *ss, **ps;
+    struct neocc_symbol *s, *ss, **ps;
     AttributeDef ad, ad1;
-    CType type1, btype;
+    struct neocc_type type1, btype;
 
     memset(&ad, 0, sizeof ad);
     next();
@@ -4537,7 +4511,7 @@ do_decl:
         ps = &s->next;
         if (u == VT_ENUM) {
             long long ll = 0, pl = 0, nl = 0;
-	    CType t;
+	    struct neocc_type t;
             t.ref = s;
             s->sym_scope = local_scope; /* anonymous symbol won't have set */
             /* enum symbols have static storage */
@@ -4727,7 +4701,7 @@ do_decl:
     }
 }
 
-static void sym_to_attr(AttributeDef *ad, Sym *s)
+static void sym_to_attr(AttributeDef *ad, struct neocc_symbol *s)
 {
     merge_symattr(&ad->a, &s->a);
     merge_funcattr(&ad->f, &s->f);
@@ -4735,7 +4709,7 @@ static void sym_to_attr(AttributeDef *ad, Sym *s)
 
 /* Add type qualifiers to a type. If the type is an array then the qualifiers
    are added to the element type, copied because it could be a typedef. */
-static void parse_btype_qualify(CType *type, int qualifiers)
+static void parse_btype_qualify(struct neocc_type *type, int qualifiers)
 {
     while (type->t & VT_ARRAY) {
         type->ref = sym_push(SYM_FIELD, &type->ref->type, 0, type->ref->c);
@@ -4749,11 +4723,11 @@ static void parse_btype_qualify(CType *type, int qualifiers)
 /* return 0 if no type declaration. otherwise, return the basic type
    and skip it. 
  */
-static int parse_btype(CType *type, AttributeDef *ad, int ignore_label)
+static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_label)
 {
     int t, u, bt, st, type_found, typespec_found, g, n;
-    Sym *s;
-    CType type1;
+    struct neocc_symbol *s;
+    struct neocc_type type1;
 
     memset(ad, 0, sizeof(AttributeDef));
     type_found = 0;
@@ -5026,7 +5000,7 @@ the_end:
 
 /* convert a function parameter type (array to pointer and function to
    function pointer) */
-static inline void convert_parameter_type(CType *pt)
+static inline void convert_parameter_type(struct neocc_type *pt)
 {
     /* array must be transformed to pointer according to ANSI C */
     pt->t &= ~(VT_ARRAY | VT_VLA);
@@ -5036,7 +5010,7 @@ static inline void convert_parameter_type(CType *pt)
 }
 
 /* apply the conversions required for an expression value */
-static inline void convert_expression_type(CType *pt)
+static inline void convert_expression_type(struct neocc_type *pt)
 {
     pt->t &= ~VT_QUAL;
     convert_parameter_type(pt);
@@ -5064,12 +5038,12 @@ static int asm_label_instr(void)
     return v;
 }
 
-static int post_type(CType *type, AttributeDef *ad, int storage, int td)
+static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int td)
 {
     int n, l, t1, arg_size, align;
-    Sym **plast, *s, *first, **ps, *sr;
+    struct neocc_symbol **plast, *s, *first, **ps, *sr;
     AttributeDef ad1;
-    CType pt;
+    struct neocc_type pt;
     struct neocc_token_string *vla_array_tok = NULL;
     int *vla_array_str = NULL;
 
@@ -5292,9 +5266,9 @@ check:
    type_decl().  If this (possibly abstract) declarator is a pointer chain
    it returns the innermost pointed to type (equals *type, but is a different
    pointer), otherwise returns type itself, that's used for recursive calls.  */
-static CType *type_decl(CType *type, AttributeDef *ad, int *v, int td)
+static struct neocc_type *type_decl(struct neocc_type *type, AttributeDef *ad, int *v, int td)
 {
-    CType *post, *ret;
+    struct neocc_type *post, *ret;
     int qualifiers, storage;
 
     /* recursive type, remove storage bits first, apply them later again */
@@ -5393,10 +5367,10 @@ ST_FUNC void indir(void)
 }
 
 /* pass a parameter to a function and do type checking and casting */
-static void gfunc_param_typed(Sym *func, Sym *arg)
+static void gfunc_param_typed(struct neocc_symbol *func, struct neocc_symbol *arg)
 {
     int func_type;
-    CType type;
+    struct neocc_type type;
 
     func_type = func->f.func_type;
     if (func_type == FUNC_OLD ||
@@ -5421,7 +5395,7 @@ static void gfunc_param_typed(Sym *func, Sym *arg)
 }
 
 /* parse an expression and return its type without any side effect. */
-static void expr_type(CType *type, void (*expr_fn)(void))
+static void expr_type(struct neocc_type *type, void (*expr_fn)(void))
 {
     nocode_wanted++;
     expr_fn();
@@ -5432,7 +5406,7 @@ static void expr_type(CType *type, void (*expr_fn)(void))
 
 /* parse an expression of the form '(type)' or '(expr)' and return its
    type */
-static void parse_expr_type(CType *type)
+static void parse_expr_type(struct neocc_type *type)
 {
     int n;
     AttributeDef ad;
@@ -5446,7 +5420,7 @@ static void parse_expr_type(CType *type)
     skip(')');
 }
 
-static void parse_type(CType *type)
+static void parse_type(struct neocc_type *type)
 {
     AttributeDef ad;
     int n;
@@ -5460,7 +5434,7 @@ static void parse_type(CType *type)
 static void parse_builtin_params(int nc, const char *args)
 {
     char c, sep = '(';
-    CType type;
+    struct neocc_type type;
     if (nc)
         nocode_wanted++;
     next();
@@ -5511,7 +5485,7 @@ static void parse_builtin_params(int nc, const char *args)
 static void parse_atomic(int atok)
 {
     int size, align, arg, t, save = 0;
-    CType *atom, *atom_ptr, ct = {0};
+    struct neocc_type *atom, *atom_ptr, ct = {0};
     SValue store;
     char buf[40];
     static const char *const templates[] = {
@@ -5645,8 +5619,8 @@ static void parse_atomic(int atok)
 ST_FUNC void unary(void)
 {
     int n, t, align, size, r;
-    CType type;
-    Sym *s;
+    struct neocc_type type;
+    struct neocc_symbol *s;
     AttributeDef ad;
 
     /* generate line number info */
@@ -6091,7 +6065,7 @@ ST_FUNC void unary(void)
 
     case TOK_GENERIC:
     {
-	CType controlling_type;
+	struct neocc_type controlling_type;
 	int has_default = 0;
 	int has_match = 0;
 	int learn = 0;
@@ -6256,7 +6230,7 @@ special_math_val:
             skip(']');
         } else if (tcc_state->pp->token == '(') {
             SValue ret;
-            Sym *sa;
+            struct neocc_symbol *sa;
             int nb_args, ret_nregs, ret_align, regsize, variadic;
             struct neocc_token_string *p, *p2;
 
@@ -6657,7 +6631,7 @@ static void expr_cond(void)
 {
     int tt, u, r1, r2, rc, t1, t2, islv, c, g;
     SValue sv;
-    CType type;
+    struct neocc_type type;
 
     expr_lor();
     if (tcc_state->pp->token == '?') {
@@ -6858,10 +6832,10 @@ ST_FUNC int expr_const(void)
 /* return from function */
 
 #ifndef TCC_TARGET_ARM64
-static void gfunc_return(CType *func_type)
+static void gfunc_return(struct neocc_type *func_type)
 {
     if ((func_type->t & VT_BTYPE) == VT_STRUCT) {
-        CType type, ret_type;
+        struct neocc_type type, ret_type;
         int ret_align, ret_nregs, regsize;
         ret_nregs = gfunc_sret(func_type, func_var, &ret_type,
                                &ret_align, &regsize);
@@ -7037,12 +7011,12 @@ static void save_lvalues(void)
     }
 }
 
-static void try_call_scope_cleanup(Sym *stop)
+static void try_call_scope_cleanup(struct neocc_symbol *stop)
 {
-    Sym *cls = cur_scope->cl.s;
+    struct neocc_symbol *cls = cur_scope->cl.s;
     for (; cls != stop; cls = cls->next) {
-	Sym *fs = cls->cleanup_func;
-	Sym *vs = cls->cleanup_sym;
+	struct neocc_symbol *fs = cls->cleanup_func;
+	struct neocc_symbol *vs = cls->cleanup_sym;
 	save_lvalues();
 	vpushsym(&fs->type, fs);
 	vset(&vs->type, vs->r, vs->c);
@@ -7054,9 +7028,9 @@ static void try_call_scope_cleanup(Sym *stop)
 }
 
 
-static void try_call_cleanup_goto(Sym *cleanupstate)
+static void try_call_cleanup_goto(struct neocc_symbol *cleanupstate)
 {
-    Sym *oc, *cc;
+    struct neocc_symbol *oc, *cc;
     int ocd, ccd;
 
     if (!cur_scope->cl.s)
@@ -7078,10 +7052,10 @@ static void try_call_cleanup_goto(Sym *cleanupstate)
 static void block_cleanup(struct scope *o)
 {
     int jmp = 0;
-    Sym *g, **pg;
+    struct neocc_symbol *g, **pg;
     for (pg = &pending_gotos; (g = *pg) && g->c > o->cl.n;) {
         if (g->cleanup_label->r & LABEL_FORWARD) {
-            Sym *pcl = g->next;
+            struct neocc_symbol *pcl = g->next;
             if (!jmp)
                 jmp = gjmp(0);
             gsym(pcl->jnext);
@@ -7212,7 +7186,7 @@ static void gexpr_decl(void)
 {
     int v = decl(VT_JMP);
     if (v > 1 && tcc_state->pp->token != ';') {
-        Sym *s = sym_find(v);
+        struct neocc_symbol *s = sym_find(v);
         vset(&s->type, s->r, (s->r & VT_SYM) ? 0 : s->c);
         vtop->sym = s;
     } else {
@@ -7226,7 +7200,7 @@ static void block(int flags)
 {
     int a, b, c, d, e, t;
     struct scope o;
-    Sym *s;
+    struct neocc_symbol *s;
 
 again:
     t = tcc_state->pp->token;
@@ -7523,7 +7497,7 @@ again:
                     tcc_error("duplicate label '%s'", get_tok_str(s->v, NULL));
                 s->r = LABEL_DEFINED;
 		if (s->next) {
-		    Sym *pcl; /* pending cleanup goto */
+		    struct neocc_symbol *pcl; /* pending cleanup goto */
 		    for (pcl = s->next; pcl; pcl = pcl->prev)
 		      gsym(pcl->jnext);
 		    sym_pop(&s->next, NULL, 0);
@@ -7699,7 +7673,7 @@ static void decl_design_delrels(Section *sec, int c, int size)
     }
 }
 
-static void decl_design_flex(init_params *p, Sym *ref, int index)
+static void decl_design_flex(init_params *p, struct neocc_symbol *ref, int index)
 {
     if (ref == p->flex_array_ref) {
         if (index >= ref->c)
@@ -7714,10 +7688,10 @@ static void decl_design_flex(init_params *p, Sym *ref, int index)
    index.  'flags' is as in decl_initializer.
    'al' contains the already initialized length of the
    current container (starting at c).  This returns the new length of that.  */
-static int decl_designator(init_params *p, CType *type, unsigned long c,
-                           Sym **cur_field, int flags, int al)
+static int decl_designator(init_params *p, struct neocc_type *type, unsigned long c,
+                           struct neocc_symbol **cur_field, int flags, int al)
 {
-    Sym *s, *f;
+    struct neocc_symbol *s, *f;
     int index, index_last, align, l, nb_elems, elem_size;
     unsigned long corig = c;
 
@@ -7814,8 +7788,8 @@ static int decl_designator(init_params *p, CType *type, unsigned long c,
     decl_initializer(p, type, c, flags & ~DIF_FIRST);
 
     if (!(flags & DIF_SIZE_ONLY) && nb_elems > 1) {
-        Sym aref = {0};
-        CType t1;
+        struct neocc_symbol aref = {0};
+        struct neocc_type t1;
         int i;
         if (p->sec || (type->t & VT_ARRAY)) {
             /* make init_putv/vstore believe it were a struct */
@@ -7906,11 +7880,11 @@ static void write_ldouble(unsigned char *d, void *s)
 }
 
 /* store a value or an expression directly in global data or in local array */
-static void init_putv(init_params *p, CType *type, unsigned long c)
+static void init_putv(init_params *p, struct neocc_type *type, unsigned long c)
 {
     int bt;
     void *ptr;
-    CType dtype;
+    struct neocc_type dtype;
     int size, align;
     Section *sec = p->sec;
     uint64_t val;
@@ -8062,13 +8036,13 @@ static void init_putv(init_params *p, CType *type, unsigned long c)
    allocation. 'flags & DIF_FIRST' is true if array '{' must be read (multi
    dimension implicit array init handling). 'flags & DIF_SIZE_ONLY' is true if
    size only evaluation is wanted (only for arrays). */
-static void decl_initializer(init_params *p, CType *type, unsigned long c, int flags)
+static void decl_initializer(init_params *p, struct neocc_type *type, unsigned long c, int flags)
 {
     int len, n, no_oblock, i;
     int size1, align1;
-    Sym *s, *f;
-    Sym indexsym;
-    CType *t1;
+    struct neocc_symbol *s, *f;
+    struct neocc_symbol indexsym;
+    struct neocc_type *t1;
 
     /* generate line number info */
     if (debug_modes && !(flags & DIF_SIZE_ONLY) && !p->sec)
@@ -8288,15 +8262,15 @@ static void decl_initializer(init_params *p, CType *type, unsigned long c, int f
    are parsed. If 'v' is zero, then a reference to the new object
    is put in the value stack. If 'has_init' is 2, a special parsing
    is done to handle string constants. */
-static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r, 
+static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, int r,
                                    int has_init, int v, int scope)
 {
     int size, align, addr;
     struct neocc_token_string *init_str = NULL;
 
     Section *sec;
-    Sym *flexible_array;
-    Sym *sym = NULL;
+    struct neocc_symbol *flexible_array;
+    struct neocc_symbol *sym = NULL;
     int saved_nocode_wanted = nocode_wanted;
 #ifdef CONFIG_TCC_BCHECK
     int bcheck = tcc_state->do_bounds_check && !NODATA_WANTED;
@@ -8340,7 +8314,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
         p.flex_array_ref = type->ref;
 
     } else if (has_init && (type->t & VT_BTYPE) == VT_STRUCT) {
-        Sym *field = type->ref->next;
+        struct neocc_symbol *field = type->ref->next;
         if (field) {
             while (field->next)
                 field = field->next;
@@ -8429,7 +8403,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
 #endif
             sym = sym_push(v, type, r, addr);
 	    if (ad->cleanup_func) {
-		Sym *cls = sym_push2(&all_cleanups,
+		struct neocc_symbol *cls = sym_push2(&all_cleanups,
                     SYM_FIELD | ++cur_scope->cl.n, 0, 0);
 		cls->cleanup_sym = sym;
 		cls->cleanup_func = ad->cleanup_func;
@@ -8443,7 +8417,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
             vset(type, r, addr);
         }
     } else {
-        CType *tp = type;
+        struct neocc_type *tp = type;
         int is_const;
 
         while ((tp->t & (VT_BTYPE|VT_ARRAY)) == (VT_PTR|VT_ARRAY))
@@ -8563,7 +8537,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
 }
 
 /* generate vla code saved in post_type() */
-static void func_vla_arg_code(Sym *arg)
+static void func_vla_arg_code(struct neocc_symbol *arg)
 {
     int align;
     struct neocc_token_string *vla_array_tok = NULL;
@@ -8593,9 +8567,9 @@ static void func_vla_arg_code(Sym *arg)
     }
 }
 
-static void func_vla_arg(Sym *sym)
+static void func_vla_arg(struct neocc_symbol *sym)
 {
-    Sym *arg;
+    struct neocc_symbol *arg;
 
     for (arg = sym->type.ref->next; arg; arg = arg->next)
         if ((arg->type.t & VT_BTYPE) == VT_PTR && (arg->type.ref->type.t & VT_VLA))
@@ -8603,7 +8577,7 @@ static void func_vla_arg(Sym *sym)
 }
 
 /* set the local stack address for function parameter from gfunc_prolog() */
-ST_FUNC Sym *gfunc_set_param(Sym *s, int c, int byref)
+ST_FUNC struct neocc_symbol *gfunc_set_param(struct neocc_symbol *s, int c, int byref)
 {
     s = sym_find(s->v);
     if (!s) /* unnamed parameters, not enabled */
@@ -8615,9 +8589,9 @@ ST_FUNC Sym *gfunc_set_param(Sym *s, int c, int byref)
 }
 
 /* push parameters (and their types), last first */
-static void sym_push_params(Sym *ref)
+static void sym_push_params(struct neocc_symbol *ref)
 {
-    Sym *s = ref;
+    struct neocc_symbol *s = ref;
     while (s->next)
         s = s->next;
     while (s != ref) {
@@ -8629,7 +8603,7 @@ static void sym_push_params(Sym *ref)
 
 /* parse a function defined by symbol 'sym' and generate its code in
    'cur_text_section' */
-static void gen_function(Sym *sym)
+static void gen_function(struct neocc_symbol *sym)
 {
     struct scope f = { 0 };
 
@@ -8708,7 +8682,7 @@ static void gen_function(Sym *sym)
 
 static void gen_inline_functions(TCCState *s)
 {
-    Sym *sym;
+    struct neocc_symbol *sym;
     int inline_generated, i;
     struct InlineFunc *fn;
 
@@ -8769,7 +8743,7 @@ static void do_Static_assert(void)
 }
 
 #ifdef TCC_TARGET_PE
-static void pe_check_linkage(CType *type, AttributeDef *ad)
+static void pe_check_linkage(struct neocc_type *type, AttributeDef *ad)
 {
     if (!ad->a.dllimport && !ad->a.dllexport)
         return;
@@ -8795,8 +8769,8 @@ static void pe_check_linkage(CType *type, AttributeDef *ad)
 static int decl(int l)
 {
     int v, has_init, r, oldint;
-    CType type, btype;
-    Sym *sym, *sa;
+    struct neocc_type type, btype;
+    struct neocc_symbol *sym, *sa;
     AttributeDef ad, adbase;
     ElfSym *esym;
 

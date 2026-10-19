@@ -16,10 +16,10 @@
  */
 struct neocc_token {
 	struct neocc_token *hash_next;
-	struct Sym *sym_define;
-	struct Sym *sym_label;
-	struct Sym *sym_struct;
-	struct Sym *sym_identifier;
+	struct neocc_symbol *sym_define;
+	struct neocc_symbol *sym_label;
+	struct neocc_symbol *sym_struct;
+	struct neocc_symbol *sym_identifier;
 	int tok;
 	int len;
 	char str[];

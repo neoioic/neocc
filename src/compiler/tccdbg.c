@@ -327,12 +327,12 @@ struct _tccdbg {
 
     struct _debug_hash {
         int debug_type;
-        Sym *type;
+        struct neocc_symbol *type;
     } *debug_hash_global, *debug_hash_local;
 
     /* store forward structure/unions types */
     struct _debug_forw_hash {
-        Sym *type;
+        struct neocc_symbol *type;
         int n_debug_type;
         int *debug_type;
     } *debug_forw_hash_global, *debug_forw_hash_local;
@@ -389,7 +389,7 @@ struct _tccdbg {
 
     struct {
         int start;
-        Sym *func;
+        struct neocc_symbol *func;
         int line;
         int base_type_used[N_DEFAULT_DEBUG];
     } dwarf_info;
@@ -1571,7 +1571,7 @@ static void fix_debug_forw_hash(TCCState *s1, int global, int start)
 	  ? debug_forw_hash_global : debug_forw_hash_local;
 
 	for (i = start; i < n_hash; i++) {
-	    Sym *t = hash[i].type;
+	    struct neocc_symbol *t = hash[i].type;
 	    int pos = dwarf_info_section->data_offset;
 
 	    dwarf_data1(dwarf_info_section,
@@ -1628,9 +1628,9 @@ ST_FUNC void tcc_debug_stabn(TCCState *s1, int type, int value)
     }
 }
 
-static int check_global(Sym *t)
+static int check_global(struct neocc_symbol *t)
 {
-    Sym *g = local_stack;
+    struct neocc_symbol *g = local_stack;
 
     while (g) {
 	if (t == g)
@@ -1640,7 +1640,7 @@ static int check_global(Sym *t)
     return 1;
 }
 
-static int tcc_debug_find(TCCState *s1, Sym *t, int dwarf)
+static int tcc_debug_find(TCCState *s1, struct neocc_symbol *t, int dwarf)
 {
     int i , g = check_global(t);
     int n_hash, *n_forw_hash;
@@ -1669,9 +1669,9 @@ static int tcc_debug_find(TCCState *s1, Sym *t, int dwarf)
     return -1;
 }
 
-static int tcc_get_dwarf_info(TCCState *s1, Sym *s);
+static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s);
 
-static void tcc_debug_check_forw(TCCState *s1, Sym *t, int debug_type)
+static void tcc_debug_check_forw(TCCState *s1, struct neocc_symbol *t, int debug_type)
 {
     if ((t->type.t & VT_BTYPE) == VT_STRUCT && t->type.ref->c == -1) {
         int i, j, g = check_global(t);
@@ -1694,9 +1694,9 @@ static void tcc_debug_check_forw(TCCState *s1, Sym *t, int debug_type)
     }
 }
 
-static void stabs_struct_complete(TCCState *s1, CType *t);
+static void stabs_struct_complete(TCCState *s1, struct neocc_type *t);
 
-ST_FUNC void tcc_debug_fix_forw(TCCState *s1, CType *t)
+ST_FUNC void tcc_debug_fix_forw(TCCState *s1, struct neocc_type *t)
 {
     if (!(s1->do_debug & 2))
 	return;
@@ -1713,7 +1713,7 @@ ST_FUNC void tcc_debug_fix_forw(TCCState *s1, CType *t)
 	for (i = 0; i < *n_forw_hash; i++)
 	    if (t->ref == (*forw_hash)[i].type) {
 		if (s1->dwarf) {
-		    Sym sym = {0}; sym .type = *t ;
+		    struct neocc_symbol sym = {0}; sym .type = *t ;
 
 		    debug_type = tcc_get_dwarf_info(s1, &sym);
 		    for (j = 0; j < (*forw_hash)[i].n_debug_type; j++)
@@ -1729,7 +1729,7 @@ ST_FUNC void tcc_debug_fix_forw(TCCState *s1, CType *t)
     }
 }
 
-static int tcc_debug_add(TCCState *s1, Sym *t, int dwarf)
+static int tcc_debug_add(TCCState *s1, struct neocc_symbol *t, int dwarf)
 {
     int offset = dwarf ? dwarf_info_section->data_offset : ++debug_next_type;
     int *n_hash, g = check_global(t);
@@ -1745,7 +1745,7 @@ static int tcc_debug_add(TCCState *s1, Sym *t, int dwarf)
     return offset;
 }
 
-static int STRUCT_NODEBUG(Sym *s)
+static int STRUCT_NODEBUG(struct neocc_symbol *s)
 {
     return
     (s->a.nodebug ||
@@ -1757,13 +1757,13 @@ static int STRUCT_NODEBUG(Sym *s)
        (s->type.t & VT_BTYPE) == VT_LLONG)));
 }
 
-static int stabs_struct_find(TCCState *s1, Sym *t, int *p_id)
+static int stabs_struct_find(TCCState *s1, struct neocc_symbol *t, int *p_id)
 {
     /* A struct/enum has a ref to its type but that type has no ref.
        So we can (ab)use it for some info.  Here:
          s->c : stabs type id
          s->r : already defined in stabs */
-    Sym *s = t->type.ref;
+    struct neocc_symbol *s = t->type.ref;
 /*
     if (s && s->v != (SYM_FIELD|0x00DEBBED)) {
         tcc_error_noabort("tccdbg: internal error: %s", get_tok_str(t->v, 0));
@@ -1796,12 +1796,12 @@ static int remove_type_info(int type)
 	return type;
 }
 
-static void tcc_get_debug_info(TCCState *s1, Sym *s, struct neocc_string *result)
+static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neocc_string *result)
 {
     int type;
     int n = 0;
     int debug_type = -1;
-    Sym *t = s;
+    struct neocc_symbol *t = s;
     struct neocc_string str;
 
     for (;;) {
@@ -1848,7 +1848,7 @@ static void tcc_get_debug_info(TCCState *s1, Sym *s, struct neocc_string *result
         }
     }
     else if (IS_ENUM(type)) {
-        Sym *e = t = t->type.ref;
+        struct neocc_symbol *e = t = t->type.ref;
         if (stabs_struct_find(s1, t, &debug_type)) {
             cstr_new (&str);
             cstr_printf (&str, "%s:T%d=e",
@@ -1902,19 +1902,19 @@ static void tcc_get_debug_info(TCCState *s1, Sym *s, struct neocc_string *result
     cstr_printf (result, "%d", debug_type);
 }
 
-static void stabs_struct_complete(TCCState *s1, CType *t)
+static void stabs_struct_complete(TCCState *s1, struct neocc_type *t)
 {
     if (stabs_struct_find(s1, t->ref, NULL)) {
-        Sym s = {0}; s.type = *t;
+        struct neocc_symbol s = {0}; s.type = *t;
         tcc_get_debug_info(s1, &s, NULL);
     }
 }
 
-static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
+static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s)
 {
     int type;
     int debug_type = -1;
-    Sym *e, *t = s;
+    struct neocc_symbol *e, *t = s;
     int i;
     int last_pos = -1;
     int retval;
@@ -2009,7 +2009,7 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
 	debug_type = tcc_debug_find(s1, t, 1);
 	if (debug_type == -1) {
 	    int pos_sib, pos_type;
-	    Sym sym = {0}; sym.type.t = VT_INT | (type & VT_UNSIGNED);
+	    struct neocc_symbol sym = {0}; sym.type.t = VT_INT | (type & VT_UNSIGNED);
 
 	    pos_type = tcc_get_dwarf_info(s1, &sym);
 	    debug_type = tcc_debug_add(s1, t, 1);
@@ -2088,9 +2088,9 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
         else if (type == (VT_PTR | VT_ARRAY)) {
 	    int sib_pos, sub_type;
 #if LONG_SIZE == 4
-	    Sym sym = {0}; sym.type.t = VT_LONG | VT_INT | VT_UNSIGNED;
+	    struct neocc_symbol sym = {0}; sym.type.t = VT_LONG | VT_INT | VT_UNSIGNED;
 #else
-	    Sym sym = {0}; sym.type.t = VT_LLONG | VT_LONG | VT_UNSIGNED;
+	    struct neocc_symbol sym = {0}; sym.type.t = VT_LLONG | VT_LONG | VT_UNSIGNED;
 #endif
 
 	    sub_type = tcc_get_dwarf_info(s1, &sym);
@@ -2124,7 +2124,7 @@ static int tcc_get_dwarf_info(TCCState *s1, Sym *s)
 	}
         else if (type == VT_FUNC) {
 	    int sib_pos = 0, *pos_type;
-	    Sym *f;
+	    struct neocc_symbol *f;
 
 	    i = dwarf_info_section->data_offset;
 	    debug_type = tcc_get_dwarf_info(s1, t->type.ref);
@@ -2274,7 +2274,7 @@ static void tcc_debug_finish (TCCState *s1, struct _debug_info *cur)
     }
 }
 
-ST_FUNC void tcc_add_debug_info(TCCState *s1, Sym *s, Sym *e)
+ST_FUNC void tcc_add_debug_info(TCCState *s1, struct neocc_symbol *s, struct neocc_symbol *e)
 {
     struct neocc_string debug_str;
     int param;
@@ -2306,7 +2306,7 @@ ST_FUNC void tcc_add_debug_info(TCCState *s1, Sym *s, Sym *e)
 }
 
 /* put function symbol */
-ST_FUNC void tcc_debug_funcstart(TCCState *s1, Sym *sym)
+ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
 {
     struct neocc_string debug_str;
     struct neocc_source_buffer *f;
@@ -2374,7 +2374,7 @@ ST_FUNC void tcc_debug_funcend(TCCState *s1, int size)
     tcc_debug_stabn(s1, N_RBRAC, size);
     if (s1->dwarf) {
         int func_sib = 0;
-	Sym *sym = dwarf_info.func;
+	struct neocc_symbol *sym = dwarf_info.func;
 	int n_debug_info = tcc_get_dwarf_info(s1, sym->type.ref);
 
         dwarf_data1(dwarf_info_section,
@@ -2424,7 +2424,7 @@ ST_FUNC void tcc_debug_funcend(TCCState *s1, int size)
 }
 
 
-ST_FUNC void tcc_debug_extern_sym(TCCState *s1, Sym *sym, int sh_num, int sym_bind, int sym_type)
+ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh_num, int sym_bind, int sym_type)
 {
     if (!(s1->do_debug & 2))
         return;
@@ -2478,7 +2478,7 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, Sym *sym, int sh_num, int sym_bi
     }
 }
 
-ST_FUNC void tcc_debug_typedef(TCCState *s1, Sym *sym)
+ST_FUNC void tcc_debug_typedef(TCCState *s1, struct neocc_symbol *sym)
 {
     if (!(s1->do_debug & 2))
         return;
@@ -2568,7 +2568,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
     if (ind == tcov_data.ind && tcov_data.line == s1->pp->source->line_num)
         tcov_data.offset = last_offset;
     else {
-        Sym label = {0};
+        struct neocc_symbol label = {0};
         label.type.t = VT_LLONG | VT_STATIC;
 
         ptr = section_ptr_add(tcov_section, 16);

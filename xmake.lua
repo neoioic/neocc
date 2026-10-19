@@ -182,3 +182,18 @@ target("preprocessor_test")
     add_files("tests/preprocessor.c", "src/objects/*.c", "src/host/host.c")
     set_rundir(".")
     add_tests("default")
+
+for _, name in ipairs({"symbols_test", "symbols_fault_test"}) do
+    target(name)
+        set_kind("binary")
+        add_deps("neoioic")
+        add_includedirs("include", "src", "third_party/openoicc/include")
+        add_files("tests/symbols.c", "src/objects/*.c", "src/host/host.c")
+        if name == "symbols_fault_test" then
+            add_defines("NEOCC_TEST_SYMBOL_FAULTS")
+            add_ldflags("-Wl,--wrap=malloc", "-Wl,--wrap=calloc",
+                        "-Wl,--wrap=free", {force = true})
+        end
+        set_rundir(".")
+        add_tests("default")
+end

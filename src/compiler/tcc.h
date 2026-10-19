@@ -430,15 +430,11 @@ typedef int nwchar_t;
 
 #include "neocc/preprocessor.h"
 
-/* type definition */
-typedef struct CType {
-    int t;
-    struct Sym *ref;
-} CType;
+#include "neocc/symbols.h"
 
 /* value on stack */
 typedef struct SValue {
-    CType type;      /* type */
+    struct neocc_type type;      /* type */
     unsigned short r;      /* register + flags */
     unsigned short r2;     /* second register, used for 'long long'
                               type. If not used, set to VT_CONST */
@@ -448,75 +444,10 @@ typedef struct SValue {
     };
     union {
       struct { unsigned short cmp_op, cmp_r; }; /* VT_CMP operation */
-      struct Sym *sym;  /* symbol, if (VT_SYM | VT_CONST), or if */
+      struct neocc_symbol *sym;  /* symbol, if (VT_SYM | VT_CONST), or if */
     };                  /* result of unary() for an identifier. */
 
 } SValue;
-
-/* symbol attributes */
-struct SymAttr {
-    unsigned short
-    aligned     : 5, /* alignment as log2+1 (0 == unspecified) */
-    packed      : 1,
-    weak        : 1,
-    visibility  : 2,
-    dllexport   : 1,
-    nodecorate  : 1,
-    dllimport   : 1,
-    addrtaken   : 1,
-    nodebug     : 1,
-    xxxx        : 2; /* not used */
-};
-
-/* function attributes or temporary attributes for parsing */
-struct FuncAttr {
-    unsigned
-    func_call   : 3, /* calling convention (0..5), see below */
-    func_type   : 2, /* FUNC_OLD/NEW/ELLIPSIS */
-    func_noreturn : 1, /* attribute((noreturn)) */
-    func_ctor   : 1, /* attribute((constructor)) */
-    func_dtor   : 1, /* attribute((destructor)) */
-    func_args   : 8, /* PE __stdcall args */
-    func_alwinl : 1, /* always_inline */
-    xxxx        : 15;
-};
-
-/* symbol management */
-typedef struct Sym {
-    int v; /* symbol token */
-    unsigned short r; /* associated register or VT_CONST/VT_LOCAL and LVAL type */
-    struct SymAttr a; /* symbol attributes */
-    union {
-        struct {
-            int c; /* associated number or Elf symbol index */
-            union {
-                int sym_scope; /* scope level for locals */
-                int jnext; /* next jump label */
-                int jind; /* label position */
-                struct FuncAttr f; /* function attributes */
-                int auxtype; /* bitfield access type */
-            };
-        };
-        long long enum_val; /* enum constant if IS_ENUM_VAL */
-        int *d; /* define token stream */
-        struct Sym *cleanup_func;
-    };
-
-    CType type; /* associated type */
-    union {
-        struct Sym *next; /* next related symbol (for fields and anoms) */
-        int *e; /* expanded token stream with preprocessor macros */
-        int asm_label; /* associated asm label */
-        struct Sym *cleanupstate; /* in defined labels */
-        int *vla_array_str; /* vla array code */
-    };
-    struct Sym *prev; /* prev symbol in stack */
-    union {
-        struct Sym *prev_tok; /* previous symbol for this token */
-        struct Sym *cleanup_sym; /* symbol from __attribute__((cleanup())) */
-        struct Sym *cleanup_label; /* label in 'pending_gotos' chain */
-    };
-} Sym;
 
 /* section definition */
 typedef struct Section {
@@ -597,10 +528,10 @@ typedef struct DLLReference {
 
 /* GNUC attribute definition */
 typedef struct AttributeDef {
-    struct SymAttr a;
-    struct FuncAttr f;
+    struct neocc_symbol_attributes a;
+    struct neocc_function_attributes f;
     struct Section *section;
-    Sym *cleanup_func;
+    struct neocc_symbol *cleanup_func;
     int alias_target; /* token */
     int asm_label; /* associated asm label */
     char attr_mode; /* __attribute__((__mode__(...))) */
@@ -610,7 +541,7 @@ typedef struct AttributeDef {
 /* inline functions */
 typedef struct InlineFunc {
     struct neocc_token_string *func_str;
-    Sym *sym;
+    struct neocc_symbol *sym;
     char filename[1];
 } InlineFunc;
 
@@ -628,7 +559,7 @@ typedef struct CachedInclude {
 #ifdef CONFIG_TCC_ASM
 typedef struct ExprValue {
     uint64_t v;
-    Sym *sym;
+    struct neocc_symbol *sym;
     int pcrel;
 } ExprValue;
 
@@ -664,6 +595,7 @@ struct sym_attr {
 struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
+    struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
     struct object *preprocessor;
     struct neocc_preprocessor *pp; /* VO borrow; valid until close. */
     unsigned char verbose; /* if true, display some information during compilation */
@@ -1304,10 +1236,10 @@ ST_FUNC void tok_str_free(struct neocc_token_string *s);
 ST_FUNC void tok_str_free_str(int *str);
 ST_FUNC void tok_str_add(struct neocc_token_string *s, int t);
 ST_FUNC void tok_str_add_tok(struct neocc_token_string *s);
-ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg);
-ST_FUNC void define_undef(Sym *s);
-ST_INLN Sym *define_find(int v);
-ST_FUNC void free_defines(Sym *b);
+ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *first_arg);
+ST_FUNC void define_undef(struct neocc_symbol *s);
+ST_INLN struct neocc_symbol *define_find(int v);
+ST_FUNC void free_defines(struct neocc_symbol *b);
 ST_FUNC void parse_define(void);
 ST_FUNC void skip_to_eol(int warn);
 ST_FUNC void preprocess(int is_bof);
@@ -1343,21 +1275,19 @@ static inline int toup(int c) {
 
 /* ------------ tccgen.c ------------ */
 
-#define SYM_POOL_NB (8192 / sizeof(Sym))
-
-ST_DATA Sym *global_stack;
-ST_DATA Sym *local_stack;
-ST_DATA Sym *local_label_stack;
-ST_DATA Sym *global_label_stack;
-ST_DATA Sym *define_stack;
-ST_DATA CType int_type, func_old_type, char_pointer_type;
+ST_DATA struct neocc_symbol *global_stack;
+ST_DATA struct neocc_symbol *local_stack;
+ST_DATA struct neocc_symbol *local_label_stack;
+ST_DATA struct neocc_symbol *global_label_stack;
+ST_DATA struct neocc_symbol *define_stack;
+ST_DATA struct neocc_type int_type, func_old_type, char_pointer_type;
 ST_DATA SValue *vtop;
 ST_DATA int rsym, anon_sym, ind, loc;
 ST_DATA char debug_modes;
 
 ST_DATA int nocode_wanted; /* true if no code generation wanted for an expression */
 ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
-ST_DATA CType func_vt; /* current function return type (used by return instruction) */
+ST_DATA struct neocc_type func_vt; /* current function return type (used by return instruction) */
 ST_DATA int func_var; /* true if current function is variadic */
 ST_DATA int func_vc; /* stack address for implicit struct return storage */
 ST_DATA int func_ind; /* function start address */
@@ -1373,35 +1303,35 @@ ST_FUNC int ieee_finite(double d);
 ST_FUNC int exact_log2p1(int i);
 ST_FUNC void test_lvalue(void);
 
-ST_FUNC ElfSym *elfsym(Sym *);
-ST_FUNC void update_storage(Sym *sym);
-ST_FUNC void put_extern_sym2(Sym *sym, int sh_num, addr_t value, unsigned long size, int can_add_underscore);
-ST_FUNC void put_extern_sym(Sym *sym, Section *section, addr_t value, unsigned long size);
+ST_FUNC ElfSym *elfsym(struct neocc_symbol *);
+ST_FUNC void update_storage(struct neocc_symbol *sym);
+ST_FUNC void put_extern_sym2(struct neocc_symbol *sym, int sh_num, addr_t value, unsigned long size, int can_add_underscore);
+ST_FUNC void put_extern_sym(struct neocc_symbol *sym, Section *section, addr_t value, unsigned long size);
 #if PTR_SIZE == 4
-ST_FUNC void greloc(Section *s, Sym *sym, unsigned long offset, int type);
+ST_FUNC void greloc(Section *s, struct neocc_symbol *sym, unsigned long offset, int type);
 #endif
-ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type, addr_t addend);
+ST_FUNC void greloca(Section *s, struct neocc_symbol *sym, unsigned long offset, int type, addr_t addend);
 
-ST_INLN void sym_free(Sym *sym);
-ST_FUNC Sym *sym_push(int v, CType *type, int r, int c);
-ST_FUNC void sym_pop(Sym **ptop, Sym *b, int keep);
-ST_FUNC Sym *sym_push2(Sym **ps, int v, int t, int c);
-ST_FUNC Sym *sym_find2(Sym *s, int v);
-ST_INLN Sym *sym_find(int v);
-ST_FUNC Sym *label_find(int v);
-ST_FUNC Sym *label_push(Sym **ptop, int v, int flags);
-ST_FUNC void label_pop(Sym **ptop, Sym *slast, int keep);
-ST_INLN Sym *struct_find(int v);
+ST_INLN void sym_free(struct neocc_symbol *sym);
+ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c);
+ST_FUNC void sym_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep);
+ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c);
+ST_FUNC struct neocc_symbol *sym_find2(struct neocc_symbol *s, int v);
+ST_INLN struct neocc_symbol *sym_find(int v);
+ST_FUNC struct neocc_symbol *label_find(int v);
+ST_FUNC struct neocc_symbol *label_push(struct neocc_symbol **ptop, int v, int flags);
+ST_FUNC void label_pop(struct neocc_symbol **ptop, struct neocc_symbol *slast, int keep);
+ST_INLN struct neocc_symbol *struct_find(int v);
 
-ST_FUNC Sym *global_identifier_push(int v, int t, int c);
-ST_FUNC Sym *external_global_sym(int v, CType *type);
-ST_FUNC Sym *external_helper_sym(int v);
+ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c);
+ST_FUNC struct neocc_symbol *external_global_sym(int v, struct neocc_type *type);
+ST_FUNC struct neocc_symbol *external_helper_sym(int v);
 ST_FUNC void vpush_helper_func(int v);
-ST_FUNC void vset(CType *type, int r, int v);
+ST_FUNC void vset(struct neocc_type *type, int r, int v);
 ST_FUNC void vset_VT_CMP(int op);
 ST_FUNC void vpushi(int v);
 ST_FUNC void vpushv(SValue *v);
-ST_FUNC void vpushsym(CType *type, Sym *sym);
+ST_FUNC void vpushsym(struct neocc_type *type, struct neocc_symbol *sym);
 ST_FUNC void vswap(void);
 ST_FUNC void vrott(int n);
 ST_FUNC void vrotb(int n);
@@ -1421,8 +1351,8 @@ ST_FUNC void gaddrof(void);
 ST_FUNC int gv(int rc);
 ST_FUNC void gv2(int rc1, int rc2);
 ST_FUNC void gen_op(int op);
-ST_FUNC int type_size(CType *type, int *a);
-ST_FUNC void mk_pointer(CType *type);
+ST_FUNC int type_size(struct neocc_type *type, int *a);
+ST_FUNC void mk_pointer(struct neocc_type *type);
 ST_FUNC void vstore(void);
 ST_FUNC void inc(int post, int c);
 ST_FUNC struct neocc_string* parse_mult_str(const char *msg);
@@ -1432,16 +1362,16 @@ ST_FUNC void unary(void);
 ST_FUNC void gexpr(void);
 ST_FUNC int expr_const(void);
 #if defined CONFIG_TCC_BCHECK || defined TCC_TARGET_C67
-ST_FUNC Sym *get_sym_ref(CType *type, Section *sec, unsigned long offset, unsigned long size);
+ST_FUNC struct neocc_symbol *get_sym_ref(struct neocc_type *type, Section *sec, unsigned long offset, unsigned long size);
 #endif
 #if defined TCC_TARGET_X86_64 && !defined TCC_TARGET_PE
-ST_FUNC int classify_x86_64_va_arg(CType *ty);
+ST_FUNC int classify_x86_64_va_arg(struct neocc_type *ty);
 #endif
 #ifdef CONFIG_TCC_BCHECK
 ST_FUNC void gbound_args(int nb_args);
 ST_DATA int func_bound_add_epilog;
 #endif
-ST_FUNC Sym *gfunc_set_param(Sym *s, int c, int byref);
+ST_FUNC struct neocc_symbol *gfunc_set_param(struct neocc_symbol *s, int c, int byref);
 
 /* ------------ tccelf.c ------------ */
 
@@ -1545,9 +1475,9 @@ ST_FUNC void gsym_addr(int t, int a);
 ST_FUNC void gsym(int t);
 ST_FUNC void load(int r, SValue *sv);
 ST_FUNC void store(int r, SValue *v);
-ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret, int *align, int *regsize);
+ST_FUNC int gfunc_sret(struct neocc_type *vt, int variadic, struct neocc_type *ret, int *align, int *regsize);
 ST_FUNC void gfunc_call(int nb_args);
-ST_FUNC void gfunc_prolog(Sym *func_sym);
+ST_FUNC void gfunc_prolog(struct neocc_symbol *func_sym);
 ST_FUNC void gfunc_epilog(void);
 ST_FUNC void gen_fill_nops(int);
 ST_FUNC int gjmp(int t);
@@ -1565,7 +1495,7 @@ ST_FUNC void o(unsigned int c);
 #endif
 ST_FUNC void gen_vla_sp_save(int addr);
 ST_FUNC void gen_vla_sp_restore(int addr);
-ST_FUNC void gen_vla_alloc(CType *type, int align);
+ST_FUNC void gen_vla_alloc(struct neocc_type *type, int align);
 
 static inline uint16_t read16le(unsigned char *p) {
     return p[0] | (uint16_t)p[1] << 8;
@@ -1598,8 +1528,8 @@ ST_FUNC void gen_le16(int c);
 ST_FUNC void gen_le32(int c);
 #endif
 #if defined TCC_TARGET_I386 || defined TCC_TARGET_X86_64
-ST_FUNC void gen_addr32(int r, Sym *sym, int c);
-ST_FUNC void gen_addrpc32(int r, Sym *sym, int c);
+ST_FUNC void gen_addr32(int r, struct neocc_symbol *sym, int c);
+ST_FUNC void gen_addrpc32(int r, struct neocc_symbol *sym, int c);
 ST_FUNC void gen_cvt_csti(int t);
 ST_FUNC void gen_increment_tcov (SValue *sv);
 #endif
@@ -1626,9 +1556,9 @@ ST_FUNC void gen_increment_tcov (SValue *sv);
 /* ------------ arm64-gen.c ------------ */
 #ifdef TCC_TARGET_ARM64
 ST_FUNC void gen_opl(int op);
-ST_FUNC void gfunc_return(CType *func_type);
+ST_FUNC void gfunc_return(struct neocc_type *func_type);
 ST_FUNC void gen_va_start(void);
-ST_FUNC void gen_va_arg(CType *t);
+ST_FUNC void gen_va_arg(struct neocc_type *t);
 ST_FUNC void gen_clear_cache(void);
 ST_FUNC void gen_cvt_sxtw(void);
 ST_FUNC void gen_cvt_csti(int t);
@@ -1662,7 +1592,7 @@ ST_FUNC void asm_global_instr(void);
 ST_FUNC int tcc_assemble(TCCState *s1, int do_preprocess);
 #ifdef CONFIG_TCC_ASM
 ST_FUNC int find_constraint(ASMOperand *operands, int nb_operands, const char *name, const char **pp);
-ST_FUNC Sym* get_asm_sym(int name, Sym *csym);
+ST_FUNC struct neocc_symbol* get_asm_sym(int name, struct neocc_symbol *csym);
 ST_FUNC void asm_expr(TCCState *s1, ExprValue *pe);
 ST_FUNC int asm_int_expr(TCCState *s1);
 #if PTR_SIZE == 8
@@ -1744,14 +1674,14 @@ ST_FUNC void tcc_debug_eincl(TCCState *s1);
 ST_FUNC void tcc_debug_newfile(TCCState *s1);
 
 ST_FUNC void tcc_debug_line(TCCState *s1);
-ST_FUNC void tcc_add_debug_info(TCCState *s1, Sym *s, Sym *e);
-ST_FUNC void tcc_debug_funcstart(TCCState *s1, Sym *sym);
+ST_FUNC void tcc_add_debug_info(TCCState *s1, struct neocc_symbol *s, struct neocc_symbol *e);
+ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym);
 ST_FUNC void tcc_debug_prolog_epilog(TCCState *s1, int value);
 ST_FUNC void tcc_debug_funcend(TCCState *s1, int size);
-ST_FUNC void tcc_debug_extern_sym(TCCState *s1, Sym *sym, int sh_num, int sym_bind, int sym_type);
-ST_FUNC void tcc_debug_typedef(TCCState *s1, Sym *sym);
+ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh_num, int sym_bind, int sym_type);
+ST_FUNC void tcc_debug_typedef(TCCState *s1, struct neocc_symbol *sym);
 ST_FUNC void tcc_debug_stabn(TCCState *s1, int type, int value);
-ST_FUNC void tcc_debug_fix_forw(TCCState *s1, CType *t);
+ST_FUNC void tcc_debug_fix_forw(TCCState *s1, struct neocc_type *t);
 
 #if !(defined ELF_OBJ_ONLY || defined TCC_TARGET_ARM || defined TARGETOS_BSD)
 ST_FUNC void tcc_eh_frame_start(TCCState *s1);

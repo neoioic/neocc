@@ -262,7 +262,7 @@ static int oad(int c, int s)
 /* generate jmp to a label */
 #define gjmp2(instr,lbl) oad(instr,lbl)
 
-ST_FUNC void gen_addr32(int r, Sym *sym, int c)
+ST_FUNC void gen_addr32(int r, struct neocc_symbol *sym, int c)
 {
     if (r & VT_SYM)
         greloca(cur_text_section, sym, ind, R_X86_64_32S, c), c=0;
@@ -270,7 +270,7 @@ ST_FUNC void gen_addr32(int r, Sym *sym, int c)
 }
 
 /* output constant with relocation if 'r & VT_SYM' is true */
-ST_FUNC void gen_addrpc32(int r, Sym *sym, int c)
+ST_FUNC void gen_addrpc32(int r, struct neocc_symbol *sym, int c)
 {
     if (r & VT_SYM)
         greloca(cur_text_section, sym, ind, R_X86_64_PC32, c-4), c=4;
@@ -278,7 +278,7 @@ ST_FUNC void gen_addrpc32(int r, Sym *sym, int c)
 }
 
 /* output got address with relocation */
-static void gen_gotpcrel(int r, Sym *sym, int c)
+static void gen_gotpcrel(int r, struct neocc_symbol *sym, int c)
 {
 #ifdef TCC_TARGET_PE
     tcc_error("internal error: no GOT on PE: %s %x %x | %02x %02x %02x\n",
@@ -300,13 +300,13 @@ static void gen_gotpcrel(int r, Sym *sym, int c)
 
 /* generate a modrm reference. 'op_reg' contains the additional 3
    opcode rsp. second register bits */
-static void gen_modrm_impl(int opcode, int ll, int op_reg_0, int r, Sym *sym, int c)
+static void gen_modrm_impl(int opcode, int ll, int op_reg_0, int r, struct neocc_symbol *sym, int c)
 {
     int op_reg = REG_VALUE(op_reg_0) << 3;
 
     if ((r & VT_SYM) && (sym->type.t & VT_TLS)) {
 #ifdef TCC_TARGET_PE
-        Sym *s2 = external_global_sym(TOK___tls_index, &int_type);
+        struct neocc_symbol *s2 = external_global_sym(TOK___tls_index, &int_type);
         r = get_reg(RC_INT);
         gen_modrm_impl(0x8B, 0,  r, VT_SYM|VT_CONST, s2, 0);
         o(0x03e0c148 | r << 16); /* shl 2,r */
@@ -360,12 +360,12 @@ static void gen_modrm_impl(int opcode, int ll, int op_reg_0, int r, Sym *sym, in
     }
 }
 
-static void gen_modrm64(int opcode, int op_reg, int r, Sym *sym, int c)
+static void gen_modrm64(int opcode, int op_reg, int r, struct neocc_symbol *sym, int c)
 {
     gen_modrm_impl(opcode, 1, op_reg, r, sym, c);
 }
 
-static void gen_modrm32(int opcode, int op_reg, int r, Sym *sym, int c)
+static void gen_modrm32(int opcode, int op_reg, int r, struct neocc_symbol *sym, int c)
 {
     gen_modrm_impl(opcode, 0, op_reg, r, sym, c);
 }
@@ -643,7 +643,7 @@ static void gcall_or_jmp(int is_jmp)
 
 static void gen_bounds_call(int v)
 {
-    Sym *sym = external_helper_sym(v);
+    struct neocc_symbol *sym = external_helper_sym(v);
     oad(0xe8, 0);
     greloca(cur_text_section, sym, ind-4, R_X86_64_PLT32, -4);
 }
@@ -669,7 +669,7 @@ static void gen_bounds_epilog(void)
 {
     addr_t saved_ind;
     addr_t *bounds_ptr;
-    Sym *sym_data;
+    struct neocc_symbol *sym_data;
     int offset_modified = func_bound_offset != lbounds_section->data_offset;
 
     if (!offset_modified && !func_bound_add_epilog)
@@ -750,7 +750,7 @@ static int using_regs(int size)
 
 /* Return the number of registers needed to return the struct, or 0 if
    returning via struct pointer. */
-ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret, int *ret_align, int *regsize)
+ST_FUNC int gfunc_sret(struct neocc_type *vt, int variadic, struct neocc_type *ret, int *ret_align, int *regsize)
 {
     int size, align;
     *ret_align = 1; // Never have to re-align return values for x86-64
@@ -776,7 +776,7 @@ static int is_sse_float(int t) {
     return bt == VT_DOUBLE || bt == VT_FLOAT;
 }
 
-static int gfunc_arg_size(CType *type) {
+static int gfunc_arg_size(struct neocc_type *type) {
     int align;
     if (type->t & (VT_ARRAY|VT_BITFIELD))
         return 8;
@@ -917,12 +917,12 @@ void gfunc_call(int nb_args)
 #define FUNC_PROLOG_SIZE 11
 
 /* generate function prolog of type 't' */
-void gfunc_prolog(Sym *func_sym)
+void gfunc_prolog(struct neocc_symbol *func_sym)
 {
-    CType *func_type = &func_sym->type;
+    struct neocc_type *func_type = &func_sym->type;
     int addr, reg_param_index, bt, size;
-    Sym *sym;
-    CType *type;
+    struct neocc_symbol *sym;
+    struct neocc_type *type;
 
     func_ret_sub = 0;
     func_scratch = 32;
@@ -1017,7 +1017,7 @@ void gfunc_epilog(void)
 
     ind = start;
     if (v >= 4096) {
-        Sym *sym = external_helper_sym(TOK___chkstk);
+        struct neocc_symbol *sym = external_helper_sym(TOK___chkstk);
         oad(0xb8, v); /* mov stacksize, %eax */
         oad(0xe8, 0); /* call __chkstk, (does the stackframe too) */
         greloca(cur_text_section, sym, ind-4, R_X86_64_PLT32, -4);
@@ -1071,10 +1071,10 @@ static X86_64_Mode classify_x86_64_merge(X86_64_Mode a, X86_64_Mode b)
         return x86_64_mode_sse;
 }
 
-static X86_64_Mode classify_x86_64_inner(CType *ty)
+static X86_64_Mode classify_x86_64_inner(struct neocc_type *ty)
 {
     X86_64_Mode mode;
-    Sym *f;
+    struct neocc_symbol *f;
     
     switch (ty->t & VT_BTYPE) {
     case VT_VOID: return x86_64_mode_none;
@@ -1106,7 +1106,7 @@ static X86_64_Mode classify_x86_64_inner(CType *ty)
     return 0;
 }
 
-static X86_64_Mode classify_x86_64_arg(CType *ty, CType *ret, int *psize, int *palign, int *reg_count)
+static X86_64_Mode classify_x86_64_arg(struct neocc_type *ty, struct neocc_type *ret, int *psize, int *palign, int *reg_count)
 {
     X86_64_Mode mode;
     int size, align, ret_t = 0;
@@ -1174,7 +1174,7 @@ static X86_64_Mode classify_x86_64_arg(CType *ty, CType *ret, int *psize, int *p
     return mode;
 }
 
-ST_FUNC int classify_x86_64_va_arg(CType *ty)
+ST_FUNC int classify_x86_64_va_arg(struct neocc_type *ty)
 {
     /* This definition must be synced with stdarg.h */
     enum __va_arg_type {
@@ -1191,7 +1191,7 @@ ST_FUNC int classify_x86_64_va_arg(CType *ty)
 
 /* Return the number of registers needed to return the struct, or 0 if
    returning via struct pointer. */
-ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret, int *ret_align, int *regsize)
+ST_FUNC int gfunc_sret(struct neocc_type *vt, int variadic, struct neocc_type *ret, int *ret_align, int *regsize)
 {
     int size, align, reg_count;
     if (classify_x86_64_arg(vt, ret, &size, &align, &reg_count) == x86_64_mode_memory)
@@ -1220,7 +1220,7 @@ static int arg_prepare_reg(int idx) {
 void gfunc_call(int nb_args)
 {
     X86_64_Mode mode;
-    CType type;
+    struct neocc_type type;
     int size, align, r, args_size, stack_adjust, i, reg_count, k;
     int nb_reg_args = 0;
     int nb_sse_args = 0;
@@ -1422,14 +1422,14 @@ static void push_arg_reg(int i) {
 }
 
 /* generate function prolog of type 't' */
-void gfunc_prolog(Sym *func_sym)
+void gfunc_prolog(struct neocc_symbol *func_sym)
 {
-    CType *func_type = &func_sym->type;
+    struct neocc_type *func_type = &func_sym->type;
     X86_64_Mode mode, ret_mode;
     int i, addr, align, size, reg_count;
     int param_addr = 0, reg_param_index, sse_param_index;
-    Sym *sym;
-    CType *type;
+    struct neocc_symbol *sym;
+    struct neocc_type *type;
 
     sym = func_type->ref;
     addr = PTR_SIZE * 2;
@@ -2212,7 +2212,7 @@ ST_FUNC void gen_vla_result(int addr) {
 #endif
 
 /* Subtract from the stack pointer, and push the resulting value onto the stack */
-ST_FUNC void gen_vla_alloc(CType *type, int align) {
+ST_FUNC void gen_vla_alloc(struct neocc_type *type, int align) {
     int use_call = 0;
 
 #if defined(CONFIG_TCC_BCHECK)

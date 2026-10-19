@@ -6,7 +6,7 @@
 
 ## 已实现
 
-- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十组
+- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十二组
   C 回归。活跃编译路径在 src/，删除 ONE_SOURCE 聚合分支，tinycc/ 仅作差分基线。
 - source 对象实际拥有输入缓冲栈、文件句柄及真实文件名，解析器借用当前缓冲。
   构造区由仓库 OpenOICC 预览并显式生成，常规构建不隐式再生。
@@ -22,7 +22,14 @@
   保留常量与宏流表示。工作区单独 calloc 以满足宿主 long double 对齐，首次打开分配、
   末次关闭释放；reset 保持借用地址，关闭再打开需重新借用。分配失败清理已打开基节点。
   根回归覆盖新增分配失败、token/源游标隔离、reset、浮点编译执行及关闭后拒绝借用。
-- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十组回归和第二/三阶段自举。
+- symbols 对象拥有语义符号池和回收链，经 VO 分配/归还普通符号记录，保留 TinyCC
+  批量分配、逆序挂链与 LIFO 复用。删除全局 sym_free_first、sym_pools、nb_sym_pools
+  及 SYM_DEBUG 分支；不再在编译器分配域维护池指针数组。失败先返回 VO，再诊断跳转。
+  共用 neocc_symbol/neocc_type 和属性结构，删除 Sym/CType typedef，保留布局与算法。
+  符号栈、宏定义和作用域仍归算法管理；清理这些引用及 switch 后才 reset 符号池。
+  回归覆盖 600 个符号的增长/复用、对象隔离、未对齐消息、共享打开、部分关闭、池分配
+  失败保留旧内容，以及编译中三处池分配失败后的清理和新会话恢复。
+- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十二组回归和第二/三阶段自举。
   参考树只影响可选 tinycc_baseline 与差分语料，不是生产依赖。
 - 缓冲/文件名分配失败先正常返回 VO，再执行编译器错误跳转；主文件缓冲失败关闭
   已打开的句柄，早期预定义文件失败只清理已初始化的算法资源。
@@ -42,39 +49,41 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-包含十组 C 回归、六组编译集成检查、TinyCC tests2 差分，NeoCC 编译并运行 NEOioic
-健壮性/分派/菱形及源对象/token 对象/预处理对象/目录测试。未纳入当前平台的输入及原因保留在脚本和结果
+包含十二组 C 回归、六组编译集成检查、TinyCC tests2 差分，NeoCC 编译并运行 NEOioic
+健壮性/分派/菱形及源对象/token 对象/预处理对象/符号池对象/目录测试。未纳入当前平台的输入及原因保留在脚本和结果
 JSON，不把共同失败当作 C 功能正确的证据。
 
-第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：18 个目标文件及
-两个可执行文件共 20 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
-source/tokens/preprocessor 构造区无变化，并使用该阶段 NeoCC 重新编译运行三个对象测试。
+第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：19 个目标文件及
+两个可执行文件共 21 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
+source/tokens/preprocessor/symbols 构造区无变化，并使用该阶段 NeoCC 重新编译运行四个对象测试。
 统一入口还分别对 GCC 构建和第三阶段构建的 OpenOICC 运行 39 项回归。
 结果记录在对应构建目录的 regression/results.json、bootstrap/results.json；
 生成器测试辅助 C 程序仍由 GCC 编译。构造再生、阶段稳定性与职责迁移分别记载。
 Debug/Release 的上述统一命令已完整通过，分别写入 verification.json 成功记录。
 来源清单与 UTF-8/LF 随迁移复核；Git 由开发者管理，本轮只提供工作区修改。
-进入本阶段时工作区干净；未修改外部项目或 TinyCC 基线。
+进入本阶段时仅有开发者提供的未跟踪许可证样本；已据此建立 LICENSE，未修改外部项目或 TinyCC 基线。
 
 ## 待迁移与限制
 
 1. 逐步显式传递预处理算法协作上下文，移除对全局 tcc_state 入口的依赖；
    token/值、源游标和宏展开工作区已有独立所有者，宏定义栈仍随语义符号管理，
    不宣称预处理器全部迁移完成。
-2. 按 tccgen.c 边界迁移类型、符号、作用域和表达式栈，保持直接代码生成。
+2. 按 tccgen.c 边界迁移类型状态、符号栈、作用域和表达式栈，保持直接代码生成。
 3. 分别迁移目标代码生成、链接输出和装载资源，删除被替代的活跃路径。
 4. 增加 Linux/其他目标的配置、ABI、运行库和差分验证。
 5. 扩展 TLS/pthread、回溯/边界检查和复杂 DLL/ELF 场景，当前尚未覆盖。
 
-当前仍有 tcc_state、宏定义/语义符号及代码生成全局状态，尚未完成整个 TinyCC 的
+当前仍有 tcc_state、宏定义/语义符号栈、作用域及代码生成全局状态，尚未完成整个 TinyCC 的
 对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态塞进一个对象外壳
 代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
 
-本阶段边界为当前 token/值、源游标和调试缩进的所有权迁移，以及工作区的对齐与生命周期。
-完成阶段验证后停下供开发者提交备份；后续从语义状态和算法协作继续，不把本阶段等同于全套重写。
+本阶段完成项目 LGPL-2.1-or-later 许可声明，以及语义符号池的所有权、VO 分配/归还和失败清理迁移。
+完成阶段验证后停下供开发者提交备份；后续从符号栈、作用域、表达式状态和算法协作继续，
+不把本阶段等同于全套重写。
 
 NEOioic 来源提交 f9d415a3728c461ac64ba4a760a8bd49b3a839a8，OpenOICC 来源提交
  ef33912af0088c784aae1a7fc1697671d9f0cdc0。TinyCC 0.9.28rc 的已有嵌套仓库提交为
  e23dabed154a8495f3ac1ff3cc9d04fa1c207893；不据此断言其原用户修改为空。
 各快照 NEOCC_SOURCE.json 和本目录 tinycc_sources.json 记录来源、原始哈希及调整。
-未创建根 LICENSE，TinyCC 衍生实现不重新标注 MIT。
+开发者已指定 NeoCC 采用 LGPL-2.1-or-later，项目版权为 Copyright (C) 2026 CLimber-Rong。
+许可证样本已填写项目声明并命名为根 LICENSE；GNU 许可证正文及第三方原有版权、许可和例外保留。

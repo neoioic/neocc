@@ -1002,9 +1002,9 @@ static int macro_is_equal(const int *a, const int *b)
 }
 
 /* defines handling */
-ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg)
+ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *first_arg)
 {
-    Sym *s, *o;
+    struct neocc_symbol *s, *o;
 
     o = define_find(v);
     s = sym_push2(&define_stack, v, macro_type, 0);
@@ -1017,14 +1017,14 @@ ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg)
 }
 
 /* undefined a define symbol. Its name is just set to zero */
-ST_FUNC void define_undef(Sym *s)
+ST_FUNC void define_undef(struct neocc_symbol *s)
 {
     int v = s->v;
     if (v >= TOK_IDENT && v < neocc_token_next(tcc_state))
         neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_define = NULL;
 }
 
-ST_INLN Sym *define_find(int v)
+ST_INLN struct neocc_symbol *define_find(int v)
 {
     v -= TOK_IDENT;
     if ((unsigned)v >= (unsigned)(neocc_token_next(tcc_state) - TOK_IDENT))
@@ -1033,10 +1033,10 @@ ST_INLN Sym *define_find(int v)
 }
 
 /* free define stack until top reaches 'b' */
-ST_FUNC void free_defines(Sym *b)
+ST_FUNC void free_defines(struct neocc_symbol *b)
 {
     while (define_stack != b) {
-        Sym *top = define_stack;
+        struct neocc_symbol *top = define_stack;
         define_stack = top->prev;
         tok_str_free_str(top->d);
         define_undef(top);
@@ -1271,7 +1271,7 @@ ST_FUNC void pp_error(struct neocc_string *cs)
 /* parse after #define */
 ST_FUNC void parse_define(void)
 {
-    Sym *s, *first, **ps;
+    struct neocc_symbol *s, *first, **ps;
     int v, t, varg, is_vaargs, t0;
     int saved_parse_flags = tcc_state->pp->parse_flags;
     struct neocc_token_string str;
@@ -1409,7 +1409,7 @@ static int pragma_parse(TCCState *s1)
     next_nomacro();
     if (s1->pp->token == TOK_push_macro || s1->pp->token == TOK_pop_macro) {
         int t = s1->pp->token, v;
-        Sym *s;
+        struct neocc_symbol *s;
 
         if (next(), s1->pp->token != '(')
             goto pragma_err;
@@ -1548,7 +1548,7 @@ ST_FUNC void preprocess(int is_bof)
     TCCState *s1 = tcc_state;
     int c, n, saved_parse_flags;
     char buf[1024], *q;
-    Sym *s;
+    struct neocc_symbol *s;
 
     saved_parse_flags = tcc_state->pp->parse_flags;
     tcc_state->pp->parse_flags = PARSE_FLAG_PREPROCESS
@@ -2711,17 +2711,17 @@ static void pp_print(const char *msg, int v, const int *str)
 
 static int macro_subst(
     struct neocc_token_string *tok_str,
-    Sym **nested_list,
+    struct neocc_symbol **nested_list,
     const int *macro_str
     );
 
 /* substitute arguments in replacement lists in macro_str by the values in
    args (field d) and return allocated string */
-static int *macro_arg_subst(Sym **nested_list, const int *macro_str, Sym *args)
+static int *macro_arg_subst(struct neocc_symbol **nested_list, const int *macro_str, struct neocc_symbol *args)
 {
     int t, t0, t1, t2, n;
     const int *st;
-    Sym *s;
+    struct neocc_symbol *s;
     union neocc_value cval;
     struct neocc_token_string str;
 
@@ -2931,10 +2931,10 @@ static int peek_file (struct neocc_token_string *ws_str)
 
 /* peek or read [ws_str == NULL] next token from function macro call,
    walking up macro levels up to the file if necessary */
-static int next_argstream(Sym **nested_list, struct neocc_token_string *ws_str)
+static int next_argstream(struct neocc_symbol **nested_list, struct neocc_token_string *ws_str)
 {
     int t;
-    Sym *sa;
+    struct neocc_symbol *sa;
 
     while (tcc_state->pp->macro_ptr) {
         const int *m = tcc_state->pp->macro_ptr;
@@ -2970,8 +2970,8 @@ static int next_argstream(Sym **nested_list, struct neocc_token_string *ws_str)
    substitution needs to be done */
 static int macro_subst_tok(
     struct neocc_token_string *tok_str,
-    Sym **nested_list,
-    Sym *s)
+    struct neocc_symbol **nested_list,
+    struct neocc_symbol *s)
 {
     int t;
     int v = s->v;
@@ -2980,14 +2980,14 @@ static int macro_subst_tok(
     if (s->d) {
         int *mstr = s->d;
         int *jstr;
-        Sym *sa;
+        struct neocc_symbol *sa;
         int ret;
 
         if (s->type.t & MACRO_FUNC) {
             int saved_parse_flags = tcc_state->pp->parse_flags;
             struct neocc_token_string str;
             int parlevel, i;
-            Sym *sa1, *args;
+            struct neocc_symbol *sa1, *args;
 
             tcc_state->pp->parse_flags |= PARSE_FLAG_SPACES | PARSE_FLAG_LINEFEED
                 | PARSE_FLAG_ACCEPT_STRAYS;
@@ -3141,11 +3141,11 @@ static int macro_subst_tok(
    inside to avoid recursing. */
 static int macro_subst(
     struct neocc_token_string *tok_str,
-    Sym **nested_list,
+    struct neocc_symbol **nested_list,
     const int *macro_str
     )
 {
-    Sym *s;
+    struct neocc_symbol *s;
     int t, nosubst = 0;
     union neocc_value cval;
     struct neocc_token_string *str;
@@ -3236,9 +3236,9 @@ redo:
     t = tcc_state->pp->token;
     if (t >= TOK_IDENT && (tcc_state->pp->parse_flags & PARSE_FLAG_PREPROCESS)) {
         /* if reading from file, try to substitute macros */
-        Sym *s = define_find(t);
+        struct neocc_symbol *s = define_find(t);
         if (s) {
-            Sym *nested_list = NULL;
+            struct neocc_symbol *nested_list = NULL;
             macro_subst_tok(&tcc_state->pp->expansion, &nested_list, s);
             tok_str_add(&tcc_state->pp->expansion, 0);
             begin_macro(&tcc_state->pp->expansion, 0);
@@ -3521,7 +3521,7 @@ static void pp_line(TCCState *s1, struct neocc_source_buffer *f, int level)
 static void define_print(TCCState *s1, int v)
 {
     FILE *fp;
-    Sym *s;
+    struct neocc_symbol *s;
 
     s = define_find(v);
     if (NULL == s || NULL == s->d)
@@ -3530,7 +3530,7 @@ static void define_print(TCCState *s1, int v)
     fp = s1->ppfp;
     fprintf(fp, "#define %s", get_tok_str(v, NULL));
     if (s->type.t & MACRO_FUNC) {
-        Sym *a = s->next;
+        struct neocc_symbol *a = s->next;
         fprintf(fp,"(");
         if (a)
             for (;;) {

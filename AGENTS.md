@@ -6,7 +6,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 
 主要任务是用 NEOioic 写一遍 TinyCC，采用最小必要改动，保留既有编译算法、目标 ABI 和代码生成语义，逐步迁移状态所有权与模块协作。不要借重构另写一套语言、IR、优化框架或编译器算法，也不要仅给旧编译器套对象外壳便宣称完成重构。
 
-当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有当前 token/值、借用源游标、宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。预处理算法仍依赖全局会话入口，语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
+当前已建立根 `xmake.lua`，迁入 `src/compiler/` 的独立编译算法模块，并将输入缓冲栈、文件句柄及真实文件名所有权迁移到 NEOioic `source` 对象；标识符驻留、哈希/索引表及宏流分配器由 `tokens` 对象拥有，经 VO 访问，原全局表和 TinyAlloc 实现已删除。`preprocessor` 对象现拥有当前 token/值、借用源游标、宏展开栈与恢复游标、词法模式、工作字符串、字符分类表和计数器，宏流入栈/退栈经 VO 协作。`symbols` 对象现拥有语义符号池和回收链，分配/归还经 VO，原全局符号池已删除；作用域、符号栈和表达式状态仍待迁移。Windows x86-64 / MinGW-w64 的构建、C/NEOioic 回归和阶段自编译已验证；第二/三阶段 NeoCC、OpenOICC 与运行库输出稳定。不含 `tinycc/` 的干净源码副本可独立构建、运行回归并完成阶段自举；`tinycc/` 仅为可选差分基线。预处理算法仍依赖全局会话入口，语法和后端仍有待迁移的全局状态，不能据此宣称全部对象化完成。实现、待办和验证边界见 `docs/handoff.md`、`docs/architecture.md`、`docs/testing.md`，材料范围见 `third_party/README.md`。
 
 ## 工作区边界与可交接性
 
@@ -76,7 +76,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 
 与 NEOioic、OpenOICC 统一：C11、UTF-8、LF、末尾换行；Linux 风格 C，8 列 Tab，通常 80 列内换行。函数左大括号独占一行，控制语句左大括号随条件，指针星号靠变量名。函数、变量、成员、结构体标签、自有文件和目录用小写下划线；宏、枚举常量和头文件保护宏用大写下划线；直接使用 `struct`，不以 typedef 隐藏结构体。外部 API 和标准规定名称保留原样。使用根 `.clang-format`、`.editorconfig`、`.gitattributes`；注释说明契约、所有权和原因。
 
-**NeoCC 采用 xmake 作为构建系统**。根入口构建 `neocc`、`neocc_compiler`、仓库内 `neoioic` 静态库及必要运行时，支持 Debug/Release；显式目标包括 `openoicc`，存在参考树时另提供 `tinycc_baseline`，十组 C 回归可由根 `xmake test` 执行。普通构建不依赖 TinyCC 参考树、外部项目、网络、旧预编译 oicc 或隐式源码再生。TinyCC 原有构建文件只作基线参考，不作为 NeoCC 的另一套主构建系统。
+**NeoCC 采用 xmake 作为构建系统**。根入口构建 `neocc`、`neocc_compiler`、仓库内 `neoioic` 静态库及必要运行时，支持 Debug/Release；显式目标包括 `openoicc`，存在参考树时另提供 `tinycc_baseline`，十二组 C 回归可由根 `xmake test` 执行。普通构建不依赖 TinyCC 参考树、外部项目、网络、旧预编译 oicc 或隐式源码再生。TinyCC 原有构建文件只作基线参考，不作为 NeoCC 的另一套主构建系统。
 
 初始引导用公开 GCC/Clang 工具链，Windows 使用 PATH 中完整 MinGW-w64。实际命令见 `docs/build.md`，全量验证入口为 `python tests/verify.py --mode debug`（或 `release`）。目前只验证 Windows x86-64 PE 主机/目标组合；其他组合按里程碑扩展并保留验证边界。产物放入本仓库受忽略的 `build/` 等目录，不写入原始参考源码。
 
@@ -96,4 +96,4 @@ Git 由开发者管理，未经明确要求不初始化、暂存、提交、推�
 
 来源记录使用项目名、固定提交、源项目相对路径、摘选范围、本地调整和 SHA-256，不记录导入机器路径。保留必要生成 C 源码、构建定义、文档、示例与许可；忽略缓存、二进制和本地环境文件，不宽泛忽略测试期望输出或必要生成源码。
 
-NEOioic、OpenOICC 的 MIT 许可仅覆盖各自适用材料。TinyCC 许可见 `tinycc/COPYING` 及各文件声明，保留原有版权和许可，不因另外两个项目采用 MIT 就把 TinyCC 衍生实现改标为 MIT。NeoCC 项目级许可尚未确定，不擅自创建或替换根 `LICENSE`；适用范围见 `THIRD_PARTY_NOTICES.md`。
+NEOioic、OpenOICC 的 MIT 许可仅覆盖各自适用材料。TinyCC 许可见 `tinycc/COPYING` 及各文件声明，保留原有版权和许可，不因另外两个项目采用 MIT 就把 TinyCC 衍生实现改标为 MIT。NeoCC 采用 LGPL-2.1-or-later，项目版权为 Copyright (C) 2026 CLimber-Rong，根许可证为 `LICENSE`。保留第三方原有版权、许可和适用例外；适用范围见 `THIRD_PARTY_NOTICES.md`。

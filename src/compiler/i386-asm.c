@@ -497,7 +497,7 @@ ST_FUNC void gen_expr32(ExprValue *pe)
 /* XXX: unify with C code output ? */
 static void gen_disp32(ExprValue *pe)
 {
-    Sym *sym = pe->sym;
+    struct neocc_symbol *sym = pe->sym;
     ElfSym *esym = elfsym(sym);
     if (esym && esym->st_shndx == cur_text_section->sh_num) {
         /* same section: we can output an absolute value. Note

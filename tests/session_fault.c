@@ -1,6 +1,7 @@
 #include "compiler/tcc.h"
 #include "check.h"
 #include "objects/source.h"
+#include "objects/symbols.h"
 
 void *__real_calloc(size_t, size_t);
 void *__real_malloc(size_t);
@@ -8,6 +9,7 @@ void *__real_realloc(void *, size_t);
 void __real_free(void *);
 static int fail_at, calls;
 static int arena_fail_at, arena_calls;
+static int symbol_fail_at, symbol_calls, symbol_error;
 static int resize_fail_at, resize_calls;
 static size_t live;
 
@@ -16,6 +18,8 @@ void *__wrap_malloc(size_t size)
 	void *pointer;
 
 	if (size >= 256 * 1024 && ++arena_calls == arena_fail_at)
+		return NULL;
+	if (size < 256 * 1024 && ++symbol_calls == symbol_fail_at)
 		return NULL;
 	pointer = __real_malloc(size);
 	if (pointer)
@@ -85,6 +89,14 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	CHECK(!((struct em_symbols *)state->symbols->members)->blocks);
+	CHECK(!((struct em_symbols *)state->symbols->members)->free_first);
+	for (unsigned int i = 0; i < state->symbols->node_count; i++) {
+		struct object *node = state->symbols->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(!state->pp->macro_stack && !state->pp->macro_ptr);
 	CHECK(!state->pp->source && !state->pp->token && !state->pp->value.i);
 	CHECK(!state->pp->debug_indent);
@@ -102,7 +114,8 @@ static void clean_preprocessor(struct TCCState *state)
 static void quiet_error(void *unused, const char *text)
 {
 	(void)unused;
-	(void)text;
+	if (strstr(text, "cannot allocate semantic symbol"))
+		symbol_error = 1;
 }
 
 int main(int argc, char **argv)
@@ -125,8 +138,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject three constructors and the aligned preprocessor workspace. */
-	for (failure = 1; failure <= 4; failure++) {
+	/* Reject four constructors and the aligned preprocessor workspace. */
+	for (failure = 1; failure <= 5; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -192,6 +205,37 @@ int main(int argc, char **argv)
 	}
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &after));
 	CHECK(before == after);
+	/* The first and later semantic pool blocks fail inside VO. */
+	for (failure = 1; failure <= 3; failure++) {
+		char input[16000];
+		size_t length = 0;
+
+		for (int n = 0; n < 400; n++)
+			length += snprintf(input + length, sizeof(input) - length,
+				"int symbol_%d;\n", n);
+		CHECK(length < sizeof(input));
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, NULL, quiet_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		symbol_error = 0;
+		symbol_fail_at = symbol_calls + failure;
+		CHECK(tcc_compile_string(state, input) < 0);
+		symbol_fail_at = 0;
+		CHECK(symbol_error);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, "int recovered_symbol;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
 	/* Fail successive scratch-string and token-table reallocations. */
 	for (failure = 1; failure <= 8; failure++) {
 		state = tcc_new();

@@ -7,7 +7,7 @@
       "source": "tinycc/libtcc.c",
       "destination": "src/compiler/libtcc.c",
       "sha256": "87373a094a1067c6a37d7c8e8c7102240a217cd2fd66b20baab3a71750afddcd",
-      "local_changes": "Compose source, tokens and preprocessor objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics."
+      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics."
     },
     {
       "source": "tinycc/libtcc.h",
@@ -18,10 +18,11 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations and legacy aliases; preserve token numbering and ABI types.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs.",
       "additional_derivatives": [
         "include/neocc/tokens.h",
-        "include/neocc/preprocessor.h"
+        "include/neocc/preprocessor.h",
+        "include/neocc/symbols.h"
       ]
     },
     {
@@ -39,7 +40,11 @@
       "source": "tinycc/tccgen.c",
       "destination": "src/compiler/tccgen.c",
       "sha256": "1a26ca7a7090ce6e43b6af3056cf7d81633283b298850fded2510579749c73f6",
-      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms."
+      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks and reuse chain into symbols object, allocate/release via VO and reset after semantic cleanup; remove global pools and SYM_DEBUG allocation branch.",
+      "additional_derivatives": [
+        "src/objects/symbols.c",
+        "src/objects/symbols.h"
+      ]
     },
     {
       "source": "tinycc/tccdbg.c",

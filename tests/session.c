@@ -1,6 +1,7 @@
 #include "compiler/tcc.h"
 #include "check.h"
 #include "objects/source.h"
+#include "objects/symbols.h"
 
 static char diagnostic[4096];
 
@@ -74,6 +75,9 @@ int main(int argc, char **argv)
 		CHECK(!b->pp->source && !b->pp->token && !b->pp->value.i);
 		clean_access(a->sources);
 		clean_access(b->sources);
+		CHECK(a->symbols != b->symbols);
+		CHECK(!((struct em_symbols *)a->symbols->members)->blocks);
+		CHECK(!((struct em_symbols *)b->symbols->members)->blocks);
 		CHECK(tcc_relocate(a) == 0);
 		function = (int (*)(void))tcc_get_symbol(a, "value");
 		CHECK(function && function() == 17);

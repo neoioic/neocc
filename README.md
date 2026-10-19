@@ -4,8 +4,8 @@
 和输出格式。源文件缓冲栈、文件句柄和真实文件名由 `source` 对象拥有；标识符
 驻留、索引表和宏流存储由 `tokens` 对象拥有。`preprocessor` 对象拥有宏展开栈、
 当前 token/值、借用源游标、工作字符串、词法模式、字符分类表及计数器。
-其余编译状态仍在迁移中，尚未完成
-全套对象化重写。
+语义符号池及回收链由 `symbols` 对象拥有，通过 VO 分配和归还普通符号记录。
+作用域、符号栈和其余编译状态仍在迁移中，尚未完成全套对象化重写。
 
 当前验证 Windows x86-64 / MinGW-w64，生成 x86-64 PE 程序及 ELF 可重定位目标。
 根 xmake 构建不访问外部项目、不联网，也不隐式再生源码。
@@ -24,4 +24,5 @@ xmake test -P . -v
 `python tests/independent.py --mode debug` 在不含 `tinycc/` 的干净源码副本中验证
 构建、运行和第二／第三阶段自举；Release 改为 `--mode release`。
 TinyCC 衍生实现沿用其适用许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
-NeoCC 项目级许可尚未确定。
+NeoCC 采用 LGPL-2.1-or-later，Copyright (C) 2026 CLimber-Rong，见 [LICENSE](LICENSE)。
+第三方材料保留各自的许可、版权及适用例外。

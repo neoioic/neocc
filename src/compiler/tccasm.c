@@ -26,12 +26,12 @@ static Section *last_text_section; /* to handle .previous asm directive */
 static int asmgoto_n;
 
 static int tcc_assemble_internal(TCCState *s1, int do_preprocess, int global);
-static Sym* asm_new_label(TCCState *s1, int label, int is_local);
-static Sym* asm_new_label1(TCCState *s1, int label, int is_local, int sh_num, int value);
+static struct neocc_symbol* asm_new_label(TCCState *s1, int label, int is_local);
+static struct neocc_symbol* asm_new_label1(TCCState *s1, int label, int is_local, int sh_num, int value);
 
 #if PTR_SIZE == 8
 /* output constant with relocation if 'r & VT_SYM' is true */
-ST_FUNC void gen_addr64(int r, Sym *sym, int64_t c)
+ST_FUNC void gen_addr64(int r, struct neocc_symbol *sym, int64_t c)
 {
     if (r & VT_SYM)
         greloca(cur_text_section, sym, ind, R_DATA_PTR, c), c=0;
@@ -83,9 +83,9 @@ static int asm2cname(int v, int *addeddot)
     return v;
 }
 
-static Sym *asm_label_find(int v)
+static struct neocc_symbol *asm_label_find(int v)
 {
-    Sym *sym;
+    struct neocc_symbol *sym;
     int addeddot;
     v = asm2cname(v, &addeddot);
     sym = sym_find(v);
@@ -94,13 +94,13 @@ static Sym *asm_label_find(int v)
     return sym;
 }
 
-static Sym *asm_label_push(int v)
+static struct neocc_symbol *asm_label_push(int v)
 {
     int addeddot, v2 = asm2cname(v, &addeddot);
     /* We always add VT_EXTERN, for sym definition that's tentative
        (for .set, removed for real defs), for mere references it's correct
        as is.  */
-    Sym *sym = global_identifier_push(v2, VT_ASM | VT_EXTERN | VT_STATIC, 0);
+    struct neocc_symbol *sym = global_identifier_push(v2, VT_ASM | VT_EXTERN | VT_STATIC, 0);
     if (addeddot)
         sym->asm_label = v;
     return sym;
@@ -116,9 +116,9 @@ static Sym *asm_label_push(int v)
    are anonymous in C, in this case CSYM can be used to transfer
    all information from that symbol to the (possibly newly created)
    asm symbol.  */
-ST_FUNC Sym* get_asm_sym(int name, Sym *csym)
+ST_FUNC struct neocc_symbol* get_asm_sym(int name, struct neocc_symbol *csym)
 {
-    Sym *sym = asm_label_find(name);
+    struct neocc_symbol *sym = asm_label_find(name);
     if (!sym) {
 	sym = asm_label_push(name);
 	if (csym)
@@ -127,9 +127,9 @@ ST_FUNC Sym* get_asm_sym(int name, Sym *csym)
     return sym;
 }
 
-static Sym* asm_section_sym(TCCState *s1, Section *sec)
+static struct neocc_symbol* asm_section_sym(TCCState *s1, Section *sec)
 {
-    char buf[100]; int label; Sym *sym;
+    char buf[100]; int label; struct neocc_symbol *sym;
     snprintf(buf, sizeof buf, "L.%s", sec->name);
     label = tok_alloc_const(buf);
     sym = asm_label_find(label);
@@ -141,7 +141,7 @@ static Sym* asm_section_sym(TCCState *s1, Section *sec)
 
 static void asm_expr_unary(TCCState *s1, ExprValue *pe)
 {
-    Sym *sym;
+    struct neocc_symbol *sym;
     int op, label;
     uint64_t n;
     const char *p;
@@ -419,10 +419,10 @@ ST_FUNC int asm_int_expr(TCCState *s1)
     return e.v;
 }
 
-static Sym* asm_new_label1(TCCState *s1, int label, int is_local,
+static struct neocc_symbol* asm_new_label1(TCCState *s1, int label, int is_local,
                            int sh_num, int value)
 {
-    Sym *sym;
+    struct neocc_symbol *sym;
     ElfSym *esym;
 
     sym = asm_label_find(label);
@@ -454,18 +454,18 @@ static Sym* asm_new_label1(TCCState *s1, int label, int is_local,
     return sym;
 }
 
-static Sym* asm_new_label(TCCState *s1, int label, int is_local)
+static struct neocc_symbol* asm_new_label(TCCState *s1, int label, int is_local)
 {
     return asm_new_label1(s1, label, is_local, cur_text_section->sh_num, ind);
 }
 
 /* Set the value of LABEL to that of some expression (possibly
    involving other symbols).  LABEL can be overwritten later still.  */
-static Sym* set_symbol(TCCState *s1, int label)
+static struct neocc_symbol* set_symbol(TCCState *s1, int label)
 {
     long n;
     ExprValue e;
-    Sym *sym;
+    struct neocc_symbol *sym;
     ElfSym *esym;
     next();
     asm_expr(s1, &e);
@@ -735,7 +735,7 @@ static void asm_parse_directive(TCCState *s1, int global)
     case TOK_ASMDIR_hidden:
 	tok1 = s1->pp->token;
 	do { 
-            Sym *sym;
+            struct neocc_symbol *sym;
             next();
 	    if (s1->pp->token < TOK_IDENT)
 		expect("identifier");
@@ -832,7 +832,7 @@ static void asm_parse_directive(TCCState *s1, int global)
         break;
     case TOK_ASMDIR_size:
         { 
-            Sym *sym;
+            struct neocc_symbol *sym;
             ElfSym *esym;
 
             next();
@@ -854,7 +854,7 @@ static void asm_parse_directive(TCCState *s1, int global)
         break;
     case TOK_ASMDIR_type:
         { 
-            Sym *sym;
+            struct neocc_symbol *sym;
             const char *newtype;
             int st_type;
 
@@ -1382,7 +1382,7 @@ ST_FUNC void asm_instr(void)
                     /* goto labels */
                     next();
                     for (;;) {
-                        Sym *csym;
+                        struct neocc_symbol *csym;
                         int asmname;
                         if (nb_operands + nb_labels >= MAX_ASM_OPERANDS)
                           tcc_error("too many asm operands");
