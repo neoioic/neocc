@@ -95,10 +95,15 @@ class Regression(unittest.TestCase):
         general = sorted((ROOT / "third_party/neoioic/examples/multiple_inheritance/objects/general").glob("*/*.c"))
         programs = {
             "dispatch": ["third_party/neoioic/tests/dispatch.c", *runtime_sources],
-            "source": ["tests/source.c", "src/objects/source.c", "src/objects/tokens.c", "src/host/host.c",
+            "source": ["tests/source.c", "src/objects/source.c",
+                       "src/objects/tokens.c", "src/objects/preprocessor.c",
+                       "src/host/host.c",
                        *runtime_sources],
             "tokens": ["tests/tokens.c", "src/objects/source.c",
-                       "src/objects/tokens.c", "src/host/host.c", *runtime_sources],
+                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/host/host.c", *runtime_sources],
+            "preprocessor": ["tests/preprocessor.c", "src/objects/source.c",
+                             "src/objects/tokens.c", "src/objects/preprocessor.c",
+                             "src/host/host.c", *runtime_sources],
             "directory": ["tests/directory.c", "third_party/openoicc/src/support/text.c"],
             "diamond": ["third_party/neoioic/examples/multiple_inheritance/host.c",
                         "third_party/neoioic/examples/multiple_inheritance/factory.c",

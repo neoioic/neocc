@@ -75,7 +75,7 @@ ST_DATA int func_ind; /* function start address */
 static int func_old;
 ST_DATA const char *funcname;
 ST_DATA CType int_type, func_old_type, char_type, char_pointer_type;
-static CString initstr;
+static struct neocc_string initstr;
 
 #if PTR_SIZE == 4
 #define VT_SIZE_T (VT_INT | VT_UNSIGNED)
@@ -156,7 +156,7 @@ static void vpush(CType *type);
 static int gvtst(int inv, int t);
 static void gen_inline_functions(TCCState *s);
 static void free_inline_functions(TCCState *s);
-static void skip_or_save_block(TokenString **str);
+static void skip_or_save_block(struct neocc_token_string **str);
 static void gv_dup(void);
 static int get_temp_local_var(int size,int align,int *r2);
 static void cast_error(CType *st, CType *dt);
@@ -417,7 +417,7 @@ ST_FUNC int tccgen_compile(TCCState *s1)
 #ifdef INC_DEBUG
     printf("%s: **** new file\n", file->filename);
 #endif
-    parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
+    tcc_state->pp->parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
     next();
     decl(VT_CONST);
     gen_inline_functions(s1);
@@ -3904,7 +3904,7 @@ ST_FUNC void inc(int post, int c)
         vpop(); /* if post op, return saved value */
 }
 
-ST_FUNC CString* parse_mult_str (const char *msg)
+ST_FUNC struct neocc_string* parse_mult_str (const char *msg)
 {
     /* read the string */
     if (tok != TOK_STR)
@@ -5042,7 +5042,7 @@ static inline void convert_expression_type(CType *pt)
     convert_parameter_type(pt);
 }
 
-ST_FUNC CString* parse_asm_str(void)
+ST_FUNC struct neocc_string* parse_asm_str(void)
 {
     skip('(');
     return parse_mult_str("string constant");
@@ -5070,7 +5070,7 @@ static int post_type(CType *type, AttributeDef *ad, int storage, int td)
     Sym **plast, *s, *first, **ps, *sr;
     AttributeDef ad1;
     CType pt;
-    TokenString *vla_array_tok = NULL;
+    struct neocc_token_string *vla_array_tok = NULL;
     int *vla_array_str = NULL;
 
     if (tok == '(') {
@@ -5709,10 +5709,10 @@ ST_FUNC void unary(void)
         /* fall thru */
     case TOK___FUNC__:
         tok = TOK_STR;
-        cstr_reset(&tokcstr);
-        cstr_cat(&tokcstr, funcname, 0);
-        tokc.str.size = tokcstr.size;
-        tokc.str.data = tokcstr.data;
+        cstr_reset(&tcc_state->pp->parsed);
+        cstr_cat(&tcc_state->pp->parsed, funcname, 0);
+        tokc.str.size = tcc_state->pp->parsed.size;
+        tokc.str.data = tcc_state->pp->parsed.data;
         goto case_TOK_STR;
     case TOK_LSTR:
 #ifdef TCC_TARGET_PE
@@ -6095,7 +6095,7 @@ ST_FUNC void unary(void)
 	int has_default = 0;
 	int has_match = 0;
 	int learn = 0;
-	TokenString *str = NULL;
+	struct neocc_token_string *str = NULL;
 	int saved_nocode_wanted = nocode_wanted;
         nocode_wanted &= ~CONST_WANTED_MASK;
 
@@ -6258,7 +6258,7 @@ special_math_val:
             SValue ret;
             Sym *sa;
             int nb_args, ret_nregs, ret_align, regsize, variadic;
-            TokenString *p, *p2;
+            struct neocc_token_string *p, *p2;
 
             /* function call  */
             if ((vtop->type.t & VT_BTYPE) != VT_FUNC) {
@@ -7577,7 +7577,7 @@ again:
    with a '{').  If STR then allocates and stores the skipped tokens
    in *STR.  This doesn't check if () and {} are nested correctly,
    i.e. "({)}" is accepted.  */
-static void skip_or_save_block(TokenString **str)
+static void skip_or_save_block(struct neocc_token_string **str)
 {
     int braces = tok == '{';
     int level = 0;
@@ -8292,7 +8292,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
                                    int has_init, int v, int scope)
 {
     int size, align, addr;
-    TokenString *init_str = NULL;
+    struct neocc_token_string *init_str = NULL;
 
     Section *sec;
     Sym *flexible_array;
@@ -8373,7 +8373,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
         next();
         decl_initializer(&p, type, 0, DIF_FIRST | DIF_SIZE_ONLY);
         /* prepare second initializer parsing */
-        macro_ptr = init_str->str;
+        tcc_state->pp->macro_ptr = init_str->str;
         next();
 
         /* if still unknown size, error */
@@ -8566,7 +8566,7 @@ static void decl_initializer_alloc(CType *type, AttributeDef *ad, int r,
 static void func_vla_arg_code(Sym *arg)
 {
     int align;
-    TokenString *vla_array_tok = NULL;
+    struct neocc_token_string *vla_array_tok = NULL;
 
     if (arg->type.ref)
         func_vla_arg_code(arg->type.ref);

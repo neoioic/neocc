@@ -414,7 +414,7 @@ extern long double strtold (const char *__nptr, char **__endptr);
 #define INCLUDE_STACK_SIZE  32
 #define IFDEF_STACK_SIZE    64
 #define VSTACK_SIZE         512
-#define STRING_MAX_SIZE     1024
+#define STRING_MAX_SIZE     NEOCC_PREPROCESSOR_STRING_MAX
 #define TOKSTR_MAX_SIZE     256
 #define PACK_STACK_SIZE     8
 
@@ -428,11 +428,7 @@ typedef unsigned short nwchar_t;
 typedef int nwchar_t;
 #endif
 
-typedef struct CString {
-    int size; /* size in bytes */
-    int size_allocated;
-    char *data; /* nwchar_t* in cases */
-} CString;
+#include "neocc/preprocessor.h"
 
 /* type definition */
 typedef struct CType {
@@ -615,20 +611,6 @@ typedef struct DLLReference {
 #define CH_EOB   '\\'       /* end of buffer or '\0' char in file */
 #define CH_EOF   (-1)   /* end of file */
 
-/* used to record tokens */
-typedef struct TokenString {
-    int *str;
-    int len;
-    int need_spc;
-    int allocated_len;
-    int last_line_num;
-    int save_line_num;
-    /* used to chain token-strings with begin/end_macro() */
-    struct TokenString *prev;
-    const int *prev_ptr;
-    char alloc;
-} TokenString;
-
 /* GNUC attribute definition */
 typedef struct AttributeDef {
     struct SymAttr a;
@@ -643,7 +625,7 @@ typedef struct AttributeDef {
 
 /* inline functions */
 typedef struct InlineFunc {
-    TokenString *func_str;
+    struct neocc_token_string *func_str;
     Sym *sym;
     char filename[1];
 } InlineFunc;
@@ -698,6 +680,8 @@ struct sym_attr {
 struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
+    struct object *preprocessor;
+    struct neocc_preprocessor *pp; /* VO borrow; valid until close. */
     unsigned char verbose; /* if true, display some information during compilation */
     unsigned char nostdinc; /* if true, no standard headers are added */
     unsigned char nostdlib; /* if true, no standard libraries are added */
@@ -809,9 +793,9 @@ struct TCCState {
     int nb_crt_paths;
 
     /* -D / -U options */
-    CString cmdline_defs;
+    struct neocc_string cmdline_defs;
     /* -include options */
-    CString cmdline_incl;
+    struct neocc_string cmdline_incl;
 
     /* error handling */
     void *error_opaque;
@@ -1174,7 +1158,7 @@ enum tcc_token {
 /* ------------ libtcc.c ------------ */
 
 ST_DATA struct TCCState *tcc_state;
-ST_DATA void** stk_data;
+ST_DATA struct neocc_string **stk_data;
 ST_DATA int nb_stk_data;
 ST_DATA int g_debug;
 
@@ -1221,24 +1205,22 @@ PUB_FUNC void _tcc_warning(const char *fmt, ...) PRINTF_LIKE(1,2);
 /* other utilities */
 ST_FUNC void dynarray_add(void *ptab, int *nb_ptr, void *data);
 ST_FUNC void dynarray_reset(void *pp, int *n);
-ST_INLN void cstr_ccat(CString *cstr, int ch);
-ST_FUNC void cstr_cat(CString *cstr, const char *str, int len);
-ST_FUNC void cstr_wccat(CString *cstr, int ch);
-ST_FUNC void cstr_new(CString *cstr);
-ST_FUNC void cstr_free(CString *cstr);
-ST_FUNC int cstr_printf(CString *cs, const char *fmt, ...) PRINTF_LIKE(2,3);
-ST_FUNC int cstr_vprintf(CString *cstr, const char *fmt, va_list ap);
-ST_FUNC void cstr_reset(CString *cstr);
+ST_INLN void cstr_ccat(struct neocc_string *cstr, int ch);
+ST_FUNC void cstr_cat(struct neocc_string *cstr, const char *str, int len);
+ST_FUNC void cstr_wccat(struct neocc_string *cstr, int ch);
+ST_FUNC void cstr_new(struct neocc_string *cstr);
+ST_FUNC void cstr_free(struct neocc_string *cstr);
+ST_FUNC int cstr_printf(struct neocc_string *cs, const char *fmt, ...) PRINTF_LIKE(2,3);
+ST_FUNC int cstr_vprintf(struct neocc_string *cstr, const char *fmt, va_list ap);
+ST_FUNC void cstr_reset(struct neocc_string *cstr);
 ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
 ST_FUNC void tcc_close(void);
 
-/* mark a memory pointer on stack for cleanup after errors */
-#define stk_push(p) dynarray_add(&stk_data, &nb_stk_data, p)
-#define stk_pop() (--nb_stk_data)
-/* mark CString on stack for cleanup errors */
-#define cstr_new_s(cstr) (cstr_new(cstr), stk_push(&(cstr)->data))
-#define cstr_free_s(cstr) (cstr_free(cstr), stk_pop())
+/* Register local strings for cleanup before diagnostic longjmp. */
+#define cstr_new_s(cstr) \
+    (cstr_new(cstr), dynarray_add(&stk_data, &nb_stk_data, cstr))
+#define cstr_free_s(cstr) (cstr_free(cstr), --nb_stk_data)
 
 ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags);
 /* flags: */
@@ -1306,13 +1288,6 @@ ST_FUNC int normalized_PATHCMP(const char *f1, const char *f2);
 ST_DATA struct neocc_source_buffer *file;
 ST_DATA int tok;
 ST_DATA CValue tokc;
-ST_DATA const int *macro_ptr;
-ST_DATA int parse_flags;
-ST_DATA int tok_flags;
-ST_DATA CString tokcstr; /* current parsed string, if any */
-
-/* display benchmark infos */
-ST_DATA int pp_expr;
 
 #define TOK_FLAG_BOL   0x0001 /* beginning of line before */
 #define TOK_FLAG_BOF   0x0002 /* beginning of file before */
@@ -1328,11 +1303,6 @@ ST_DATA int pp_expr;
 #define PARSE_FLAG_ACCEPT_STRAYS 0x0020 /* next() returns '\\' token */
 #define PARSE_FLAG_TOK_STR    0x0040 /* return parsed strings instead of TOK_PPSTR */
 
-/* isidnum_table flags: */
-#define IS_SPC 1
-#define IS_ID  2
-#define IS_NUM 4
-
 enum line_macro_output_format {
     LINE_MACRO_OUTPUT_FORMAT_GCC,
     LINE_MACRO_OUTPUT_FORMAT_NONE,
@@ -1345,15 +1315,15 @@ ST_FUNC struct neocc_token *neocc_token_at(TCCState *s1, int id);
 ST_FUNC int neocc_token_next(TCCState *s1);
 ST_FUNC int tok_alloc_const(const char *str);
 ST_FUNC const char *get_tok_str(int v, CValue *cv);
-ST_FUNC void begin_macro(TokenString *str, int alloc);
+ST_FUNC void begin_macro(struct neocc_token_string *str, int alloc);
 ST_FUNC void end_macro(void);
 ST_FUNC int set_idnum(int c, int val);
-ST_INLN void tok_str_new(TokenString *s);
-ST_FUNC TokenString *tok_str_alloc(void);
-ST_FUNC void tok_str_free(TokenString *s);
+ST_INLN void tok_str_new(struct neocc_token_string *s);
+ST_FUNC struct neocc_token_string *tok_str_alloc(void);
+ST_FUNC void tok_str_free(struct neocc_token_string *s);
 ST_FUNC void tok_str_free_str(int *str);
-ST_FUNC void tok_str_add(TokenString *s, int t);
-ST_FUNC void tok_str_add_tok(TokenString *s);
+ST_FUNC void tok_str_add(struct neocc_token_string *s, int t);
+ST_FUNC void tok_str_add_tok(struct neocc_token_string *s);
 ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg);
 ST_FUNC void define_undef(Sym *s);
 ST_INLN Sym *define_find(int v);
@@ -1365,14 +1335,13 @@ ST_FUNC void next(void);
 ST_INLN void unget_tok(int last_tok);
 ST_FUNC void preprocess_start(TCCState *s1, int filetype);
 ST_FUNC void preprocess_end(TCCState *s1);
-ST_FUNC void tccpp_init(void);
 ST_FUNC void tccpp_new(TCCState *s);
 ST_FUNC void tccpp_delete(TCCState *s);
 ST_FUNC void tccpp_putfile(const char *filename);
 ST_FUNC int tcc_preprocess(TCCState *s1);
 ST_FUNC void skip(int c);
 ST_FUNC NORETURN void expect(const char *msg);
-ST_FUNC void pp_error(CString *cs);
+ST_FUNC void pp_error(struct neocc_string *cs);
 
 
 /* space excluding newline */
@@ -1476,8 +1445,8 @@ ST_FUNC int type_size(CType *type, int *a);
 ST_FUNC void mk_pointer(CType *type);
 ST_FUNC void vstore(void);
 ST_FUNC void inc(int post, int c);
-ST_FUNC CString* parse_mult_str(const char *msg);
-ST_FUNC CString* parse_asm_str(void);
+ST_FUNC struct neocc_string* parse_mult_str(const char *msg);
+ST_FUNC struct neocc_string* parse_asm_str(void);
 ST_FUNC void indir(void);
 ST_FUNC void unary(void);
 ST_FUNC void gexpr(void);
@@ -1724,7 +1693,7 @@ ST_FUNC void gen_expr32(ExprValue *pe);
 ST_FUNC void asm_opcode(TCCState *s1, int opcode);
 ST_FUNC int asm_parse_regvar(int t);
 ST_FUNC void asm_compute_constraints(ASMOperand *operands, int nb_operands, int nb_outputs, const uint8_t *clobber_regs, int *pout_reg);
-ST_FUNC void subst_asm_operand(CString *add_str, SValue *sv, int modifier);
+ST_FUNC void subst_asm_operand(struct neocc_string *add_str, SValue *sv, int modifier);
 ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands, int nb_outputs, int is_output, uint8_t *clobber_regs, int out_reg);
 ST_FUNC void asm_clobber(uint8_t *clobber_regs, const char *str);
 #endif

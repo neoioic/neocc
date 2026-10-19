@@ -680,7 +680,7 @@ static void asm_parse_directive(TCCState *s1, int global)
     case TOK_ASMDIR_rept:
         {
             int repeat;
-            TokenString *init_str;
+            struct neocc_token_string *init_str;
             next();
             repeat = asm_int_expr(s1);
             init_str = tok_str_alloc();
@@ -692,9 +692,9 @@ static void asm_parse_directive(TCCState *s1, int global)
             tok_str_add(init_str, TOK_EOF);
             begin_macro(init_str, 1);
             while (repeat-- > 0) {
-                tcc_assemble_internal(s1, (parse_flags & PARSE_FLAG_PREPROCESS),
+                tcc_assemble_internal(s1, (tcc_state->pp->parse_flags & PARSE_FLAG_PREPROCESS),
 				      global);
-                macro_ptr = init_str->str;
+                tcc_state->pp->macro_ptr = init_str->str;
             }
             end_macro();
             next();
@@ -799,7 +799,7 @@ static void asm_parse_directive(TCCState *s1, int global)
     case TOK_ASMDIR_file:
         {
             const char *p;
-            parse_flags &= ~PARSE_FLAG_TOK_STR;
+            tcc_state->pp->parse_flags &= ~PARSE_FLAG_TOK_STR;
             next();
             if (tok == TOK_PPNUM)
                 next();
@@ -1068,17 +1068,17 @@ static void asm_parse_directive(TCCState *s1, int global)
 static int tcc_assemble_internal(TCCState *s1, int do_preprocess, int global)
 {
     int opcode;
-    int saved_parse_flags = parse_flags;
+    int saved_parse_flags = tcc_state->pp->parse_flags;
 
-    parse_flags = PARSE_FLAG_ASM_FILE | PARSE_FLAG_TOK_STR;
+    tcc_state->pp->parse_flags = PARSE_FLAG_ASM_FILE | PARSE_FLAG_TOK_STR;
     if (do_preprocess)
-        parse_flags |= PARSE_FLAG_PREPROCESS;
+        tcc_state->pp->parse_flags |= PARSE_FLAG_PREPROCESS;
     for(;;) {
         next();
         if (tok == TOK_EOF)
             break;
         tcc_debug_line(s1);
-        parse_flags |= PARSE_FLAG_LINEFEED; /* XXX: suppress that hack */
+        tcc_state->pp->parse_flags |= PARSE_FLAG_LINEFEED; /* XXX: suppress that hack */
     redo:
 #if !defined(TCC_TARGET_ARM64)
         if (tok == '#') {
@@ -1120,10 +1120,10 @@ static int tcc_assemble_internal(TCCState *s1, int do_preprocess, int global)
         /* end of line */
         if (tok != ';' && tok != TOK_LINEFEED)
             expect("end of line");
-        parse_flags &= ~PARSE_FLAG_LINEFEED; /* XXX: suppress that hack */
+        tcc_state->pp->parse_flags &= ~PARSE_FLAG_LINEFEED; /* XXX: suppress that hack */
     }
 
-    parse_flags = saved_parse_flags;
+    tcc_state->pp->parse_flags = saved_parse_flags;
     return 0;
 }
 
@@ -1149,15 +1149,15 @@ ST_FUNC int tcc_assemble(TCCState *s1, int do_preprocess)
    C preprocessing. */
 static void tcc_assemble_inline(TCCState *s1, const char *str, int len, int global)
 {
-    const int *saved_macro_ptr = macro_ptr;
-    int dotid = set_idnum('.', IS_ID);
+    const int *saved_macro_ptr = tcc_state->pp->macro_ptr;
+    int dotid = set_idnum('.', NEOCC_CHAR_ID);
 #if !defined(TCC_TARGET_RISCV64) && !defined(TCC_TARGET_X86_64)
     int dolid = set_idnum('$', 0);
 #endif
 
     tcc_open_bf(s1, ":asm:", len);
     memcpy(file->buffer, str, len);
-    macro_ptr = NULL;
+    tcc_state->pp->macro_ptr = NULL;
     tcc_assemble_internal(s1, 0, global);
     tcc_close();
 
@@ -1165,7 +1165,7 @@ static void tcc_assemble_inline(TCCState *s1, const char *str, int len, int glob
     set_idnum('$', dolid);
 #endif
     set_idnum('.', dotid);
-    macro_ptr = saved_macro_ptr;
+    tcc_state->pp->macro_ptr = saved_macro_ptr;
 }
 
 /* find a constraint by its number or id (gcc 3 extended
@@ -1210,7 +1210,7 @@ ST_FUNC int find_constraint(ASMOperand *operands, int nb_operands,
 }
 
 static void subst_asm_operands(ASMOperand *operands, int nb_operands, 
-                               CString *out_str, const char *str)
+                               struct neocc_string *out_str, const char *str)
 {
     int c, index, modifier;
     ASMOperand *op;
@@ -1326,7 +1326,7 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr,
 /* parse the GCC asm() instruction */
 ST_FUNC void asm_instr(void)
 {
-    CString astr, *astr1;
+    struct neocc_string astr, *astr1;
 
     ASMOperand operands[MAX_ASM_OPERANDS];
     int nb_outputs, nb_operands, i, must_subst, out_reg, nb_labels;
@@ -1476,7 +1476,7 @@ ST_FUNC void asm_instr(void)
 
 ST_FUNC void asm_global_instr(void)
 {
-    CString *astr;
+    struct neocc_string *astr;
     int saved_nocode_wanted = nocode_wanted;
 
     /* Global asm blocks are always emitted.  */

@@ -2,7 +2,7 @@
  *  i386 specific functions for TCC assembler
  *
  *  Copyright (c) 2001, 2002 Fabrice Bellard
- *  Copyright (c) 2009 Frédéric Feret (x86_64 support)
+ *  Copyright (c) 2009 Fr閼煎崓閼煎嵐ic Feret (x86_64 support)
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -1506,7 +1506,7 @@ ST_FUNC void asm_compute_constraints(ASMOperand *operands,
 #endif
 }
 
-ST_FUNC void subst_asm_operand(CString *add_str,
+ST_FUNC void subst_asm_operand(struct neocc_string *add_str,
                               SValue *sv, int modifier)
 {
     int r, reg, size, val;

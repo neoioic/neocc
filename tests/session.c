@@ -46,20 +46,37 @@ int main(int argc, char **argv)
 		a = session(argv[1]);
 		b = session(argv[1]);
 		CHECK(a->sources != b->sources && a->sources->oid != b->sources->oid);
+		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
-		CHECK(tcc_compile_string(a, "int value(void) { return SESSION_VALUE; }") == 0);
-		CHECK(tcc_compile_string(b, "int value(void) { return SESSION_VALUE; }") == 0);
-		CHECK(tcc_compile_string(a, "#ifdef PRIVATE_MACRO\n#error leaked macro\n#endif\nint second(void) { return 31; }") == 0);
-		CHECK(tcc_compile_string(b, "#define PRIVATE_MACRO 1\nint second(void) { return 43; }") == 0);
+		CHECK(tcc_compile_string(a,
+			"int value(void) { return SESSION_VALUE + __COUNTER__; }") == 0);
+		CHECK(tcc_compile_string(b,
+			"int value(void) { return SESSION_VALUE + __COUNTER__; }") == 0);
+		CHECK(tcc_compile_string(a,
+			"#ifdef PRIVATE_MACRO\n#error leaked macro\n#endif\n"
+			"#define CAT_(a,b) a##b\n#define CAT(a,b) CAT_(a,b)\n"
+			"#define STR_(x) #x\n#define STR(x) STR_(x)\n"
+			"#define VALUE(x) ((x) + __COUNTER__)\n"
+			"int second(void) { const char *s = STR(CAT(he,llo)); "
+			"return VALUE(31) + (s[0] != 'h'); }") == 0);
+		CHECK(tcc_compile_string(b,
+			"#define PRIVATE_MACRO 1\n"
+			"int second(void) { return 43 + __COUNTER__; }") == 0);
 		clean_access(a->sources);
 		clean_access(b->sources);
 		CHECK(tcc_relocate(a) == 0);
 		function = (int (*)(void))tcc_get_symbol(a, "value");
 		CHECK(function && function() == 17);
+		function = (int (*)(void))tcc_get_symbol(a, "second");
+		CHECK(function && function() == 31);
+		CHECK(!a->pp->parsed.data && !a->pp->spelling.data);
+		CHECK(!a->pp->macro_stack && !a->pp->macro_ptr && !a->pp->counter);
 		CHECK(tcc_relocate(b) == 0);
 		function = (int (*)(void))tcc_get_symbol(b, "value");
 		CHECK(function && function() == 29);
+		function = (int (*)(void))tcc_get_symbol(b, "second");
+		CHECK(function && function() == 43);
 		tcc_delete(a);
 		tcc_delete(b);
 
@@ -67,6 +84,15 @@ int main(int argc, char **argv)
 		CHECK(tcc_compile_string(a,
 			"#line 73 \"broken.c\"\nint broken(void) { return missing; }\n") < 0);
 		CHECK(strstr(diagnostic, "broken.c:73:") && strstr(diagnostic, "missing"));
+		clean_access(a->sources);
+		tcc_delete(a);
+		a = session(argv[1]);
+		CHECK(tcc_compile_string(a,
+			"#define INNER(x) ((x) + missing)\n"
+			"#define OUTER(x) INNER(x)\n"
+			"int broken(void) { return OUTER(7); }\n") < 0);
+		CHECK(!a->pp->macro_stack && !a->pp->macro_ptr);
+		CHECK(!a->pp->parsed.data && !a->pp->spelling.data);
 		clean_access(a->sources);
 		tcc_delete(a);
 		a = session(argv[1]);

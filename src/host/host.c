@@ -13,13 +13,16 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 			      struct object **, unsigned char *);
 	extern int crt_tokens(uint64_t *, unsigned int, unsigned int, int,
 			      struct object **, unsigned char *);
+	extern int crt_preprocessor(uint64_t *, unsigned int, unsigned int, int,
+				    struct object **, unsigned char *);
 	size_t i;
 	uint64_t oid;
 	int result;
 
 	if (object_out)
 		*object_out = NULL;
-	if ((model_id != NEOCC_MSN_SOURCE && model_id != NEOCC_MSN_TOKENS) ||
+	if ((model_id != NEOCC_MSN_SOURCE && model_id != NEOCC_MSN_TOKENS &&
+	     model_id != NEOCC_MSN_PREPROCESSOR) ||
 	    caller_capacity < 1 ||
 	    (!!object_out == !!exotic_memory))
 		return RN_INVALIDARG;
@@ -32,9 +35,12 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 	if (model_id == NEOCC_MSN_SOURCE)
 		result = crt_source(&oid, input_capacity, output_capacity,
 				    caller_capacity, object_out, exotic_memory);
-	else
+	else if (model_id == NEOCC_MSN_TOKENS)
 		result = crt_tokens(&oid, input_capacity, output_capacity,
 				    caller_capacity, object_out, exotic_memory);
+	else
+		result = crt_preprocessor(&oid, input_capacity, output_capacity,
+					  caller_capacity, object_out, exotic_memory);
 	if (RP(result))
 		ids[i] = ids[i + 1] = 1;
 	return result;
@@ -47,7 +53,8 @@ char host_destroy_object(struct object *object)
 
 	if (!object || object != object->nodes ||
 	    (object->model_id != NEOCC_MSN_SOURCE &&
-	     object->model_id != NEOCC_MSN_TOKENS) || !object->oid)
+	     object->model_id != NEOCC_MSN_TOKENS &&
+	     object->model_id != NEOCC_MSN_PREPROCESSOR) || !object->oid)
 		return FALSE;
 	for (i = 0; i < object->node_count; i++) {
 		struct object *node = object->nodes + i;

@@ -11,6 +11,7 @@ CORE = ["libtcc.c", "tccpp.c", "tccgen.c", "tccdbg.c", "tccasm.c",
         "tccelf.c", "tccrun.c", "tccpe.c", "x86_64-gen.c", "x86_64-link.c",
         "i386-asm.c"]
 SOURCES = ["src/main.c", "src/host/host.c", "src/objects/source.c", "src/objects/tokens.c",
+           "src/objects/preprocessor.c",
            *["src/compiler/" + name for name in CORE],
            "third_party/neoioic/src/object.c", "third_party/neoioic/src/neoioic.c"]
 INCLUDES = ["include", "src", "src/compiler", "third_party/neoioic/include",
@@ -86,7 +87,7 @@ def compile_runtime(compiler, directory, reference):
 
 
 def regenerate(program, compiler, directory, runtime):
-    names = ["source", "tokens"]
+    names = ["source", "tokens", "preprocessor"]
     for name in [*[f"objects/{node}.{suffix}" for node in names
                    for suffix in ["c", "h"]], "host/host.h", "support/io.h"]:
         target = directory / "src" / name

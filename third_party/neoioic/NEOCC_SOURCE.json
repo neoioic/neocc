@@ -233,7 +233,8 @@
       "source": "LICENSE",
       "destination": "LICENSE",
       "sha256": "5c5b2b603bc4db1422ca0dcec021f3f891c2097e9d279abcc49fd48537c03f92",
-      "imported_sha256": "5c5b2b603bc4db1422ca0dcec021f3f891c2097e9d279abcc49fd48537c03f92"
+      "imported_sha256": "47a8b24646f8a19bcd9a2980caceb75565219f357f418924f91d315b6a2f961a",
+      "local_changes": "Normalize CRLF to LF to match repository attributes; license text unchanged."
     },
     {
       "source": "README.md",

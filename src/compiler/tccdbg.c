@@ -1795,13 +1795,13 @@ static int remove_type_info(int type)
 	return type;
 }
 
-static void tcc_get_debug_info(TCCState *s1, Sym *s, CString *result)
+static void tcc_get_debug_info(TCCState *s1, Sym *s, struct neocc_string *result)
 {
     int type;
     int n = 0;
     int debug_type = -1;
     Sym *t = s;
-    CString str;
+    struct neocc_string str;
 
     for (;;) {
         type = remove_type_info (t->type.t);
@@ -2275,7 +2275,7 @@ static void tcc_debug_finish (TCCState *s1, struct _debug_info *cur)
 
 ST_FUNC void tcc_add_debug_info(TCCState *s1, Sym *s, Sym *e)
 {
-    CString debug_str;
+    struct neocc_string debug_str;
     int param;
 
     if (!(s1->do_debug & 2))
@@ -2307,7 +2307,7 @@ ST_FUNC void tcc_add_debug_info(TCCState *s1, Sym *s, Sym *e)
 /* put function symbol */
 ST_FUNC void tcc_debug_funcstart(TCCState *s1, Sym *sym)
 {
-    CString debug_str;
+    struct neocc_string debug_str;
     struct neocc_source_buffer *f;
 
     if (!s1->do_debug)
@@ -2459,7 +2459,7 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, Sym *sym, int sh_num, int sym_bi
     {
         Section *s = sh_num == SHN_COMMON ? common_section
 					  : s1->sections[sh_num];
-        CString str;
+        struct neocc_string str;
 
         cstr_new (&str);
         cstr_printf (&str, "%s:%c",
@@ -2497,7 +2497,7 @@ ST_FUNC void tcc_debug_typedef(TCCState *s1, Sym *sym)
     }
     else
     {
-        CString str;
+        struct neocc_string str;
         cstr_new (&str);
         cstr_printf (&str, "%s:t", get_tok_str(sym->v, NULL));
         tcc_get_debug_info(s1, sym, &str);
@@ -2525,7 +2525,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	strcmp ((const char *)(tcov_section->data + tcov_data.last_file_name),
 		file->true_filename) != 0) {
 	char wd[1024];
-	CString cstr;
+	struct neocc_string cstr;
 
 	if (tcov_data.last_func_name)
 	    section_ptr_add(tcov_section, 1);

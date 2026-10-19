@@ -7,7 +7,7 @@
       "source": "tinycc/libtcc.c",
       "destination": "src/compiler/libtcc.c",
       "sha256": "87373a094a1067c6a37d7c8e8c7102240a217cd2fd66b20baab3a71750afddcd",
-      "local_changes": "Own source and tokens objects per context; close partially opened graphs on failure; arm parser cleanup before token allocation; retain compiler algorithms and diagnostic semantics."
+      "local_changes": "Compose source, tokens and preprocessor objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; retain compiler algorithms and diagnostic semantics."
     },
     {
       "source": "tinycc/libtcc.h",
@@ -18,18 +18,21 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source and token contracts and per-context object handles; remove TokenSym typedef and global identifier table/count declarations; preserve token numbering.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs; remove migrated global state declarations and legacy aliases; preserve token numbering and ABI types.",
       "additional_derivatives": [
-        "include/neocc/tokens.h"
+        "include/neocc/tokens.h",
+        "include/neocc/preprocessor.h"
       ]
     },
     {
       "source": "tinycc/tccpp.c",
       "destination": "src/compiler/tccpp.c",
       "sha256": "233c83c1087abe2c52eef23e03053bfd09dc6bcf5958aa463548ab455f016993",
-      "local_changes": "Replace identifier interning, tables and TinyAlloc with tokens object VO messages; keep lexer and macro algorithms; initialize cleanup-safe cursors before allocation.",
+      "local_changes": "Use tokens VO for interning/arena storage and preprocessor VO for macro stream stack operations; borrow per-context working strings, character table, modes and counters; reset working references before arena release; retain preprocessing algorithms.",
       "additional_derivatives": [
-        "src/objects/tokens.c"
+        "src/objects/tokens.c",
+        "src/objects/preprocessor.c",
+        "src/objects/preprocessor.h"
       ]
     },
     {

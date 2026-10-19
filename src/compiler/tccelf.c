@@ -1642,7 +1642,7 @@ ST_FUNC void tcc_add_btstub(TCCState *s1)
 {
     Section *s;
     int n, o, *p;
-    CString cstr;
+    struct neocc_string cstr;
     const char *__rt_info = &"___rt_info"[!s1->leading_underscore];
 
     s = data_section;
@@ -1725,7 +1725,7 @@ ST_FUNC void tcc_add_btstub(TCCState *s1)
 
 static void tcc_tcov_add_file(TCCState *s1, const char *filename)
 {
-    CString cstr;
+    struct neocc_string cstr;
     void *ptr;
     char wd[1024];
 
