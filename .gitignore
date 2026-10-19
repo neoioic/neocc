@@ -1,0 +1,6 @@
+build/
+.xmake/
+**/build/
+**/.xmake/
+__pycache__/
+tinycc/

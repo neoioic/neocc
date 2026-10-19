@@ -1,0 +1,2 @@
+# All text files use LF in both the repository and working tree.
+* text=auto eol=lf

@@ -1,0 +1,15 @@
+set_project("openoicc")
+set_languages("c11")
+add_rules("mode.debug", "mode.release")
+set_targetdir(path.join(os.scriptdir(), "build/$(plat)/$(arch)/$(mode)"))
+set_objectdir(path.join(os.scriptdir(), "build/.objs/$(target)/$(plat)/$(arch)/$(mode)"))
+
+includes("../neoioic/src")
+
+target("openoicc")
+    set_kind("binary")
+    add_deps("neoioic")
+    add_includedirs("include")
+    add_files("src/**.c")
+    set_warnings("all")
+    set_rundir(os.scriptdir())

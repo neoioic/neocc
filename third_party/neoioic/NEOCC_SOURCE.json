@@ -1,0 +1,303 @@
+{
+  "project": "neoioic",
+  "revision": "f9d415a3728c461ac64ba4a760a8bd49b3a839a8",
+  "source_state": "clean_working_tree",
+  "imported_on": "2026-10-19",
+  "scope": "Runtime core, two object examples, architecture/tutorial/style documents, focused robustness/dispatch tests and license.",
+  "files": [
+    {
+      "source": "docs/architecture.md",
+      "destination": "docs/architecture.md",
+      "sha256": "42bb5a75e3c8ff388969b8f763c8c5d9f0f1acabefdc3398cce8258942da0e2e",
+      "imported_sha256": "42bb5a75e3c8ff388969b8f763c8c5d9f0f1acabefdc3398cce8258942da0e2e"
+    },
+    {
+      "source": "docs/coding_style.md",
+      "destination": "docs/coding_style.md",
+      "sha256": "4a464cb3e131f8edc2dfd59379ac561c44e4007fe08f516a0cab0bc34c34a7e0",
+      "imported_sha256": "4a464cb3e131f8edc2dfd59379ac561c44e4007fe08f516a0cab0bc34c34a7e0"
+    },
+    {
+      "source": "docs/tutorial.md",
+      "destination": "docs/tutorial.md",
+      "sha256": "965c78011da9adcb75468e4e10a3e67a17587be7ff8cf1f46f6c498f8b2d2a5b",
+      "imported_sha256": "965c78011da9adcb75468e4e10a3e67a17587be7ff8cf1f46f6c498f8b2d2a5b"
+    },
+    {
+      "source": "examples/hello_world/hello_world.c",
+      "destination": "examples/hello_world/hello_world.c",
+      "sha256": "6f7f5191929b43d36c11e3e451c5cd5537fb7a3479b04d3d003f912e914c1296",
+      "imported_sha256": "6f7f5191929b43d36c11e3e451c5cd5537fb7a3479b04d3d003f912e914c1296"
+    },
+    {
+      "source": "examples/hello_world/hello_world.h",
+      "destination": "examples/hello_world/hello_world.h",
+      "sha256": "51664f677be4833448931e7266813ee276be0ce1c395c53e87157c781225c3b5",
+      "imported_sha256": "51664f677be4833448931e7266813ee276be0ce1c395c53e87157c781225c3b5"
+    },
+    {
+      "source": "examples/hello_world/host.c",
+      "destination": "examples/hello_world/host.c",
+      "sha256": "e45566ae7574a747a32eab4e87cb18bdc63a0657e66db9a485fe08b5680dc470",
+      "imported_sha256": "e45566ae7574a747a32eab4e87cb18bdc63a0657e66db9a485fe08b5680dc470"
+    },
+    {
+      "source": "examples/hello_world/host.h",
+      "destination": "examples/hello_world/host.h",
+      "sha256": "24be737ccc7cd2de5e3453b6d5df63d95c67237bef98da3a1e219eca33ffe5bf",
+      "imported_sha256": "24be737ccc7cd2de5e3453b6d5df63d95c67237bef98da3a1e219eca33ffe5bf"
+    },
+    {
+      "source": "examples/hello_world/objects/application/application.h",
+      "destination": "examples/hello_world/objects/application/application.h",
+      "sha256": "77549f7e5742955657781fe2c98448d9f5ab27f2b0d905648e3dd44c056e5600",
+      "imported_sha256": "77549f7e5742955657781fe2c98448d9f5ab27f2b0d905648e3dd44c056e5600"
+    },
+    {
+      "source": "examples/hello_world/objects/application/main/main.c",
+      "destination": "examples/hello_world/objects/application/main/main.c",
+      "sha256": "70c8d5aa0830b7f5be9fce15afc3cd38d14a9e69e7d2c6a37a92c5f8833c4521",
+      "imported_sha256": "70c8d5aa0830b7f5be9fce15afc3cd38d14a9e69e7d2c6a37a92c5f8833c4521"
+    },
+    {
+      "source": "examples/hello_world/objects/application/main/main.h",
+      "destination": "examples/hello_world/objects/application/main/main.h",
+      "sha256": "0b65eca20d919a7b9d78d7a11c857d13ee182d4cd832760be87d036fd31e5ccd",
+      "imported_sha256": "0b65eca20d919a7b9d78d7a11c857d13ee182d4cd832760be87d036fd31e5ccd"
+    },
+    {
+      "source": "examples/hello_world/objects/general/general.h",
+      "destination": "examples/hello_world/objects/general/general.h",
+      "sha256": "fb8ce6cdd68c32293da0812fbf29d108c2bbd08bb2f7401c5dc96bcfb9e33693",
+      "imported_sha256": "fb8ce6cdd68c32293da0812fbf29d108c2bbd08bb2f7401c5dc96bcfb9e33693"
+    },
+    {
+      "source": "examples/hello_world/objects/objects.h",
+      "destination": "examples/hello_world/objects/objects.h",
+      "sha256": "82c58d17e2b71a47730261fcd9d5ad1cb5e6afed4a4bcf70c68e3b38af5c0138",
+      "imported_sha256": "82c58d17e2b71a47730261fcd9d5ad1cb5e6afed4a4bcf70c68e3b38af5c0138"
+    },
+    {
+      "source": "examples/hello_world/README.md",
+      "destination": "examples/hello_world/README.md",
+      "sha256": "1ff777b8405a390b354179df3121feffb2541c6e1a493ddc7f814a4e38be0a81",
+      "imported_sha256": "68478996c2b1a671e6b1ddf64e4aebb92612087f0753af6d1738956b9dbf2e84",
+      "local_changes": "Use PATH toolchain discovery instead of drive-specific example command."
+    },
+    {
+      "source": "examples/hello_world/support/support.h",
+      "destination": "examples/hello_world/support/support.h",
+      "sha256": "5c4fa8ef4a8e79585dbe4da9ba74847e7d9c79be114ba34666f7055d55468f2c",
+      "imported_sha256": "5c4fa8ef4a8e79585dbe4da9ba74847e7d9c79be114ba34666f7055d55468f2c"
+    },
+    {
+      "source": "examples/hello_world/xmake.lua",
+      "destination": "examples/hello_world/xmake.lua",
+      "sha256": "8390b0d0204c284ddf2b9a355a93a5aa90295dcf23803559b0ecb1721ab1f15e",
+      "imported_sha256": "8390b0d0204c284ddf2b9a355a93a5aa90295dcf23803559b0ecb1721ab1f15e"
+    },
+    {
+      "source": "examples/multiple_inheritance/factory.c",
+      "destination": "examples/multiple_inheritance/factory.c",
+      "sha256": "811037a4de24a7138a81034908bb4dcb82b834c0b31c27cc9f3c527754679d87",
+      "imported_sha256": "811037a4de24a7138a81034908bb4dcb82b834c0b31c27cc9f3c527754679d87"
+    },
+    {
+      "source": "examples/multiple_inheritance/factory.h",
+      "destination": "examples/multiple_inheritance/factory.h",
+      "sha256": "8086fec38e298a63253c967527ff77a8dc222a30b51d4b95db9aefab5596f5e8",
+      "imported_sha256": "8086fec38e298a63253c967527ff77a8dc222a30b51d4b95db9aefab5596f5e8"
+    },
+    {
+      "source": "examples/multiple_inheritance/host.c",
+      "destination": "examples/multiple_inheritance/host.c",
+      "sha256": "60e04541d3409a98ac3ee6e60b9758e4a7e3c31a9de6d5e0a1d3dad1de0b4fe1",
+      "imported_sha256": "60e04541d3409a98ac3ee6e60b9758e4a7e3c31a9de6d5e0a1d3dad1de0b4fe1"
+    },
+    {
+      "source": "examples/multiple_inheritance/host.h",
+      "destination": "examples/multiple_inheritance/host.h",
+      "sha256": "b4ca505fb653285ca5ec7c71cbeb617a4e3528f739b34b6af6974adfcd612b24",
+      "imported_sha256": "b4ca505fb653285ca5ec7c71cbeb617a4e3528f739b34b6af6974adfcd612b24"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/application/application.h",
+      "destination": "examples/multiple_inheritance/objects/application/application.h",
+      "sha256": "6d8212af56918456eeb0d77fa28141ea55161f691bb162ef427bd5f922ffa119",
+      "imported_sha256": "6d8212af56918456eeb0d77fa28141ea55161f691bb162ef427bd5f922ffa119"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/application/main/main.c",
+      "destination": "examples/multiple_inheritance/objects/application/main/main.c",
+      "sha256": "33babdea2f12c12d521e183408de454cf985a465c4046f04d22329faf42df182",
+      "imported_sha256": "33babdea2f12c12d521e183408de454cf985a465c4046f04d22329faf42df182"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/application/main/main.h",
+      "destination": "examples/multiple_inheritance/objects/application/main/main.h",
+      "sha256": "0b65eca20d919a7b9d78d7a11c857d13ee182d4cd832760be87d036fd31e5ccd",
+      "imported_sha256": "0b65eca20d919a7b9d78d7a11c857d13ee182d4cd832760be87d036fd31e5ccd"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/amphicar/amphicar.c",
+      "destination": "examples/multiple_inheritance/objects/general/amphicar/amphicar.c",
+      "sha256": "af9a2593036e16dd3f09604cbdf38ee6ddd5ab878a6b0040b4955ece8e9288eb",
+      "imported_sha256": "af9a2593036e16dd3f09604cbdf38ee6ddd5ab878a6b0040b4955ece8e9288eb"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/amphicar/amphicar.h",
+      "destination": "examples/multiple_inheritance/objects/general/amphicar/amphicar.h",
+      "sha256": "77382324dbdb5661e015fbeac3cc9a2ab119fb809048e3b893b4fe6025e9effc",
+      "imported_sha256": "77382324dbdb5661e015fbeac3cc9a2ab119fb809048e3b893b4fe6025e9effc"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/car/car.c",
+      "destination": "examples/multiple_inheritance/objects/general/car/car.c",
+      "sha256": "f0427c6a95e181b3a97e2ec016581e4dd730aff0f73cedd9fe1f78b6a24c844d",
+      "imported_sha256": "f0427c6a95e181b3a97e2ec016581e4dd730aff0f73cedd9fe1f78b6a24c844d"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/car/car.h",
+      "destination": "examples/multiple_inheritance/objects/general/car/car.h",
+      "sha256": "cf7b27d4255a870919306001fba1a5154259af7fd2c6d6486c3f9bfbf7205719",
+      "imported_sha256": "cf7b27d4255a870919306001fba1a5154259af7fd2c6d6486c3f9bfbf7205719"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/general.h",
+      "destination": "examples/multiple_inheritance/objects/general/general.h",
+      "sha256": "64c654f02887cc97de08bb5332a1561e73a498e98520f6f157c0e14dec64ff18",
+      "imported_sha256": "64c654f02887cc97de08bb5332a1561e73a498e98520f6f157c0e14dec64ff18"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/ship/ship.c",
+      "destination": "examples/multiple_inheritance/objects/general/ship/ship.c",
+      "sha256": "4c77e38cecfe732a3b1d4757c1160bfa6fba5f289bebfeba448f7125bfbb28e8",
+      "imported_sha256": "4c77e38cecfe732a3b1d4757c1160bfa6fba5f289bebfeba448f7125bfbb28e8"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/ship/ship.h",
+      "destination": "examples/multiple_inheritance/objects/general/ship/ship.h",
+      "sha256": "931b663212f7bb74c40e763b903e635c132b6571d3d653d2a8aac95db96ae76a",
+      "imported_sha256": "931b663212f7bb74c40e763b903e635c132b6571d3d653d2a8aac95db96ae76a"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/vehicle/vehicle.c",
+      "destination": "examples/multiple_inheritance/objects/general/vehicle/vehicle.c",
+      "sha256": "5d5254c027548c7b739b3b538a65f06eb82fb5ed54035edba96cdd825274efb2",
+      "imported_sha256": "5d5254c027548c7b739b3b538a65f06eb82fb5ed54035edba96cdd825274efb2"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/general/vehicle/vehicle.h",
+      "destination": "examples/multiple_inheritance/objects/general/vehicle/vehicle.h",
+      "sha256": "1c83f32c7ff5da4ac17742e0cf9153a679c10959f46fa2a738639582e2a1223f",
+      "imported_sha256": "1c83f32c7ff5da4ac17742e0cf9153a679c10959f46fa2a738639582e2a1223f"
+    },
+    {
+      "source": "examples/multiple_inheritance/objects/objects.h",
+      "destination": "examples/multiple_inheritance/objects/objects.h",
+      "sha256": "f85675babe4c9abdddbb4288d56936efb6cfd3163a558f7240f227367804b5dd",
+      "imported_sha256": "f85675babe4c9abdddbb4288d56936efb6cfd3163a558f7240f227367804b5dd"
+    },
+    {
+      "source": "examples/multiple_inheritance/README.md",
+      "destination": "examples/multiple_inheritance/README.md",
+      "sha256": "b9d53edcc0d26714932dfb9bef1fa025ae1ec3b9be8cb33bb88561a43b8a2c49",
+      "imported_sha256": "2c5246cffa8bbc2a2a5e018533e73539845306fa121ef743aef44b4fce50e13e",
+      "local_changes": "Use PATH toolchain discovery instead of drive-specific example command."
+    },
+    {
+      "source": "examples/multiple_inheritance/support/support.h",
+      "destination": "examples/multiple_inheritance/support/support.h",
+      "sha256": "adffca5dcc5e4f13bdb1ddc4d19b4382eee07fdf15a7b3e810780f42755f1512",
+      "imported_sha256": "adffca5dcc5e4f13bdb1ddc4d19b4382eee07fdf15a7b3e810780f42755f1512"
+    },
+    {
+      "source": "examples/multiple_inheritance/xmake.lua",
+      "destination": "examples/multiple_inheritance/xmake.lua",
+      "sha256": "0cb098b58fc8d6bd23992ac3ad37b7aeb0945c0d5df9cc5fd7ccfeaf5d32a842",
+      "imported_sha256": "0cb098b58fc8d6bd23992ac3ad37b7aeb0945c0d5df9cc5fd7ccfeaf5d32a842"
+    },
+    {
+      "source": "include/neoioic.h",
+      "destination": "include/neoioic.h",
+      "sha256": "be353eabad2f7ba01ae37a1c200c1252c102af0ef40c0bffd634065d6442dda6",
+      "imported_sha256": "be353eabad2f7ba01ae37a1c200c1252c102af0ef40c0bffd634065d6442dda6"
+    },
+    {
+      "source": "include/object.h",
+      "destination": "include/object.h",
+      "sha256": "d2bb885d5f080783f183c4b7922c2d4633246865171f677330d2fad498b8ee1e",
+      "imported_sha256": "d2bb885d5f080783f183c4b7922c2d4633246865171f677330d2fad498b8ee1e"
+    },
+    {
+      "source": "LICENSE",
+      "destination": "LICENSE",
+      "sha256": "5c5b2b603bc4db1422ca0dcec021f3f891c2097e9d279abcc49fd48537c03f92",
+      "imported_sha256": "5c5b2b603bc4db1422ca0dcec021f3f891c2097e9d279abcc49fd48537c03f92"
+    },
+    {
+      "source": "README.md",
+      "destination": "README.md",
+      "sha256": "aff236610d9a56bdac068198b8ed24be391691ad6529ddc79c684f0f7c001a97",
+      "imported_sha256": "7a82633a3861afd10ae221daafbdc2ad8a5c52bf77369c4a6c5f3a485ceda15c",
+      "local_changes": "Replace upstream overview with selected snapshot scope; include focused regressions. Document native GCC/NeoCC verification and current scope.",
+      "initial_imported_sha256": "b2c9fa54b81c1e237e4227c3f4fb99406240ab296f108cbf1ea5778ef99f5d7f"
+    },
+    {
+      "source": "src/neoioic.c",
+      "destination": "src/neoioic.c",
+      "sha256": "8c0d60b7279aa2fd03171c1df84e76a24da2ff425f8ef9d28a4f8827d5cc34a2",
+      "imported_sha256": "8c0d60b7279aa2fd03171c1df84e76a24da2ff425f8ef9d28a4f8827d5cc34a2"
+    },
+    {
+      "source": "src/object.c",
+      "destination": "src/object.c",
+      "sha256": "ac93cb02a667a76a3e85fc44873f295ab053f25faee1089cb4efad33bcfc9b68",
+      "imported_sha256": "ac93cb02a667a76a3e85fc44873f295ab053f25faee1089cb4efad33bcfc9b68"
+    },
+    {
+      "source": "src/xmake.lua",
+      "destination": "src/xmake.lua",
+      "sha256": "280ae3fdbfd74a793e658ac56e0b61dd9d0ab80cee26d16b0a6ecbc9f5b51362",
+      "imported_sha256": "280ae3fdbfd74a793e658ac56e0b61dd9d0ab80cee26d16b0a6ecbc9f5b51362"
+    },
+    {
+      "source": "xmake.lua",
+      "destination": "xmake.lua",
+      "sha256": "11f90af3bf977ec9102ea0821daba783ec63cadd18d18fe7b92a3ca2392fb6e1",
+      "imported_sha256": "11f90af3bf977ec9102ea0821daba783ec63cadd18d18fe7b92a3ca2392fb6e1"
+    },
+    {
+      "source": "tests/robustness.c",
+      "destination": "tests/robustness.c",
+      "sha256": "78d392bc1cb9f5f02547e774e6c06977f3efc0520b8ce161fab45c73aa46ce0a",
+      "imported_sha256": "78d392bc1cb9f5f02547e774e6c06977f3efc0520b8ce161fab45c73aa46ce0a"
+    },
+    {
+      "source": "tests/dispatch.c",
+      "destination": "tests/dispatch.c",
+      "sha256": "9389b970821e125506e0fdf241d3c34a65b7a35c478243bd78c392be205816dd",
+      "imported_sha256": "9389b970821e125506e0fdf241d3c34a65b7a35c478243bd78c392be205816dd"
+    },
+    {
+      "source": "tests/check.h",
+      "destination": "tests/check.h",
+      "sha256": "bb6d35af243d539ebaa6f737af2a8e4cf4d59e1769f77330e7ec859e399e9b66",
+      "imported_sha256": "bb6d35af243d539ebaa6f737af2a8e4cf4d59e1769f77330e7ec859e399e9b66"
+    },
+    {
+      "source": "tests/xmake.lua",
+      "destination": "tests/xmake.lua",
+      "sha256": "8f1e1ac5e38cfecbac2c6fb6a796286fb2f2c9d2dcdd2ff12b15749472e9330e",
+      "imported_sha256": "8f1e1ac5e38cfecbac2c6fb6a796286fb2f2c9d2dcdd2ff12b15749472e9330e"
+    }
+  ],
+  "hash_policy": "sha256 records original source bytes; imported_sha256 records bytes after documented local adjustments.",
+  "local_files": [
+    {
+      "destination": "tests/README.md",
+      "sha256": "a624ddcfc2474a8cc715d63dc4a8d3d0ab4b48accf782d9d323aafd7da6498e9",
+      "note": "NeoCC-specific scope, invocation and actual native validation boundaries."
+    }
+  ]
+}

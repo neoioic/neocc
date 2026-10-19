@@ -1,0 +1,209 @@
+{
+  "project": "openoicc",
+  "revision": "ef33912af0088c784aae1a7fc1697671d9f0cdc0",
+  "source_state": "clean_working_tree",
+  "imported_on": "2026-10-19",
+  "scope": "Generator source, constructor helper, three contract/user documents, 39 selected integration methods with required harnesses and license; one shared runtime.",
+  "files": [
+    {
+      "source": "docs/oioic-reference.md",
+      "destination": "docs/oioic-reference.md",
+      "sha256": "b4c14204dbf8f9d3488c844e40c806bea81921072548fd8c94dd333e41638cff",
+      "imported_sha256": "b4c14204dbf8f9d3488c844e40c806bea81921072548fd8c94dd333e41638cff"
+    },
+    {
+      "source": "docs/openoicc.md",
+      "destination": "docs/openoicc.md",
+      "sha256": "9cdb1de26d528abb69c4f08fa05d80ab5e03967808cd3001d8f7dbd21ec7c3dc",
+      "imported_sha256": "9cdb1de26d528abb69c4f08fa05d80ab5e03967808cd3001d8f7dbd21ec7c3dc"
+    },
+    {
+      "source": "docs/openoicc-user-guide.md",
+      "destination": "docs/openoicc-user-guide.md",
+      "sha256": "53d9b08867d2750171074e9e50a056a32489a88d9047cd71b1f411b53bd17542",
+      "imported_sha256": "53d9b08867d2750171074e9e50a056a32489a88d9047cd71b1f411b53bd17542"
+    },
+    {
+      "source": "include/openoicc/construct.h",
+      "destination": "include/openoicc/construct.h",
+      "sha256": "56f56f359685682abca429122007b5399e96bb3c75717e38c6d319516ce5a7de",
+      "imported_sha256": "56f56f359685682abca429122007b5399e96bb3c75717e38c6d319516ce5a7de"
+    },
+    {
+      "source": "LICENSE",
+      "destination": "LICENSE",
+      "sha256": "08081a1b705fad310a60ec48d43700bdda6a5793b525da8bb8ff9df276cd0b56",
+      "imported_sha256": "08081a1b705fad310a60ec48d43700bdda6a5793b525da8bb8ff9df276cd0b56"
+    },
+    {
+      "source": "README.md",
+      "destination": "README.md",
+      "sha256": "6214953aa4d01c557ffdec1037ce21d4a255c7e56fcc2fe1716339e7451b1db7",
+      "imported_sha256": "6f7509dc960901f7339fda1a28ba9b8957773190e73b08c9d2118b5bf31c3c17",
+      "local_changes": "Replace upstream overview with selected snapshot scope; include focused regressions. Document native GCC/NeoCC verification and current scope.",
+      "initial_imported_sha256": "fa0ee3d75f949b9cf14989a95fd0a2db4382befa21c489c6304cb1fd00cff529"
+    },
+    {
+      "source": "src/host/host.c",
+      "destination": "src/host/host.c",
+      "sha256": "be96c3e2bdadca743c33483eda60eb5d7a00882d51c9472f6dd7d539cde34220",
+      "imported_sha256": "be96c3e2bdadca743c33483eda60eb5d7a00882d51c9472f6dd7d539cde34220"
+    },
+    {
+      "source": "src/host/host.h",
+      "destination": "src/host/host.h",
+      "sha256": "b6ac5dd9f8ad784231c48319bb648ea24fcc858c98ceac946965fe6b14daf655",
+      "imported_sha256": "b6ac5dd9f8ad784231c48319bb648ea24fcc858c98ceac946965fe6b14daf655"
+    },
+    {
+      "source": "src/main.c",
+      "destination": "src/main.c",
+      "sha256": "5565721ffe830da1d181685e7df09948d160e4e93c796ebb61431f4ba55d0c04",
+      "imported_sha256": "5565721ffe830da1d181685e7df09948d160e4e93c796ebb61431f4ba55d0c04"
+    },
+    {
+      "source": "src/objects/create.c",
+      "destination": "src/objects/create.c",
+      "sha256": "550e7452714e037b55a76364e12eb2d7fc77bad1bd430598affe7870c7186809",
+      "imported_sha256": "550e7452714e037b55a76364e12eb2d7fc77bad1bd430598affe7870c7186809"
+    },
+    {
+      "source": "src/objects/directory.c",
+      "destination": "src/objects/directory.c",
+      "sha256": "5a1d8854c661d4194cf3830c8498d2757ee300587f7447bde55de5a4b8cc63d0",
+      "imported_sha256": "5a1d8854c661d4194cf3830c8498d2757ee300587f7447bde55de5a4b8cc63d0"
+    },
+    {
+      "source": "src/objects/generator.c",
+      "destination": "src/objects/generator.c",
+      "sha256": "579df2f2dacdf25f2a64dfb8bce95d2d484e534559328199288ea53348b8641e",
+      "imported_sha256": "579df2f2dacdf25f2a64dfb8bce95d2d484e534559328199288ea53348b8641e"
+    },
+    {
+      "source": "src/objects/graph.c",
+      "destination": "src/objects/graph.c",
+      "sha256": "282419a6d50f2645eaf85579178e26a525c43cbba9004331b183b82551320ddd",
+      "imported_sha256": "282419a6d50f2645eaf85579178e26a525c43cbba9004331b183b82551320ddd"
+    },
+    {
+      "source": "src/objects/host.c",
+      "destination": "src/objects/host.c",
+      "sha256": "64faf4d20b69655a76735590e674ee65cdaba06014bcc382db6915c778f5f9a0",
+      "imported_sha256": "64faf4d20b69655a76735590e674ee65cdaba06014bcc382db6915c778f5f9a0"
+    },
+    {
+      "source": "src/objects/parser.c",
+      "destination": "src/objects/parser.c",
+      "sha256": "ac29b547d5efa123a71d273b9eb1e6d43a234b75680c7127106cbd17c0113eca",
+      "imported_sha256": "ac29b547d5efa123a71d273b9eb1e6d43a234b75680c7127106cbd17c0113eca"
+    },
+    {
+      "source": "src/objects/project.c",
+      "destination": "src/objects/project.c",
+      "sha256": "e27c17b61f3e866eb6ef7aa3b1bf62687cf0fcf68202d2a3d81083cf72fc9e3e",
+      "imported_sha256": "e27c17b61f3e866eb6ef7aa3b1bf62687cf0fcf68202d2a3d81083cf72fc9e3e"
+    },
+    {
+      "source": "src/objects/project.h",
+      "destination": "src/objects/project.h",
+      "sha256": "404728e411daeb7f4094b47754a74411a2d5d58a774f4adb1908090b526a5ed6",
+      "imported_sha256": "404728e411daeb7f4094b47754a74411a2d5d58a774f4adb1908090b526a5ed6"
+    },
+    {
+      "source": "src/objects/scaffold.c",
+      "destination": "src/objects/scaffold.c",
+      "sha256": "48299485e9192ea1cd9cfefabbca7a099db36950cba05917ed9b6a6b915ac33e",
+      "imported_sha256": "48299485e9192ea1cd9cfefabbca7a099db36950cba05917ed9b6a6b915ac33e"
+    },
+    {
+      "source": "src/support/text.c",
+      "destination": "src/support/text.c",
+      "sha256": "8be3e672d39c50c98354793c4821efd875ae3b7193d6b76353c07add68cb165d",
+      "imported_sha256": "b7128c03f5c21b8cc00cacdacc229cf9f4c75affb7c48e1930be1c9956446627",
+      "initial_imported_sha256": "8be3e672d39c50c98354793c4821efd875ae3b7193d6b76353c07add68cb165d",
+      "local_changes": "Windows traversal uses FindFirstFileA/FindNextFileA/FindClose; exclusive temporary creation uses _open O_EXCL and _fdopen for MSVCRT, preserving failure cleanup. POSIX implementation retained."
+    },
+    {
+      "source": "src/support/text.h",
+      "destination": "src/support/text.h",
+      "sha256": "1741bb4575a1c38a391dc7c731b85b3f091ef0fef461e9d9ed5b40a6bb7ea5bb",
+      "imported_sha256": "1741bb4575a1c38a391dc7c731b85b3f091ef0fef461e9d9ed5b40a6bb7ea5bb"
+    },
+    {
+      "source": "THIRD_PARTY_NOTICES.md",
+      "destination": "THIRD_PARTY_NOTICES.md",
+      "sha256": "7987f07d6cfd03ec1859168d668d60ade8aec53c669b0043dfd78a48929c9c8b",
+      "imported_sha256": "7987f07d6cfd03ec1859168d668d60ade8aec53c669b0043dfd78a48929c9c8b"
+    },
+    {
+      "source": "xmake.lua",
+      "destination": "xmake.lua",
+      "sha256": "ff99b2bfb7aa414cda31ae04dd5970774251a086b289a477ff96a6d2acf44ea2",
+      "imported_sha256": "63f50debdce8bba2fdb7c27240bbef0b47736cdb8932c475e89e8215feacedbd",
+      "local_changes": "Reuse the single in-repository runtime and omit unselected example target."
+    },
+    {
+      "source": "tests/alloc.c",
+      "destination": "tests/alloc.c",
+      "sha256": "c6e86045ca50fda3005155cddfeda6b4301f6dd8215037050a42dce65ded78e4",
+      "imported_sha256": "c6e86045ca50fda3005155cddfeda6b4301f6dd8215037050a42dce65ded78e4"
+    },
+    {
+      "source": "tests/alloc.h",
+      "destination": "tests/alloc.h",
+      "sha256": "82a2e1291e3d7bcc8294d3829bb1771b430aac104c91449b84c752f33ad1d756",
+      "imported_sha256": "82a2e1291e3d7bcc8294d3829bb1771b430aac104c91449b84c752f33ad1d756"
+    },
+    {
+      "source": "tests/construct.c",
+      "destination": "tests/construct.c",
+      "sha256": "2eeab6cafbe01a19738ac819b2311b67c6abb66bdd99b8b6571d60be0dd1a017",
+      "imported_sha256": "2eeab6cafbe01a19738ac819b2311b67c6abb66bdd99b8b6571d60be0dd1a017"
+    },
+    {
+      "source": "tests/files.c",
+      "destination": "tests/files.c",
+      "sha256": "f2375ed03483f62dea07f16e67d0d78e0f87c99d237650ea63004ba83e304b55",
+      "imported_sha256": "f2375ed03483f62dea07f16e67d0d78e0f87c99d237650ea63004ba83e304b55"
+    },
+    {
+      "source": "tests/host.c",
+      "destination": "tests/host.c",
+      "sha256": "9ff5a4d74d55f3d91c3992e61ceb43a170208ee432d8b25884a884189ce46b89",
+      "imported_sha256": "9ff5a4d74d55f3d91c3992e61ceb43a170208ee432d8b25884a884189ce46b89"
+    },
+    {
+      "source": "tests/scaffold.c",
+      "destination": "tests/scaffold.c",
+      "sha256": "56d195dfbd2af925d5154be756258cf69cefe42a8c025d0f7e1396b1f642256b",
+      "imported_sha256": "56d195dfbd2af925d5154be756258cf69cefe42a8c025d0f7e1396b1f642256b"
+    },
+    {
+      "source": "tests/tool_alloc.c",
+      "destination": "tests/tool_alloc.c",
+      "sha256": "882f3fa772258eec84f86ede014a28f5a8f78a843275fa07e86540fb2d57d4d5",
+      "imported_sha256": "882f3fa772258eec84f86ede014a28f5a8f78a843275fa07e86540fb2d57d4d5"
+    },
+    {
+      "source": "tests/tool_alloc.h",
+      "destination": "tests/tool_alloc.h",
+      "sha256": "1b3d77709e5472b8b927e2d1bcee54287b2d4f4796d293196a098896bb877227",
+      "imported_sha256": "1b3d77709e5472b8b927e2d1bcee54287b2d4f4796d293196a098896bb877227"
+    },
+    {
+      "source": "tests/test_openoicc.py",
+      "destination": "tests/test_openoicc.py",
+      "sha256": "0a6286bdd49dd83fc3643219ba0c3577a03eed94a5df8360ac38b7cceabdc2e8",
+      "imported_sha256": "67ade4353820999001e3a81c88110374de5a60b2742883cca9dc14d5756fa7fc",
+      "local_changes": "Use shared in-repository runtime; omit two tests requiring the unimported legacy inheritance fixture."
+    }
+  ],
+  "hash_policy": "sha256 records original source bytes; imported_sha256 records bytes after documented local adjustments.",
+  "local_files": [
+    {
+      "destination": "tests/README.md",
+      "sha256": "33f459cc1fce4aced51cd43f3d05748403dcadacd7b7e3711ad1a31a1ff0625a",
+      "note": "NeoCC-specific scope, invocation and actual native validation boundaries."
+    }
+  ]
+}
