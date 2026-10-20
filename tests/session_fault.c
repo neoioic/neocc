@@ -1,5 +1,6 @@
 #include "compiler/tcc.h"
 #include "check.h"
+#include "objects/temporaries.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
@@ -11,6 +12,9 @@ void *__real_malloc(size_t);
 void *__real_realloc(void *, size_t);
 void __real_free(void *);
 static int fail_at, calls;
+static int temporary_fail_at, temporary_calls, temporary_resize_fail;
+static struct TCCState *temporary_state;
+static char temporary_diagnostic[512];
 static int arena_fail_at, arena_calls;
 static int symbol_fail_at, symbol_calls, symbol_error;
 static int expression_error;
@@ -27,6 +31,9 @@ void *__wrap_malloc(size_t size)
 {
 	void *pointer;
 
+	if (temporary_state && size == sizeof(struct neocc_temporary) &&
+	    ++temporary_calls == temporary_fail_at)
+		return NULL;
 	if (switch_state &&
 	    (size == sizeof(struct neocc_switch) || size == sizeof(struct neocc_case)) &&
 	    ++switch_calls == switch_fail_at)
@@ -36,7 +43,9 @@ void *__wrap_malloc(size_t size)
 		return NULL;
 	if (size >= 256 * 1024 && ++arena_calls == arena_fail_at)
 		return NULL;
-	if (size < 256 * 1024 && ++symbol_calls == symbol_fail_at)
+	if (size == sizeof(void *) +
+	    (8192 / sizeof(struct neocc_symbol)) * sizeof(struct neocc_symbol) &&
+	    ++symbol_calls == symbol_fail_at)
 		return NULL;
 	pointer = __real_malloc(size);
 	if (pointer)
@@ -56,6 +65,21 @@ void *__wrap_calloc(size_t count, size_t size)
 void *__wrap_realloc(void *old, size_t size)
 {
 	void *pointer;
+
+	if (temporary_state && temporary_resize_fail) {
+		struct em_temporaries *members = temporary_state->temporaries->members;
+
+		struct neocc_temporary *entry = members->top;
+		int depth = 0;
+
+		for (; entry && !entry->boundary; entry = entry->prev)
+			depth++;
+		if (members->top && depth == (temporary_resize_fail == 1 ? 3 : 2) &&
+		    old == members->top->string.data) {
+			temporary_resize_fail = 0;
+			return NULL;
+		}
+	}
 
 	if (initializer_state && initializer_resize_fail && old &&
 	    old == initializer_state->initializer->string.data) {
@@ -119,6 +143,14 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	CHECK(!((struct em_temporaries *)state->temporaries->members)->top);
+	for (unsigned int i = 0; i < state->temporaries->node_count; i++) {
+		struct object *node = state->temporaries->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
 
@@ -211,6 +243,20 @@ static void quiet_error(void *unused, const char *text)
 		scope_error = 1;
 }
 
+static void temporary_error(void *opaque, const char *text)
+{
+	struct TCCState *state = opaque;
+
+	snprintf(temporary_diagnostic, sizeof(temporary_diagnostic), "%s", text);
+	/* Error handling can run only after the failing VO access returns. */
+	for (unsigned int i = 0; i < state->temporaries->node_count; i++) {
+		struct object *node = state->temporaries->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+}
+
 struct function_failure {
 	struct TCCState *state;
 	int seen;
@@ -252,8 +298,61 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject nine constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 11; failure++) {
+	/* Boundary failure, nested asm registration, diagnostic registration and
+	 * diagnostic-buffer OOM must unwind before recovery, without dead locals.
+	 */
+	for (failure = 0; failure <= 6; failure++) {
+		struct neocc_string *outer;
+		unsigned int quantity;
+		const char *input =
+			"int broken(void) { __asm__(\"\" : : \"r\" (({"
+			"__asm__(\"\" : : \"r\" (missing_temporary)); 7; }))); return 0; }";
+
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, state, temporary_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		/* Simulate generated source held by the driver across compilation. */
+		CHECK(RP(vo_interact1(state->temporaries, NEOCC_AC1_TEMPORARIES_PUSH,
+			(unsigned char *)&outer, sizeof(outer), &quantity,
+			&neocc_host_caller)) && quantity == sizeof(outer));
+		CHECK(neocc_string_printf(outer, "%s", input) > 0);
+		temporary_state = state;
+		temporary_calls = 0;
+		temporary_fail_at = failure <= 4 ? failure : 0;
+		temporary_resize_fail = failure >= 5 ? failure - 4 : 0;
+		*temporary_diagnostic = 0;
+		CHECK(tcc_compile_string(state, outer->data) < 0);
+		if (failure >= 1 && failure <= 4)
+			CHECK(temporary_calls >= failure);
+		if (failure == 4 || failure == 5)
+			CHECK(strstr(temporary_diagnostic, "cannot format diagnostic"));
+		else if (!failure)
+			CHECK(strstr(temporary_diagnostic, "missing_temporary"));
+		else if (failure == 6)
+			CHECK(strstr(temporary_diagnostic, "cannot grow compiler string"));
+		else
+			CHECK(strstr(temporary_diagnostic, "temporary"));
+		CHECK(!temporary_resize_fail);
+		temporary_state = NULL;
+		CHECK(!strcmp(outer->data, input));
+		CHECK(RP(vo_interact2(state->temporaries, NEOCC_AC2_TEMPORARIES_POP,
+			(unsigned char *)&outer, sizeof(outer), &neocc_host_caller)));
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, "int recovered_temporary;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Reject ten constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 12; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;

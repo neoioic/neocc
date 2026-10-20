@@ -1326,7 +1326,7 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr,
 /* parse the GCC asm() instruction */
 ST_FUNC void asm_instr(void)
 {
-    struct neocc_string astr, *astr1;
+    struct neocc_string *astr, *astr1;
 
     ASMOperand operands[MAX_ASM_OPERANDS];
     int nb_outputs, nb_operands, i, must_subst, out_reg, nb_labels;
@@ -1341,8 +1341,8 @@ ST_FUNC void asm_instr(void)
     }
 
     astr1 = parse_asm_str();
-    cstr_new_s(&astr);
-    cstr_cat(&astr, astr1->data, astr1->size);
+    astr = neocc_temp_new(tcc_state);
+    cstr_cat(astr, astr1->data, astr1->size);
 
     nb_operands = 0;
     nb_outputs = 0;
@@ -1433,17 +1433,17 @@ ST_FUNC void asm_instr(void)
     /* substitute the operands in the asm string. No substitution is
        done if no operands (GCC behaviour) */
 #ifdef ASM_DEBUG
-    printf("asm: \"%s\"\n", (char *)astr.data);
+    printf("asm: \"%s\"\n", (char *)astr->data);
 #endif
     if (must_subst) {
         cstr_reset(astr1);
-        cstr_cat(astr1, astr.data, astr.size);
-        cstr_reset(&astr);
-        subst_asm_operands(operands, nb_operands + nb_labels, &astr, astr1->data);
+        cstr_cat(astr1, astr->data, astr->size);
+        cstr_reset(astr);
+        subst_asm_operands(operands, nb_operands + nb_labels, astr, astr1->data);
     }
 
 #ifdef ASM_DEBUG
-    printf("subst_asm: \"%s\"\n", (char *)astr.data);
+    printf("subst_asm: \"%s\"\n", (char *)astr->data);
 #endif
 
     /* generate loads */
@@ -1454,8 +1454,8 @@ ST_FUNC void asm_instr(void)
        bleed out to surrounding code.  */
     sec = cur_text_section;
     /* assemble the string with tcc internal assembler */
-    tcc_assemble_inline(tcc_state, astr.data, astr.size - 1, 0);
-    cstr_free_s(&astr);
+    tcc_assemble_inline(tcc_state, astr->data, astr->size - 1, 0);
+    neocc_temp_free(tcc_state, astr);
     if (sec != cur_text_section) {
         tcc_warning("inline asm tries to change current section");
         use_section1(tcc_state, sec);

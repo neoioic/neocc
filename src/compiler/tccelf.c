@@ -1642,7 +1642,7 @@ ST_FUNC void tcc_add_btstub(TCCState *s1)
 {
     Section *s;
     int n, o, *p;
-    struct neocc_string cstr;
+    struct neocc_string *cstr;
     const char *__rt_info = &"___rt_info"[!s1->leading_underscore];
 
     s = data_section;
@@ -1698,34 +1698,34 @@ ST_FUNC void tcc_add_btstub(TCCState *s1)
         return;
     }
 
-    cstr_new(&cstr);
-    cstr_printf(&cstr,
+    cstr = neocc_temp_new(s1);
+    cstr_printf(cstr,
         "extern void __bt_init(),__bt_exit(),__bt_init_dll();"
         "static void *__rt_info[];"
         "__attribute__((constructor)) static void __bt_init_rt(){");
 #ifdef TCC_TARGET_PE
     if (s1->output_type == TCC_OUTPUT_DLL)
 #ifdef CONFIG_TCC_BCHECK
-        cstr_printf(&cstr, "__bt_init_dll(%d);", s1->do_bounds_check);
+        cstr_printf(cstr, "__bt_init_dll(%d);", s1->do_bounds_check);
 #else
-        cstr_printf(&cstr, "__bt_init_dll(0);");
+        cstr_printf(cstr, "__bt_init_dll(0);");
 #endif
 #endif
-    cstr_printf(&cstr, "__bt_init(__rt_info,%d);}",
+    cstr_printf(cstr, "__bt_init(__rt_info,%d);}",
         s1->output_type != TCC_OUTPUT_DLL);
     /* In case dlcose is called by application */
-    cstr_printf(&cstr,
+    cstr_printf(cstr,
         "__attribute__((destructor)) static void __bt_exit_rt(){"
         "__bt_exit(__rt_info);}");
-    tcc_compile_string_no_debug(s1, cstr.data);
-    cstr_free(&cstr);
+    tcc_compile_string_no_debug(s1, cstr->data);
+    neocc_temp_free(s1, cstr);
     set_local_sym(s1, __rt_info, s, o);
 }
 #endif /* def CONFIG_TCC_BACKTRACE */
 
 static void tcc_tcov_add_file(TCCState *s1, const char *filename)
 {
-    struct neocc_string cstr;
+    struct neocc_string *cstr;
     void *ptr;
     char wd[1024];
 
@@ -1734,30 +1734,30 @@ static void tcc_tcov_add_file(TCCState *s1, const char *filename)
     section_ptr_add(tcov_section, 1);
     write32le (tcov_section->data, tcov_section->data_offset);
 
-    cstr_new (&cstr);
+    cstr = neocc_temp_new(s1);
     if (filename[0] == '/')
-        cstr_printf (&cstr, "%s.tcov", filename);
+        cstr_printf (cstr, "%s.tcov", filename);
     else {
         getcwd (wd, sizeof(wd));
-        cstr_printf (&cstr, "%s/%s.tcov", wd, filename);
+        cstr_printf (cstr, "%s/%s.tcov", wd, filename);
     }
-    ptr = section_ptr_add(tcov_section, cstr.size + 1);
-    strcpy((char *)ptr, cstr.data);
+    ptr = section_ptr_add(tcov_section, cstr->size + 1);
+    strcpy((char *)ptr, cstr->data);
     unlink((char *)ptr);
 #ifdef _WIN32
     normalize_slashes((char *)ptr);
 #endif
-    cstr_free (&cstr);
+    neocc_temp_free(s1, cstr);
 
-    cstr_new(&cstr);
-    cstr_printf(&cstr,
+    cstr = neocc_temp_new(s1);
+    cstr_printf(cstr,
         "extern char *__tcov_data[];"
         "extern void __store_test_coverage ();"
         "__attribute__((destructor)) static void __tcov_exit() {"
         "__store_test_coverage(__tcov_data);"
         "}");
-    tcc_compile_string_no_debug(s1, cstr.data);
-    cstr_free(&cstr);
+    tcc_compile_string_no_debug(s1, cstr->data);
+    neocc_temp_free(s1, cstr);
     set_local_sym(s1, &"___tcov_data"[!s1->leading_underscore], tcov_section, 0);
 }
 

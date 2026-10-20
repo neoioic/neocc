@@ -1,5 +1,6 @@
 #include "compiler/tcc.h"
 #include "check.h"
+#include "objects/temporaries.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
@@ -31,6 +32,14 @@ static void clean_semantics(struct TCCState *state)
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
+
+	CHECK(!((struct em_temporaries *)state->temporaries->members)->top);
+	for (unsigned int i = 0; i < state->temporaries->node_count; i++) {
+		struct object *node = state->temporaries->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 
 	CHECK(!state->initializer->global_expression);
 	CHECK(!state->initializer->string.data &&
@@ -97,6 +106,7 @@ int main(int argc, char **argv)
 		CHECK(a->sources != b->sources && a->sources->oid != b->sources->oid);
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
+		CHECK(a->temporaries != b->temporaries);
 		CHECK(a->scope != b->scope && a->scopes != b->scopes);
 		CHECK(a->initializer != b->initializer &&
 		      a->initializers != b->initializers);

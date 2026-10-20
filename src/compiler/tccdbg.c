@@ -1803,7 +1803,7 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
     int n = 0;
     int debug_type = -1;
     struct neocc_symbol *t = s;
-    struct neocc_string str;
+    struct neocc_string *str;
 
     for (;;) {
         type = remove_type_info (t->type.t);
@@ -1815,8 +1815,8 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
     if ((type & VT_BTYPE) == VT_STRUCT) {
         t = t->type.ref;
         if (stabs_struct_find(s1, t, &debug_type)) {
-            cstr_new (&str);
-            cstr_printf (&str, "%s:T%d=%c%d",
+            str = neocc_temp_new(s1);
+            cstr_printf (str, "%s:T%d=%c%d",
                          (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
                          ? "" : get_tok_str(t->v, NULL),
                          debug_type,
@@ -1828,11 +1828,11 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
                 t = t->next;
 		if (STRUCT_NODEBUG(t))
 		    continue;
-                cstr_printf (&str, "%s:",
+                cstr_printf (str, "%s:",
                              (t->v & ~SYM_FIELD) >= SYM_FIRST_ANOM
                              ? "" : get_tok_str(t->v, NULL)
                              );
-                tcc_get_debug_info (s1, t, &str);
+                tcc_get_debug_info (s1, t, str);
                 if (t->type.t & VT_BITFIELD) {
                     pos = t->c * 8 + BIT_POS(t->type.t);
                     size = BIT_SIZE(t->type.t);
@@ -1841,32 +1841,32 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
                     pos = t->c * 8;
                     size = type_size(&t->type, &align) * 8;
                 }
-                cstr_printf (&str, ",%d,%d;", pos, size);
+                cstr_printf (str, ",%d,%d;", pos, size);
             }
-            cstr_printf (&str, ";");
-            tcc_debug_stabs(s1, str.data, N_LSYM, 0, NULL, 0, 0);
-            cstr_free (&str);
+            cstr_printf (str, ";");
+            tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
+            neocc_temp_free(s1, str);
         }
     }
     else if (IS_ENUM(type)) {
         struct neocc_symbol *e = t = t->type.ref;
         if (stabs_struct_find(s1, t, &debug_type)) {
-            cstr_new (&str);
-            cstr_printf (&str, "%s:T%d=e",
+            str = neocc_temp_new(s1);
+            cstr_printf (str, "%s:T%d=e",
                          (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
                          ? "" : get_tok_str(t->v, NULL),
                          debug_type);
             while (t->next) {
                 t = t->next;
-                cstr_printf (&str, "%s:",
+                cstr_printf (str, "%s:",
                              (t->v & ~SYM_FIELD) >= SYM_FIRST_ANOM
                              ? "" : get_tok_str(t->v, NULL));
-                cstr_printf (&str, e->type.t & VT_UNSIGNED ? "%u," : "%d,",
+                cstr_printf (str, e->type.t & VT_UNSIGNED ? "%u," : "%d,",
                              (int)t->enum_val);
             }
-            cstr_printf (&str, ";");
-            tcc_debug_stabs(s1, str.data, N_LSYM, 0, NULL, 0, 0);
-            cstr_free (&str);
+            cstr_printf (str, ";");
+            tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
+            neocc_temp_free(s1, str);
 	}
     }
     else if ((type & VT_BTYPE) != VT_FUNC) {
@@ -2277,13 +2277,13 @@ static void tcc_debug_finish (TCCState *s1, struct _debug_info *cur)
 
 ST_FUNC void tcc_add_debug_info(TCCState *s1, struct neocc_symbol *s, struct neocc_symbol *e)
 {
-    struct neocc_string debug_str;
+    struct neocc_string *debug_str;
     int param;
 
     if (!(s1->do_debug & 2))
         return;
 
-    cstr_new (&debug_str);
+    debug_str = neocc_temp_new(s1);
     param = !e;
     for (; s != e; s = s->prev) {
         if (!s->v || (s->r & VT_VALMASK) != VT_LOCAL)
@@ -2295,21 +2295,21 @@ ST_FUNC void tcc_add_debug_info(TCCState *s1, struct neocc_symbol *s, struct neo
 	}
 	else
         {
-            cstr_reset (&debug_str);
-            cstr_printf (&debug_str, "%s:%s", get_tok_str(s->v, NULL),
+            cstr_reset (debug_str);
+            cstr_printf (debug_str, "%s:%s", get_tok_str(s->v, NULL),
 			 param ? "p" : "");
-            tcc_get_debug_info(s1, s, &debug_str);
-            tcc_debug_stabs(s1, debug_str.data, param ? N_PSYM : N_LSYM,
+            tcc_get_debug_info(s1, s, debug_str);
+            tcc_debug_stabs(s1, debug_str->data, param ? N_PSYM : N_LSYM,
 			    s->c, NULL, 0, 0);
 	}
     }
-    cstr_free (&debug_str);
+    neocc_temp_free(s1, debug_str);
 }
 
 /* put function symbol */
 ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
 {
-    struct neocc_string debug_str;
+    struct neocc_string *debug_str;
     struct neocc_source_buffer *f;
 
     if (!s1->do_debug)
@@ -2338,11 +2338,11 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
     }
     else
     {
-        cstr_new (&debug_str);
-        cstr_printf(&debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
-        tcc_get_debug_info(s1, sym->type.ref, &debug_str);
-        put_stabs_r(s1, debug_str.data, N_FUN, 0, f->line_num, 0, cur_text_section, sym->c);
-        cstr_free (&debug_str);
+        debug_str = neocc_temp_new(s1);
+        cstr_printf(debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
+        tcc_get_debug_info(s1, sym->type.ref, debug_str);
+        put_stabs_r(s1, debug_str->data, N_FUN, 0, f->line_num, 0, cur_text_section, sym->c);
+        neocc_temp_free(s1, debug_str);
         tcc_debug_line(s1);
     }
 }
@@ -2461,21 +2461,21 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh
     {
         Section *s = sh_num == SHN_COMMON ? common_section
 					  : s1->sections[sh_num];
-        struct neocc_string str;
+        struct neocc_string *str;
 
-        cstr_new (&str);
-        cstr_printf (&str, "%s:%c",
+        str = neocc_temp_new(s1);
+        cstr_printf (str, "%s:%c",
                 get_tok_str(sym->v, NULL),
                 sym_bind == STB_GLOBAL ? 'G' : s1->function->start != -1 ? 'V' : 'S'
                 );
-        tcc_get_debug_info(s1, sym, &str);
+        tcc_get_debug_info(s1, sym, str);
         if (sym_bind == STB_GLOBAL)
-            tcc_debug_stabs(s1, str.data, N_GSYM, 0, NULL, 0, 0);
+            tcc_debug_stabs(s1, str->data, N_GSYM, 0, NULL, 0, 0);
         else
-            tcc_debug_stabs(s1, str.data,
+            tcc_debug_stabs(s1, str->data,
                 (sym->type.t & VT_STATIC) && data_section == s
                 ? N_STSYM : N_LCSYM, 0, s, sym->c, 0);
-        cstr_free (&str);
+        neocc_temp_free(s1, str);
     }
 }
 
@@ -2499,12 +2499,12 @@ ST_FUNC void tcc_debug_typedef(TCCState *s1, struct neocc_symbol *sym)
     }
     else
     {
-        struct neocc_string str;
-        cstr_new (&str);
-        cstr_printf (&str, "%s:t", get_tok_str(sym->v, NULL));
-        tcc_get_debug_info(s1, sym, &str);
-        tcc_debug_stabs(s1, str.data, N_LSYM, 0, NULL, 0, 0);
-        cstr_free (&str);
+        struct neocc_string *str;
+        str = neocc_temp_new(s1);
+        cstr_printf (str, "%s:t", get_tok_str(sym->v, NULL));
+        tcc_get_debug_info(s1, sym, str);
+        tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
+        neocc_temp_free(s1, str);
     }
 }
 
@@ -2527,29 +2527,29 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	strcmp ((const char *)(tcov_section->data + tcov_data.last_file_name),
 		s1->pp->source->true_filename) != 0) {
 	char wd[1024];
-	struct neocc_string cstr;
+	struct neocc_string *cstr;
 
 	if (tcov_data.last_func_name)
 	    section_ptr_add(tcov_section, 1);
 	if (tcov_data.last_file_name)
 	    section_ptr_add(tcov_section, 1);
 	tcov_data.last_func_name = 0;
-	cstr_new (&cstr);
+	cstr = neocc_temp_new(s1);
 	if (s1->pp->source->true_filename[0] == '/') {
 	    tcov_data.last_file_name = tcov_section->data_offset;
-	    cstr_printf (&cstr, "%s", s1->pp->source->true_filename);
+	    cstr_printf (cstr, "%s", s1->pp->source->true_filename);
 	}
 	else {
 	    getcwd (wd, sizeof(wd));
 	    tcov_data.last_file_name = tcov_section->data_offset + strlen(wd) + 1;
-	    cstr_printf (&cstr, "%s/%s", wd, s1->pp->source->true_filename);
+	    cstr_printf (cstr, "%s/%s", wd, s1->pp->source->true_filename);
 	}
-	ptr = section_ptr_add(tcov_section, cstr.size + 1);
-	strcpy((char *)ptr, cstr.data);
+	ptr = section_ptr_add(tcov_section, cstr->size + 1);
+	strcpy((char *)ptr, cstr->data);
 #ifdef _WIN32
         normalize_slashes((char *)ptr);
 #endif
-	cstr_free (&cstr);
+	neocc_temp_free(s1, cstr);
     }
     if (tcov_data.last_func_name == 0 ||
 	strcmp ((const char *)(tcov_section->data + tcov_data.last_func_name),

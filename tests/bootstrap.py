@@ -11,7 +11,7 @@ CORE = ["libtcc.c", "tccpp.c", "tccgen.c", "tccdbg.c", "tccasm.c",
         "tccelf.c", "tccrun.c", "tccpe.c", "x86_64-gen.c", "x86_64-link.c",
         "i386-asm.c"]
 SOURCES = ["src/main.c", "src/host/host.c", "src/objects/source.c", "src/objects/tokens.c",
-           "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c",
+           "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c",
            *["src/compiler/" + name for name in CORE],
            "third_party/neoioic/src/object.c", "third_party/neoioic/src/neoioic.c"]
 INCLUDES = ["include", "src", "src/compiler", "third_party/neoioic/include",
@@ -87,7 +87,7 @@ def compile_runtime(compiler, directory, reference):
 
 
 def regenerate(program, compiler, directory, runtime):
-    names = ["source", "tokens", "preprocessor", "symbols", "expressions", "scopes", "functions", "switches", "initializers"]
+    names = ["source", "tokens", "preprocessor", "symbols", "expressions", "scopes", "functions", "switches", "initializers", "temporaries"]
     for name in [*[f"objects/{node}.{suffix}" for node in names
                    for suffix in ["c", "h"]], "host/host.h", "support/io.h"]:
         target = directory / "src" / name
@@ -136,7 +136,7 @@ def main():
         report.append({"file": a.name, "stage2_sha256": digest(a),
                        "stage3_sha256": digest(b)})
     for compiler in [stage2, stage3]:
-        for source in ["semantics", "scope", "functions", "switches", "initializers"]:
+        for source in ["semantics", "scope", "functions", "switches", "initializers", "temporaries"]:
             executable = compiler.parent / (source + ".exe")
             run([compiler, "-B" + str(runtime), "-std=c11",
                  f"tests/cases/{source}.c", "-o", executable])

@@ -7,6 +7,7 @@
 #include "../host/host.h"
 #include "neoioic.h"
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 /* <oicc> */
@@ -251,4 +252,38 @@ void tog_preprocessor(struct object *object)
 	object->interact2 = preprocessor_interact2;
 	object->interact3 = preprocessor_interact3;
 	object->close = preprocessor_close;
+}
+
+int neocc_string_vprintf(struct neocc_string *string, const char *fmt,
+	va_list arguments)
+{
+	va_list copy;
+	int length;
+
+	va_copy(copy, arguments);
+	length = vsnprintf(NULL, 0, fmt, copy);
+	va_end(copy);
+	if (length < 0 || string->size < 0 ||
+	    length >= INT_MAX - string->size ||
+	    !neocc_string_reserve(string, string->size + length + 1))
+		return -1;
+	va_copy(copy, arguments);
+	length = vsnprintf(string->data + string->size,
+		string->size_allocated - string->size, fmt, copy);
+	va_end(copy);
+	if (length < 0)
+		return -1;
+	string->size += length;
+	return length;
+}
+
+int neocc_string_printf(struct neocc_string *string, const char *fmt, ...)
+{
+	va_list arguments;
+	int length;
+
+	va_start(arguments, fmt);
+	length = neocc_string_vprintf(string, fmt, arguments);
+	va_end(arguments);
+	return length;
 }

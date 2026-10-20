@@ -436,6 +436,7 @@ typedef int nwchar_t;
 #include "neocc/functions.h"
 #include "neocc/switches.h"
 #include "neocc/initializers.h"
+#include "neocc/temporaries.h"
 
 /* section definition */
 typedef struct Section {
@@ -584,6 +585,7 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *temporaries;
     struct object *initializers;
     struct neocc_initializers *initializer; /* VO borrow until close. */
     struct object *switches;
@@ -1072,8 +1074,6 @@ enum tcc_token {
 /* ------------ libtcc.c ------------ */
 
 ST_DATA struct TCCState *tcc_state;
-ST_DATA struct neocc_string **stk_data;
-ST_DATA int nb_stk_data;
 ST_DATA int g_debug;
 
 /* public functions currently used by the tcc main function */
@@ -1122,19 +1122,14 @@ ST_FUNC void dynarray_reset(void *pp, int *n);
 ST_INLN void cstr_ccat(struct neocc_string *cstr, int ch);
 ST_FUNC void cstr_cat(struct neocc_string *cstr, const char *str, int len);
 ST_FUNC void cstr_wccat(struct neocc_string *cstr, int ch);
-ST_FUNC void cstr_new(struct neocc_string *cstr);
-ST_FUNC void cstr_free(struct neocc_string *cstr);
+ST_FUNC struct neocc_string *neocc_temp_new(TCCState *s1);
+ST_FUNC void neocc_temp_free(TCCState *s1, struct neocc_string *string);
 ST_FUNC int cstr_printf(struct neocc_string *cs, const char *fmt, ...) PRINTF_LIKE(2,3);
 ST_FUNC int cstr_vprintf(struct neocc_string *cstr, const char *fmt, va_list ap);
 ST_FUNC void cstr_reset(struct neocc_string *cstr);
 ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
 ST_FUNC void tcc_close(void);
-
-/* Register local strings for cleanup before diagnostic longjmp. */
-#define cstr_new_s(cstr) \
-    (cstr_new(cstr), dynarray_add(&stk_data, &nb_stk_data, cstr))
-#define cstr_free_s(cstr) (cstr_free(cstr), --nb_stk_data)
 
 ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags);
 /* flags: */
@@ -1251,7 +1246,7 @@ ST_FUNC void tccpp_putfile(const char *filename);
 ST_FUNC int tcc_preprocess(TCCState *s1);
 ST_FUNC void skip(int c);
 ST_FUNC NORETURN void expect(const char *msg);
-ST_FUNC void pp_error(struct neocc_string *cs);
+ST_FUNC int pp_error(struct neocc_string *cs);
 
 
 /* space excluding newline */

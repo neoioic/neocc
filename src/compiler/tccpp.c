@@ -185,17 +185,6 @@ ST_FUNC void cstr_wccat(struct neocc_string *cstr, int ch)
     cstr->size = size;
 }
 
-ST_FUNC void cstr_new(struct neocc_string *cstr)
-{
-    memset(cstr, 0, sizeof(struct neocc_string));
-}
-
-/* free string and reset it to NULL */
-ST_FUNC void cstr_free(struct neocc_string *cstr)
-{
-    neocc_string_clear(cstr);
-}
-
 /* reset string to empty */
 ST_FUNC void cstr_reset(struct neocc_string *cstr)
 {
@@ -204,22 +193,10 @@ ST_FUNC void cstr_reset(struct neocc_string *cstr)
 
 ST_FUNC int cstr_vprintf(struct neocc_string *cstr, const char *fmt, va_list ap)
 {
-    va_list v;
-    int len, size = 80;
-    for (;;) {
-        size += cstr->size;
-        if (size > cstr->size_allocated)
-            cstr_realloc(cstr, size);
-        size = cstr->size_allocated - cstr->size;
-        va_copy(v, ap);
-        len = vsnprintf(cstr->data + cstr->size, size, fmt, v);
-        va_end(v);
-        if (len >= 0 && len < size)
-            break;
-        size *= 2;
-    }
-    cstr->size += len;
-    return len;
+    int length = neocc_string_vprintf(cstr, fmt, ap);
+    if (length < 0)
+        tcc_error("cannot grow compiler string");
+    return length;
 }
 
 ST_FUNC int cstr_printf(struct neocc_string *cstr, const char *fmt, ...)
@@ -1260,12 +1237,20 @@ static int expr_preprocess(TCCState *s1)
     return c != 0;
 }
 
-ST_FUNC void pp_error(struct neocc_string *cs)
+ST_FUNC int pp_error(struct neocc_string *cs)
 {
-    cstr_printf(cs, "bad preprocessor expression: #%s", get_tok_str(tcc_state->pp->expression, 0));
+    int expression = tcc_state->pp->expression;
+    int success;
+
+    /* A failure while expanding the diagnostic must not recurse here. */
+    tcc_state->pp->expression = 0;
+    success = neocc_string_printf(cs, "bad preprocessor expression: #%s",
+        get_tok_str(expression, 0)) >= 0;
     tcc_state->pp->macro_ptr = tcc_state->pp->macro_stack->str;
-    while (next(), tcc_state->pp->token != TOK_EOF)
-        cstr_printf(cs, " %s", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+    while (success && (next(), tcc_state->pp->token != TOK_EOF))
+        success = neocc_string_printf(cs, " %s",
+            get_tok_str(tcc_state->pp->token, &tcc_state->pp->value)) >= 0;
+    return success;
 }
 
 /* parse after #define */

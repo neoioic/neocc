@@ -5,6 +5,7 @@
 #define NEOCC_PREPROCESSOR_H
 
 #include "object.h"
+#include <stdarg.h>
 
 #define NEOCC_AC0_PREPROCESSOR_RESET AC0_
 #define NEOCC_AC1_PREPROCESSOR_BORROW AC1_
@@ -39,6 +40,12 @@ struct neocc_string {
 	int size_allocated;
 	char *data; /* nwchar_t* in cases */
 };
+
+/* Append formatted bytes, retaining a trailing NUL outside size.
+ * Returns the appended length, or -1 without changing size on failure.
+ */
+int neocc_string_vprintf(struct neocc_string *, const char *, va_list);
+int neocc_string_printf(struct neocc_string *, const char *, ...);
 
 struct neocc_token_string {
 	int *str;

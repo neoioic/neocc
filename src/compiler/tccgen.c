@@ -387,7 +387,6 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     if (!RP(vo_interact0(s1->initializers, NEOCC_AC0_INITIALIZERS_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset initializer workspace");
-    dynarray_reset(&stk_data, &nb_stk_data);
     if (!RP(vo_interact0(s1->switches, NEOCC_AC0_SWITCHES_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset switch storage");

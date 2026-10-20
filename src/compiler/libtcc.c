@@ -26,9 +26,6 @@
 /* XXX: get rid of this ASAP (or maybe not) */
 ST_DATA struct TCCState *tcc_state;
 TCC_SEM(static tcc_compile_sem);
-/* Local strings registered for cleanup before diagnostic jumps. */
-ST_DATA struct neocc_string **stk_data;
-ST_DATA int nb_stk_data;
 /* option -d<num> (for general development purposes) */
 ST_DATA int g_debug;
 
@@ -497,16 +494,16 @@ ST_FUNC void dynarray_reset(void *pp, int *n)
     *(void**)pp = NULL;
 }
 
-static void dynarray_split(char ***argv, int *argc, const char *p, int sep)
+static void dynarray_split(TCCState *s1, char ***argv, int *argc, const char *p, int sep)
 {
     int qot, c;
-    struct neocc_string str;
+    struct neocc_string *str;
     for(;;) {
         while (c = (unsigned char)*p, c <= ' ' && c != '\0')
             ++p;
         if (c == '\0')
             break;
-        cstr_new(&str);
+        str = neocc_temp_new(s1);
         qot = 0;
         do {
             ++p;
@@ -524,12 +521,12 @@ static void dynarray_split(char ***argv, int *argc, const char *p, int sep)
                     break;
                 }
             }
-            cstr_ccat(&str, c);
+            cstr_ccat(str, c);
         } while (c = (unsigned char)*p, c != '\0');
-        cstr_ccat(&str, '\0');
-        //printf("<%s>\n", str.data);
-        dynarray_add(argv, argc, tcc_strdup(str.data));
-        cstr_free(&str);
+        cstr_ccat(str, '\0');
+        //printf("<%s>\n", str->data);
+        dynarray_add(argv, argc, tcc_strdup(str->data));
+        neocc_temp_free(s1, str);
     }
 }
 
@@ -538,34 +535,34 @@ static void tcc_split_path(TCCState *s, void *p_ary, int *p_nb_ary, const char *
     const char *p;
     do {
         int c;
-        struct neocc_string str;
+        struct neocc_string *str;
 
-        cstr_new(&str);
+        str = neocc_temp_new(s);
         for (p = in; c = *p, c != '\0' && c != PATHSEP[0]; ++p) {
             if (c == '{' && p[1] && p[2] == '}') {
                 c = p[1], p += 2;
                 if (c == 'B')
-                    cstr_cat(&str, s->tcc_lib_path, -1);
+                    cstr_cat(str, s->tcc_lib_path, -1);
                 if (c == 'R')
-                    cstr_cat(&str, CONFIG_SYSROOT, -1);
+                    cstr_cat(str, CONFIG_SYSROOT, -1);
                 if (c == 'f' && s->pp->source) {
                     /* substitute current file's dir */
                     const char *f = s->pp->source->true_filename;
                     const char *b = tcc_basename(f);
                     if (b > f)
-                        cstr_cat(&str, f, b - f - 1);
+                        cstr_cat(str, f, b - f - 1);
                     else
-                        cstr_cat(&str, ".", 1);
+                        cstr_cat(str, ".", 1);
                 }
             } else {
-                cstr_ccat(&str, c);
+                cstr_ccat(str, c);
             }
         }
-        if (str.size) {
-            cstr_ccat(&str, '\0');
-            dynarray_add(p_ary, p_nb_ary, tcc_strdup(str.data));
+        if (str->size) {
+            cstr_ccat(str, '\0');
+            dynarray_add(p_ary, p_nb_ary, tcc_strdup(str->data));
         }
-        cstr_free(&str);
+        neocc_temp_free(s, str);
         in = p+1;
     } while (*p);
 }
@@ -585,7 +582,10 @@ static void error1(int mode, const char *fmt, va_list ap)
 {
     struct neocc_source_buffer **pf, *f;
     TCCState *s1 = tcc_state;
-    struct neocc_string cs;
+    struct neocc_string *cs = NULL;
+    const char *message = "tcc: error: cannot format diagnostic";
+    unsigned int quantity = 0;
+    int formatted = 1;
     int line = 0;
 
     tcc_exit_state(s1);
@@ -608,7 +608,10 @@ static void error1(int mode, const char *fmt, va_list ap)
             return;
     }
 
-    cstr_new(&cs);
+    if (!RP(vo_interact1(s1->temporaries, NEOCC_AC1_TEMPORARIES_PUSH,
+            (unsigned char *)&cs, sizeof(cs), &quantity,
+            &neocc_host_caller)) || quantity != sizeof(cs))
+        goto deliver;
     if (fmt[0] == '%' && fmt[1] == 'i' && fmt[2] == ':')
         line = va_arg(ap, int), fmt += 3;
     f = NULL;
@@ -619,38 +622,43 @@ static void error1(int mode, const char *fmt, va_list ap)
     }
     if (f) {
         for(pf = s1->include_stack; pf < s1->include_stack_ptr; pf++)
-            cstr_printf(&cs, "In file included from %s:%d:\n",
-                (*pf)->filename, (*pf)->line_num - 1);
+            formatted &= neocc_string_printf(cs, "In file included from %s:%d:\n",
+                (*pf)->filename, (*pf)->line_num - 1) >= 0;
         if (0 == line)
             line = f->line_num - ((s1->pp->token_flags & TOK_FLAG_BOL)
                                   && !s1->pp->macro_ptr);
-        cstr_printf(&cs, "%s:%d: ", f->filename, line);
+        formatted &= neocc_string_printf(cs, "%s:%d: ", f->filename, line) >= 0;
     } else if (s1->current_filename) {
-        cstr_printf(&cs, "%s: ", s1->current_filename);
+        formatted &= neocc_string_printf(cs, "%s: ", s1->current_filename) >= 0;
     } else {
-        cstr_printf(&cs, "tcc: ");
+        formatted &= neocc_string_printf(cs, "tcc: ") >= 0;
     }
-    cstr_printf(&cs, mode == ERROR_WARN ? "warning: " : "error: ");
+    formatted &= neocc_string_printf(cs, mode == ERROR_WARN ? "warning: " : "error: ") >= 0;
     if (s1->pp && s1->pp->expression > 1)
-        pp_error(&cs); /* special handler for preprocessor expression errors */
+        formatted &= pp_error(cs); /* special handler for preprocessor expression errors */
     else
-        cstr_vprintf(&cs, fmt, ap);
+        formatted &= neocc_string_vprintf(cs, fmt, ap) >= 0;
+    if (formatted)
+        message = cs->data;
+deliver:
     if (!s1->error_func) {
         /* default case: stderr */
         if (s1 && s1->output_type == TCC_OUTPUT_PREPROCESS && s1->ppfp == stdout)
             printf("\n"); /* print a newline during tcc -E */
         fflush(stdout); /* flush -v output */
-        fprintf(stderr, "%s\n", (char*)cs.data);
+        fprintf(stderr, "%s\n", message);
         fflush(stderr); /* print error/warning now (win32) */
     } else {
-        s1->error_func(s1->error_opaque, (char*)cs.data);
+        s1->error_func(s1->error_opaque, message);
     }
-    cstr_free(&cs);
+    if (cs)
+        vo_interact2(s1->temporaries, NEOCC_AC2_TEMPORARIES_POP,
+            (unsigned char *)&cs, sizeof(cs), &neocc_host_caller);
     if (mode != ERROR_WARN)
         s1->nb_errors++;
     if (mode == ERROR_ERROR && s1->error_set_jmp_enabled) {
-        while (nb_stk_data)
-            cstr_free(stk_data[--nb_stk_data]);
+        vo_interact0(s1->temporaries, NEOCC_AC0_TEMPORARIES_UNWIND,
+            &neocc_host_caller);
         longjmp(s1->error_jmp_buf, 1);
     }
 }
@@ -678,6 +686,27 @@ PUB_FUNC void _tcc_error(const char *fmt, ...)
     va_start(ap, fmt);
     error1(ERROR_ERROR, fmt, ap);
     exit(1);
+}
+
+/* All resource allocation failures return through VO before diagnosing. */
+ST_FUNC struct neocc_string *neocc_temp_new(TCCState *s1)
+{
+    struct neocc_string *string = NULL;
+    unsigned int quantity = 0;
+    int result = vo_interact1(s1->temporaries, NEOCC_AC1_TEMPORARIES_PUSH,
+        (unsigned char *)&string, sizeof(string), &quantity,
+        &neocc_host_caller);
+
+    if (!RP(result) || quantity != sizeof(string))
+        tcc_error("cannot allocate temporary string");
+    return string;
+}
+
+ST_FUNC void neocc_temp_free(TCCState *s1, struct neocc_string *string)
+{
+    if (!RP(vo_interact2(s1->temporaries, NEOCC_AC2_TEMPORARIES_POP,
+            (unsigned char *)&string, sizeof(string), &neocc_host_caller)))
+        tcc_error("invalid temporary string release");
 }
 
 PUB_FUNC void _tcc_warning(const char *fmt, ...)
@@ -760,7 +789,7 @@ ST_FUNC int tcc_open(TCCState *s1, const char *filename)
 /* compile the file opened in 'file'. Return non zero if errors. */
 static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
 {
-    volatile int initialized = 0;
+    volatile int initialized = 0, temporary_scope = 0;
     /* Here we enter the code section where we use the global variables for
        parsing and code generation (tccpp.c, tccgen.c, <target>-gen.c).
        Other threads need to wait until we're done.
@@ -772,6 +801,13 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
     s1->error_set_jmp_enabled = 1;
 
     if (setjmp(s1->error_jmp_buf) == 0) {
+        if (!RP(vo_interact0(s1->temporaries, NEOCC_AC0_TEMPORARIES_ENTER,
+                &neocc_host_caller))) {
+            if (fd > 0)
+                close(fd);
+            tcc_error("cannot enter temporary scope");
+        }
+        temporary_scope = 1;
 
         if (fd == -1) {
             size_t len = strlen(str);
@@ -805,6 +841,9 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
         while (s1->pp->source)
             tcc_close();
     }
+    if (temporary_scope)
+        vo_interact0(s1->temporaries, NEOCC_AC0_TEMPORARIES_LEAVE,
+            &neocc_host_caller);
     s1->error_set_jmp_enabled = 0;
     tcc_exit_state(s1);
     return s1->nb_errors != 0 ? -1 : 0;
@@ -853,12 +892,12 @@ LIBTCCAPI TCCState *tcc_new(void)
     struct object **objects[] = { &s->sources, &s->tokens,
                                    &s->preprocessor, &s->symbols, &s->expressions,
                                    &s->scopes, &s->functions, &s->switches,
-                                   &s->initializers };
+                                   &s->initializers, &s->temporaries };
     const unsigned short models[] = { NEOCC_MSN_SOURCE, NEOCC_MSN_TOKENS,
                                       NEOCC_MSN_PREPROCESSOR, NEOCC_MSN_SYMBOLS,
                                       NEOCC_MSN_EXPRESSIONS, NEOCC_MSN_SCOPES,
                                       NEOCC_MSN_FUNCTIONS, NEOCC_MSN_SWITCHES,
-                                      NEOCC_MSN_INITIALIZERS };
+                                      NEOCC_MSN_INITIALIZERS, NEOCC_MSN_TEMPORARIES };
     size_t i;
 
     for (i = 0; i < sizeof(models) / sizeof(models[0]); i++) {
@@ -954,6 +993,7 @@ LIBTCCAPI TCCState *tcc_new(void)
 
 LIBTCCAPI void tcc_delete(TCCState *s1)
 {
+    neocc_close_object(s1->temporaries);
     neocc_close_object(s1->initializers);
     neocc_close_object(s1->switches);
     neocc_close_object(s1->functions);
@@ -993,8 +1033,8 @@ LIBTCCAPI void tcc_delete(TCCState *s1)
     dynarray_reset(&s1->pragma_libs, &s1->nb_pragma_libs);
     dynarray_reset(&s1->argv, &s1->argc);
     dynarray_reset(&s1->link_argv, &s1->link_argc);
-    cstr_free(&s1->cmdline_defs);
-    cstr_free(&s1->cmdline_incl);
+    neocc_string_clear(&s1->cmdline_defs);
+    neocc_string_clear(&s1->cmdline_incl);
     tcc_free(s1->dState);
 #ifdef TCC_IS_NATIVE
     /* free runtime memory */
@@ -1473,7 +1513,7 @@ static int tcc_set_linker(TCCState *s, const char *optarg)
 {
     TCCState *s1 = s;
 
-    dynarray_split(&s1->link_argv, &s1->link_argc, optarg, ',');
+    dynarray_split(s1, &s1->link_argv, &s1->link_argc, optarg, ',');
 
     while (s->link_optind < s->link_argc) {
         char *end = NULL;
@@ -1878,7 +1918,7 @@ static void insert_args(TCCState *s1, char ***pargv, int *pargc, int optind, con
     int i;
     for (i = 0; i < *pargc; ++i)
         if (i == optind)
-            dynarray_split(&argv, &argc, p, sep);
+            dynarray_split(s1, &argv, &argc, p, sep);
         else
             dynarray_add(&argv, &argc, tcc_strdup((*pargv)[i]));
     dynarray_reset(&s1->argv, &s1->argc);
@@ -2261,7 +2301,7 @@ LIBTCCAPI int tcc_set_options(TCCState *s, const char *r)
     char **argv = NULL;
     int argc = 0, ret;
     dynarray_add(&argv, &argc, 0);
-    dynarray_split(&argv, &argc, r, 0);
+    dynarray_split(s, &argv, &argc, r, 0);
     ret = tcc_parse_args(s, &argc, &argv);
     dynarray_reset(&argv, &argc);
     return ret;
