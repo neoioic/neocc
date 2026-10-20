@@ -1,6 +1,7 @@
 #include "compiler/tcc.h"
 #include "check.h"
 #include "objects/temporaries.h"
+#include "objects/tokens.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
@@ -21,6 +22,8 @@ static int expression_error;
 static int scope_fail_at, scope_calls, scope_error;
 static int resize_fail_at, resize_calls;
 static size_t live;
+static struct TCCState *inline_state;
+static int inline_fail_at, inline_calls, inline_stream_fail;
 static int switch_fail_at, switch_calls, switch_resize_fail, switch_error;
 static struct TCCState *switch_state;
 static struct TCCState *initializer_state;
@@ -31,6 +34,17 @@ void *__wrap_malloc(size_t size)
 {
 	void *pointer;
 
+	if (inline_state && size == sizeof(struct neocc_inline) +
+	    strlen("<string>") + 1 && ++inline_calls == inline_fail_at)
+		return NULL;
+	if (inline_state && inline_stream_fail && size >= 256 * 1024) {
+		struct em_tokens *tokens = inline_state->tokens->members;
+
+		if (tokens->inline_head && tokens->inline_head->body.str) {
+			inline_stream_fail = 0;
+			return NULL;
+		}
+	}
 	if (temporary_state && size == sizeof(struct neocc_temporary) &&
 	    ++temporary_calls == temporary_fail_at)
 		return NULL;
@@ -143,6 +157,9 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	struct em_tokens *tokens = state->tokens->members;
+
+	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	CHECK(!state->unit->anonymous_symbol && !state->unit->instruction);
 	CHECK(!state->unit->suppression && !state->unit->debug_modes &&
 	      !state->unit->section);
@@ -265,6 +282,44 @@ static void temporary_error(void *opaque, const char *text)
 		for (unsigned int j = 0; j < node->caller_count; j++)
 			CHECK(!node->callers[j].cr && !node->callers[j].mr);
 	}
+}
+
+struct inline_failure {
+	struct TCCState *state;
+	int mode;
+	int seen;
+};
+
+static void inline_error(void *opaque, const char *text)
+{
+	struct inline_failure *failure = opaque;
+	struct TCCState *state = failure->state;
+	struct em_tokens *tokens = state->tokens->members;
+
+	if (failure->mode < 2) {
+		CHECK(strstr(text, "cannot save inline body"));
+		CHECK(!!tokens->inline_head == (failure->mode == 1));
+	} else {
+		CHECK(tokens->inline_head && tokens->inline_head->body.str);
+		if (failure->mode == 2)
+			CHECK(strstr(text, "cannot resize token stream"));
+		else if (failure->mode == 3) {
+			CHECK(strstr(text, "missing_inline"));
+			CHECK(!tokens->inline_head->symbol);
+			CHECK(state->pp->macro_stack == &tokens->inline_head->body);
+			CHECK(!state->pp->macro_stack->alloc);
+		} else {
+			CHECK(strstr(text, "unexpected end of file"));
+			CHECK(tokens->inline_head->symbol);
+		}
+	}
+	for (unsigned int i = 0; i < state->tokens->node_count; i++) {
+		struct object *node = state->tokens->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+	failure->seen++;
 }
 
 struct translation_failure {
@@ -392,6 +447,57 @@ int main(int argc, char **argv)
 		tcc_set_lib_path(state, argv[1]);
 		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
 		CHECK(tcc_compile_string(state, "int recovered_temporary;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Records are published before fallible body growth; unwind borrowed
+	 * replay streams before freeing both pending and generated bodies.
+	 */
+	for (int mode = 0; mode < 5; mode++) {
+		struct inline_failure context = { .mode = mode };
+		char *large = NULL;
+		const char *source = mode == 3 ?
+			"static inline int broken(void) { return missing_inline; } "
+			"int invoke(void) { return broken(); }" : mode == 4 ?
+			"static inline int broken(void) { return 1;" :
+			"static inline int first(void) { return 1; } "
+			"static inline int second(void) { return first(); }";
+
+		state = tcc_new();
+		CHECK(state);
+		context.state = inline_state = state;
+		inline_calls = 0;
+		inline_fail_at = mode < 2 ? mode + 1 : 0;
+		inline_stream_fail = mode == 2;
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, &context, inline_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		if (mode == 2) {
+			const char *prefix = "static inline int large(void) { ";
+			size_t length = strlen(prefix);
+
+			large = __wrap_malloc(length + 180000 + 12);
+			CHECK(large);
+			memcpy(large, prefix, length);
+			memset(large + length, ';', 180000);
+			strcpy(large + length + 180000, "return 1; }");
+			source = large;
+		}
+		CHECK(tcc_compile_string(state, source) < 0);
+		CHECK(context.seen == 1 && !inline_stream_fail);
+		inline_state = NULL;
+		__wrap_free(large);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"static inline int leaf(void) { return 7; } "
+			"int recovered_inline(void) { return leaf(); }") == 0);
 		clean_preprocessor(state);
 		tcc_delete(state);
 		CHECK(live == initial_live);

@@ -58,7 +58,7 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-该入口依次构建、执行根回归、纯 C 差分、自举、不含参考树的干净构建/运行/自举、
+该入口依次构建、执行二十四组根回归、纯 C 差分、自举、不含参考树的干净构建/运行/自举、
 GCC 和第三阶段 NeoCC 构建的
 OpenOICC 各 39 项集成测试。测试工具链通过 PATH 发现。生成器测试使用固定共享
 临时目录，因此两次完整验证应串行运行。
@@ -74,6 +74,7 @@ python tests/independent.py --mode debug
 
 阶段目录位于对应构建目录的 `bootstrap/stage2/`、`bootstrap/stage3/`；
 自举脚本记录 SHA-256 和逐字节比较结果，不比较带 GCC 调试信息的第一阶段程序。
+各阶段再生十一个对象构造区，编译运行对象/延迟内联资源回归及多文件内联语义样例。
 独立性脚本在 `build/independent/` 新建不含 `tinycc/` 和缓存的源码副本，从公开工具链
 重新构建并运行根回归及自举，结果保存在 `build/independent/debug.json` 或 `release.json`。
 完整差分验证入口仍使用参考树语料；其需求不属于 NeoCC 生产构建依赖。

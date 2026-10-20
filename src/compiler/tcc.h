@@ -528,13 +528,6 @@ typedef struct AttributeDef {
     char new_section; /* section is new */
 } AttributeDef;
 
-/* inline functions */
-typedef struct InlineFunc {
-    struct neocc_token_string *func_str;
-    struct neocc_symbol *sym;
-    char filename[1];
-} InlineFunc;
-
 /* include file cache, used to find files faster and also to eliminate
    inclusion if the include file is protected by #ifndef ... #endif */
 typedef struct CachedInclude {
@@ -747,11 +740,6 @@ struct TCCState {
     int *pack_stack_ptr;
     char **pragma_libs;
     int nb_pragma_libs;
-
-    /* inline functions are stored as token lists and compiled last
-       only if referenced */
-    struct InlineFunc **inline_fns;
-    int nb_inline_fns;
 
     /* sections */
     Section **sections;

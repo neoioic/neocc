@@ -2,7 +2,7 @@
 
 NeoCC 采用 TinyCC 算法的逐步职责迁移。当前阶段完成源文件、token 存储、预处理工作状态、
 语义符号存储、符号栈/作用域层级、表达式值栈/常用类型、作用域帧/清理链入口、
-当前函数上下文、switch/case 资源、初始化器工作区及临时字符串的职责迁移，尚未完成整个编译器的对象化重写。
+当前函数上下文、switch/case 资源、初始化器工作区、临时字符串、翻译单元工作区及延迟内联函数资源的职责迁移，尚未完成整个编译器的对象化重写。
 `src/compiler/` 保存活跃的 TinyCC 衍生算法，
 `tinycc/` 仅用于差分基线，不参与 `neocc` 的链接或运行。
 迁入范围、基线提交和原文件校验值见 `tinycc_sources.json`。
@@ -14,7 +14,7 @@ NeoCC 采用 TinyCC 算法的逐步职责迁移。当前阶段完成源文件、
 | `src/main.c` | CLI 选项和输出流，创建/销毁编译上下文 |
 | 编译上下文 | 组合并打开独立的 `source`、`tokens`、`preprocessor`、`symbols`、`expressions`、`scopes`、`functions`、`switches`、`initializers`、`temporaries`、`translation` 对象，销毁前完成关闭 |
 | `source` 的 `em_source` | 唯一的输入缓冲栈顶，拥有整条链、fd > 0 和真实文件名副本 |
-| `tokens` 的 `em_tokens` | 标识符哈希/索引表、稳定的 token 实例、标识符实例与宏流的分配块 |
+| `tokens` 的 `em_tokens` | 标识符哈希/索引表、稳定的 token 实例、标识符实例与宏流的分配块，延迟内联记录、文件名和函数体；符号仅为借用 |
 | `preprocessor` 的 `em_preprocessor` | 拥有独立分配的工作区：当前 token/值、借用源游标、宏栈/恢复游标、词法模式、字符串、字符分类和计数器 |
 | `symbols` 的 `em_symbols` | 语义符号分配块与回收链、五类符号栈头及当前作用域层级；普通符号记录有效至归还、reset 或末次关闭 |
 | `expressions` 的 `em_expressions` | 独立分配的表达式值数组、栈顶与四种常用类型；VO 借用至末次关闭，reset 保持地址并清除所有值和符号引用 |
@@ -58,6 +58,21 @@ push 成功才转移句柄；失败由调用方关闭。fd 0 为借用标准输�
 
 `source`、`tokens` 均独立继承 NEOioic，构造区由同一版本 OpenOICC 生成。
 编译上下文创建失败清理已经取得的对象；末次关闭分别释放各自资源，宿主只回收图和 OID。
+
+## 延迟内联函数资源
+
+`tokens` 已拥有宏流的分配域，故复用它管理延迟内联资源，不新增资源对象。
+`neocc_inline` 是普通稳定记录，内嵌函数体描述符并复制文件名，单链按声明顺序追加；
+符号借用 symbols。SAVE_INLINE 成功才发布空记录，后续扫描直接填充其描述符，
+流扩展失败仍可由拥有者清理。FIRST_INLINE 经 VO 借用链头，next/文件名只读；
+算法保留原引用检查和迭代，生成时将 symbol 清空，不改变延迟生成语义。
+
+预处理栈用 alloc=0 借用内嵌 body，弹栈不释放描述符或缓冲；不再把记录所有权
+隐式转移给宏流栈。`tccgen_finish` 在调试清理后先退出全部宏流并清空恢复游标，
+再经 RESET_INLINES 释放函数体缓冲和记录，然后清理符号/标签等语义状态。
+RESET_INLINES 不影响其他 token 或流；tokens 的完整 reset/末次关闭也释放记录，
+并统一回收 arena。符号、函数上下文和翻译单元工作区继续保留各自职责。
+原会话数组、数量字段、InlineFunc 类型和编译器释放路径均删除。
 
 ## 语义符号存储与栈
 
@@ -208,7 +223,7 @@ calloc 独立分配自然对齐的完整工作区，不修改运行时或放宽�
 
 正常与失败收尾均先释放语义符号、展开宏栈并弹出源文件，再重置预处理工作区，最后
 重置 tokens arena；不能先释放 arena 再访问宏流或解析字符串。会话销毁先关闭
-translation、temporaries、initializers、switches、functions、scopes、expressions、preprocessor，再关闭 symbols、tokens/source。构造区与阶段测试覆盖十一个对象。
+translation、temporaries、initializers、switches、functions、scopes、expressions、preprocessor，再关闭 symbols、tokens/source。构造区覆盖十一个对象，阶段测试另执行延迟内联资源回归。
 
 ## 初始化器工作区
 
@@ -291,11 +306,11 @@ TinyCC 的诊断跳转保留在编译驱动中。对象方法不调用会 `longj
 协作上下文，不增加新的全局服务定位器，也不把所有状态堆进一个会话对象。
 每步替换活跃路径、删除被替代实现并重跑差分和阶段稳定性验证。
 具体阶段编号、前置关系、阅读入口与完成条件见 [后续阶段计划](plan.md)；
-P01～P03 已完成，当前下一阶段为 P04，计划范围不代表已经实现的架构。
+P01～P04 已完成，当前下一阶段为 P05，计划范围不代表已经实现的架构。
 
 ## 参考树独立性
 
 根构建只在参考树存在时声明可选 `tinycc_baseline` 目标。`tests/independent.py` 每次创建
 新的源码副本，只复制 NeoCC、运行库、仓库内运行时/生成器及必要回归输入，不复制
-`tinycc/` 或既有构建缓存；在该副本中构建、执行二十二组回归和阶段自举。
+`tinycc/` 或既有构建缓存；在该副本中构建、执行二十四组回归和阶段自举。
 这验证文件和工具依赖的独立性，不等于剩余算法已经完成对象化迁移。

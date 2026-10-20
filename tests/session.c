@@ -1,6 +1,7 @@
 #include "compiler/tcc.h"
 #include "check.h"
 #include "objects/temporaries.h"
+#include "objects/tokens.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
@@ -29,6 +30,9 @@ static void clean_access(struct object *object)
 
 static void clean_semantics(struct TCCState *state)
 {
+	struct em_tokens *tokens = state->tokens->members;
+
+	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
@@ -126,19 +130,23 @@ int main(int argc, char **argv)
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,
-			"int value(void) { return SESSION_VALUE + __COUNTER__; }") == 0);
+			"static inline int bias(void) { return SESSION_VALUE; } "
+			"int value(void) { return bias() + __COUNTER__; }") == 0);
 		CHECK(tcc_compile_string(b,
-			"int value(void) { return SESSION_VALUE + __COUNTER__; }") == 0);
+			"static inline int bias(void) { return SESSION_VALUE; } "
+			"int value(void) { return bias() + __COUNTER__; }") == 0);
 		CHECK(tcc_compile_string(a,
 			"#ifdef PRIVATE_MACRO\n#error leaked macro\n#endif\n"
 			"#define CAT_(a,b) a##b\n#define CAT(a,b) CAT_(a,b)\n"
 			"#define STR_(x) #x\n#define STR(x) STR_(x)\n"
 			"#define VALUE(x) ((x) + __COUNTER__)\n"
+			"static inline int bias(void) { return 31; } "
 			"int second(void) { const char *s = STR(CAT(he,llo)); "
-			"return VALUE(31) + (s[0] != 'h'); }") == 0);
+			"return VALUE(bias()) + (s[0] != 'h'); }") == 0);
 		CHECK(tcc_compile_string(b,
 			"#define PRIVATE_MACRO 1\n"
-			"int second(void) { return 43 + __COUNTER__; }") == 0);
+			"static inline int bias(void) { return 43; } "
+			"int second(void) { return bias() + __COUNTER__; }") == 0);
 		CHECK(tcc_compile_string(a,
 			"int number(void) { volatile long double x = "
 			"0x1.4p0L; "

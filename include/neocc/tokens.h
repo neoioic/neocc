@@ -4,6 +4,7 @@
 
 #include <stddef.h>
 #include "object.h"
+#include "neocc/preprocessor.h"
 
 #define NEOCC_TOKEN_FIRST 256
 #define NEOCC_TOKEN_LIMIT 0x10000000
@@ -48,6 +49,34 @@ struct neocc_token_result {
 	struct neocc_token *token;
 	int next;
 };
+
+/* Deferred inline bodies share this object's token allocation domain.
+ * filename is a NUL-terminated string borrowed only for SAVE.
+ * SAVE copies filename and publishes a stable record with an empty body.
+ * The parser may build body and clear symbol after generation; next and
+ * filename are read-only. Symbols are borrowed, never freed here.
+ * Replay must use PREPROCESSOR_PUSH alloc=0: the stack only borrows body.
+ * Detach all macro-stack borrows before RESET_INLINES, RESET or final close,
+ * and release inline records before resetting symbols. RESET_INLINES frees
+ * bodies and records but preserves all other tokens/streams. FIRST returns
+ * a borrowed head (NULL for empty); records remain valid until cleanup.
+ * All messages are in-process and copied with memcpy, including pointers.
+ */
+struct neocc_inline {
+	struct neocc_inline *next;
+	struct neocc_token_string body;
+	struct neocc_symbol *symbol;
+	char filename[];
+};
+
+struct neocc_inline_save {
+	struct neocc_symbol *symbol;
+	const char *filename;
+};
+
+#define NEOCC_AC0_TOKENS_RESET_INLINES (AC0_ + 2)
+#define NEOCC_AC1_TOKENS_FIRST_INLINE AC1_
+#define NEOCC_AC3_TOKENS_SAVE_INLINE (AC3_ + 4)
 
 #define NEOCC_AC0_TOKENS_RESET (AC0_ + 1)
 #define NEOCC_AC3_TOKENS_INTERN (AC3_ + 1)

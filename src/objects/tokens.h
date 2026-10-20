@@ -14,6 +14,8 @@ struct em_tokens {
 	size_t capacity;
 	struct neocc_token_block *symbols;
 	struct neocc_token_block *streams;
+	struct neocc_inline *inline_head;
+	struct neocc_inline *inline_tail;
 };
 
 #endif

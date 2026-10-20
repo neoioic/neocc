@@ -50,6 +50,7 @@ class Regression(unittest.TestCase):
             "initializers": ["tests/cases/initializers.c"],
             "temporaries": ["tests/cases/temporaries.c"],
             "translation": ["tests/cases/translation.c"],
+            "inlines": ["tests/cases/inlines.c", "tests/cases/inlines_other.c"],
             "link": ["tests/cases/link_a.c", "tests/cases/link_b.c"],
         }.items():
             with self.subTest(case=case):
@@ -71,7 +72,8 @@ class Regression(unittest.TestCase):
                        "tests/cases/scope.c", "tests/cases/functions.c",
                        "tests/cases/switches.c", "tests/cases/initializers.c",
                        "tests/cases/temporaries.c", "tests/cases/translation.c",
-                       "tests/cases/translation_asm.S"]:
+                       "tests/cases/translation_asm.S", "tests/cases/inlines.c",
+                       "tests/cases/inlines_other.c"]:
             with self.subTest(source=source):
                 preprocessed = []
                 for compiler in (BASELINE, NEOCC):
@@ -95,6 +97,9 @@ class Regression(unittest.TestCase):
             (["-c", "tests/cases/error.c"], b"nested_error.h:29:"),
             (["-c", "tests/cases/temporaries_error.c"], b"missing_temporary"),
             (["-c", "tests/cases/translation_error.c"], b"missing_translation"),
+            (["-c", "tests/cases/inlines_error.c"], b"missing_inline"),
+            (["-c", "tests/cases/inlines_redefinition.c"], b"redefinition"),
+            (["-c", "tests/cases/inlines_unfinished.c"], b"unexpected end"),
             (["-c", "tests/cases/missing.c"], b"not found"),
             (["-c", "tests/cases/semantics.c", "-o", OUT / "absent/file.o"],
              b"could not write"),
@@ -148,6 +153,10 @@ class Regression(unittest.TestCase):
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],
                             "src/host/host.c", *runtime_sources],
+            "inlines": ["tests/inlines.c",
+                        *[str(path.relative_to(ROOT)) for path in
+                          sorted((ROOT / "src/objects").glob("*.c"))],
+                        "src/host/host.c", *runtime_sources],
             "translation": ["tests/translation.c",
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],

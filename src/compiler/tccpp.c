@@ -3388,9 +3388,7 @@ ST_FUNC void preprocess_start(TCCState *s1, int filetype)
 /* cleanup from error/setjmp */
 ST_FUNC void preprocess_end(TCCState *s1)
 {
-    while (s1->pp->macro_stack)
-        end_macro();
-    s1->pp->macro_ptr = NULL;
+    /* tccgen_finish already detached streams before inline/symbol cleanup. */
     while (s1->pp->source)
         tcc_close();
     tccpp_delete(s1);

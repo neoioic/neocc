@@ -101,7 +101,7 @@ def regenerate(program, compiler, directory, runtime):
         run([program, "generate", "--write", *sources])
         if before != [source.read_bytes() for source in sources]:
             raise RuntimeError("checked-in constructors differ from regeneration")
-    for name in names:
+    for name in [*names, "inlines"]:
         executable = directory / f"{name}-test.exe"
         run([compiler, "-B" + str(runtime), "-std=c11", "-Iinclude", "-Isrc",
              "-Ithird_party/openoicc/include", "-Ithird_party/neoioic/include",
@@ -136,6 +136,12 @@ def main():
         report.append({"file": a.name, "stage2_sha256": digest(a),
                        "stage3_sha256": digest(b)})
     for compiler in [stage2, stage3]:
+        executable = compiler.parent / "inlines.exe"
+        run([compiler, "-B" + str(runtime), "-std=c11",
+             "tests/cases/inlines.c", "tests/cases/inlines_other.c",
+             "-o", executable])
+        if run([executable]).replace(b"\r\n", b"\n") != (ROOT / "tests/cases/inlines.expect").read_bytes():
+            raise RuntimeError("inline stage behavior differs")
         for source in ["semantics", "scope", "functions", "switches", "initializers", "temporaries", "translation"]:
             executable = compiler.parent / (source + ".exe")
             run([compiler, "-B" + str(runtime), "-std=c11",

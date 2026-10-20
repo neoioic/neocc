@@ -77,6 +77,13 @@ static void blocks_clear(struct neocc_token_block **head)
 
 static void tokens_clear(struct em_tokens *members)
 {
+	while (members->inline_head) {
+		struct neocc_inline *entry = members->inline_head;
+
+		members->inline_head = entry->next;
+		free(entry);
+	}
+	/* Inline body buffers are part of streams, released below. */
 	blocks_clear(&members->symbols);
 	blocks_clear(&members->streams);
 	free(members->table);
@@ -226,6 +233,49 @@ static int stream_resize(struct em_tokens *members,
 	return R_P;
 }
 
+static int inline_reset(struct em_tokens *members)
+{
+	while (members->inline_head) {
+		struct neocc_inline *entry = members->inline_head;
+		struct neocc_token_resize request = { entry->body.str, 0 };
+		void *unused;
+		int result = stream_resize(members, &request, &unused);
+
+		if (!RP(result))
+			return result;
+		members->inline_head = entry->next;
+		free(entry);
+	}
+	members->inline_tail = NULL;
+	return R_P;
+}
+
+static int inline_save(struct em_tokens *members,
+	const struct neocc_inline_save *request, struct neocc_inline **output)
+{
+	struct neocc_inline *entry;
+	size_t length;
+
+	if (!request->symbol || !request->filename)
+		return RN_INVALIDARG;
+	length = strlen(request->filename);
+	if (length > SIZE_MAX - sizeof(*entry) - 1)
+		return RN_INVALIDARG;
+	entry = malloc(sizeof(*entry) + length + 1);
+	if (!entry)
+		return R_N;
+	*entry = (struct neocc_inline){ .symbol = request->symbol,
+		.body.last_line_num = -1 };
+	memcpy(entry->filename, request->filename, length + 1);
+	if (members->inline_tail)
+		members->inline_tail->next = entry;
+	else
+		members->inline_head = entry;
+	members->inline_tail = entry;
+	*output = entry;
+	return R_P;
+}
+
 static int token_intern(struct em_tokens *members,
 	const struct neocc_token_intern *request, struct neocc_token_result *out)
 {
@@ -294,11 +344,14 @@ static int tokens_close(struct object *self, const struct vr *caller_context)
 static int tokens_interact0(struct object *self, unsigned int action,
 	const struct vr *caller_context)
 {
-	if (action != NEOCC_AC0_TOKENS_RESET) {
+	if (action != NEOCC_AC0_TOKENS_RESET &&
+	    action != NEOCC_AC0_TOKENS_RESET_INLINES) {
 		SBO_OBJECT_INTERACT0;
 	}
 	if (!self->ref_count)
 		return RN_INVALIDARG;
+	if (action == NEOCC_AC0_TOKENS_RESET_INLINES)
+		return inline_reset(self->members);
 	tokens_clear(self->members);
 	return R_P;
 }
@@ -315,7 +368,8 @@ static int tokens_interact3(struct object *self, unsigned int action,
 
 	if (action != NEOCC_AC3_TOKENS_INTERN &&
 	    action != NEOCC_AC3_TOKENS_QUERY &&
-	    action != NEOCC_AC3_TOKENS_RESIZE) {
+	    action != NEOCC_AC3_TOKENS_RESIZE &&
+	    action != NEOCC_AC3_TOKENS_SAVE_INLINE) {
 		SBO_OBJECT_INTERACT3;
 	}
 	if (output_quantity)
@@ -323,6 +377,20 @@ static int tokens_interact3(struct object *self, unsigned int action,
 	if (!self->ref_count || !input_stream || !output_stream ||
 	    !output_quantity)
 		return RN_INVALIDARG;
+	if (action == NEOCC_AC3_TOKENS_SAVE_INLINE) {
+		struct neocc_inline_save request;
+		struct neocc_inline *entry;
+
+		if (quantity != sizeof(request) || capacity < sizeof(entry))
+			return RN_INVALIDARG;
+		memcpy(&request, input_stream, sizeof(request));
+		status = inline_save(members, &request, &entry);
+		if (!RP(status))
+			return status;
+		memcpy(output_stream, &entry, sizeof(entry));
+		*output_quantity = sizeof(entry);
+		return R_P;
+	}
 	if (action == NEOCC_AC3_TOKENS_RESIZE) {
 		struct neocc_token_resize request;
 		void *pointer;
@@ -388,7 +456,18 @@ static int tokens_interact1(struct object *self, unsigned int action,
 	unsigned char *output_stream, unsigned int capacity,
 	unsigned int *output_quantity, const struct vr *caller_context)
 {
-	SBO_OBJECT_INTERACT1;
+	struct em_tokens *members = self->members;
+	struct neocc_inline *entry = members->inline_head;
+
+	*output_quantity = 0;
+	if (action != NEOCC_AC1_TOKENS_FIRST_INLINE) {
+		SBO_OBJECT_INTERACT1;
+	}
+	if (!self->ref_count || capacity < sizeof(entry))
+		return RN_INVALIDARG;
+	memcpy(output_stream, &entry, sizeof(entry));
+	*output_quantity = sizeof(entry);
+	return R_P;
 }
 
 static int tokens_interact2(struct object *self, unsigned int action,

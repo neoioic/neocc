@@ -273,3 +273,18 @@ target("translation_test")
     add_files("tests/translation.c", "src/objects/*.c", "src/host/host.c")
     set_rundir(".")
     add_tests("default")
+
+for _, fault in ipairs({false, true}) do
+    target(fault and "inlines_fault_test" or "inlines_test")
+        set_kind("binary")
+        add_deps("neoioic")
+        add_includedirs("include", "src", "third_party/openoicc/include")
+        add_files("tests/inlines.c", "src/objects/*.c", "src/host/host.c")
+        if fault then
+            add_defines("NEOCC_TEST_FAULT")
+            add_ldflags("-Wl,--wrap=malloc", "-Wl,--wrap=calloc",
+                        "-Wl,--wrap=realloc", "-Wl,--wrap=free", {force = true})
+        end
+        set_rundir(".")
+        add_tests("default")
+end

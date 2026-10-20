@@ -90,9 +90,8 @@ static void vpush64(int ty, unsigned long long v);
 static void vpush(struct neocc_type *type);
 static int gvtst(int inv, int t);
 static void gen_inline_functions(TCCState *s);
-static void free_inline_functions(TCCState *s);
 static void label_discard(unsigned int stack);
-static void skip_or_save_block(struct neocc_token_string **str);
+static void skip_or_save_block(struct neocc_token_string *str);
 static void gv_dup(void);
 static int get_temp_local_var(int size,int align,int *r2);
 static void cast_error(struct neocc_type *st, struct neocc_type *dt);
@@ -375,7 +374,13 @@ ST_FUNC int tccgen_compile(TCCState *s1)
 ST_FUNC void tccgen_finish(TCCState *s1)
 {
     tcc_debug_end(s1); /* just in case of errors: free memory */
-    free_inline_functions(s1);
+    /* Drop stream-stack borrows before their inline owners and symbols. */
+    while (s1->pp->macro_stack)
+        end_macro();
+    s1->pp->macro_ptr = NULL;
+    if (!RP(vo_interact0(s1->tokens, NEOCC_AC0_TOKENS_RESET_INLINES,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset inline bodies");
     sym_pop(NEOCC_SYMBOL_STACK_GLOBAL, NULL, 0);
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     /* free preprocessor macros */
@@ -5246,7 +5251,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 		/* Code generation is not done now but has to be done
 		   at start of function. Save code here for later use. */
 	        tcc_state->unit->suppression = 1;
-		skip_or_save_block(&vla_array_tok);
+		skip_or_save_block(vla_array_tok = tok_str_alloc());
 		unget_tok(0);
 		vla_array_str = vla_array_tok->str;
 		begin_macro(vla_array_tok, 2);
@@ -6182,7 +6187,7 @@ ST_FUNC void unary(void)
 	    if (learn) {
 		if (str)
 		    tok_str_free(str);
-		skip_or_save_block(&str);
+		skip_or_save_block(str = tok_str_alloc());
 	    } else {
 		skip_or_save_block(NULL);
 	    }
@@ -6379,7 +6384,7 @@ special_math_val:
                 r = tcc_state->reverse_funcargs;
                 for(;;) {
                     if (r) {
-                        skip_or_save_block(&p2);
+                        skip_or_save_block(p2 = tok_str_alloc());
                         p2->prev = p, p = p2;
                     } else {
                         expr_eq();
@@ -7665,15 +7670,13 @@ again:
 
 /* This skips over a stream of tokens containing balanced {} and ()
    pairs, stopping at outer ',' ';' and '}' (or matching '}' if we started
-   with a '{').  If STR then allocates and stores the skipped tokens
-   in *STR.  This doesn't check if () and {} are nested correctly,
+   with a '{').  If STR then stores tokens in its initialized descriptor.
+   This doesn't check if () and {} are nested correctly,
    i.e. "({)}" is accepted.  */
-static void skip_or_save_block(struct neocc_token_string **str)
+static void skip_or_save_block(struct neocc_token_string *str)
 {
     int braces = tcc_state->pp->token == '{';
     int level = 0;
-    if (str)
-      *str = tok_str_alloc();
 
     while (1) {
 	int t = tcc_state->pp->token;
@@ -7691,7 +7694,7 @@ static void skip_or_save_block(struct neocc_token_string **str)
 	       break;
 	}
 	if (str)
-	  tok_str_add_tok(*str);
+	  tok_str_add_tok(str);
 	next();
 	if (t == '{' || t == '(' || t == '[') {
 	    level++;
@@ -7702,7 +7705,7 @@ static void skip_or_save_block(struct neocc_token_string **str)
 	}
     }
     if (str)
-	tok_str_add(*str, TOK_EOF);
+	tok_str_add(str, TOK_EOF);
 }
 
 #define EXPR_CONST 1
@@ -8458,7 +8461,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
             }
             tok_str_add(init_str, TOK_EOF);
         } else
-            skip_or_save_block(&init_str);
+            skip_or_save_block(init_str = tok_str_alloc());
         unget_tok(0);
 
         /* compute size */
@@ -8807,22 +8810,27 @@ static void gen_function(struct neocc_symbol *sym)
 static void gen_inline_functions(TCCState *s)
 {
     struct neocc_symbol *sym;
-    int inline_generated, i;
-    struct InlineFunc *fn;
+    int inline_generated;
+    struct neocc_inline *fn, *head;
+    unsigned int quantity;
+
+    if (!RP(vo_interact1(s->tokens, NEOCC_AC1_TOKENS_FIRST_INLINE,
+                         (unsigned char *)&head, sizeof(head), &quantity,
+                         &neocc_host_caller)) || quantity != sizeof(head))
+        tcc_error("cannot borrow inline bodies");
 
     tcc_open_bf(s, ":inline:", 0);
     /* iterate while inline function are referenced */
     do {
         inline_generated = 0;
-        for (i = 0; i < s->nb_inline_fns; ++i) {
-            fn = s->inline_fns[i];
-            sym = fn->sym;
+        for (fn = head; fn; fn = fn->next) {
+            sym = fn->symbol;
             if (sym && (sym->c || !(sym->type.t & VT_INLINE))) {
                 /* the function was used or forced (and then not internal):
                    generate its code and convert it to a normal function */
-                fn->sym = NULL;
+                fn->symbol = NULL;
                 tccpp_putfile(fn->filename);
-                begin_macro(fn->func_str, 1);
+                begin_macro(&fn->body, 0);
                 next();
                 tcc_state->unit->section = text_section;
                 gen_function(sym);
@@ -8833,18 +8841,6 @@ static void gen_inline_functions(TCCState *s)
         }
     } while (inline_generated);
     tcc_close();
-}
-
-static void free_inline_functions(TCCState *s)
-{
-    int i;
-    /* free tokens of unused inline functions */
-    for (i = 0; i < s->nb_inline_fns; ++i) {
-        struct InlineFunc *fn = s->inline_fns[i];
-        if (fn->sym)
-            tok_str_free(fn->func_str);
-    }
-    dynarray_reset(&s->inline_fns, &s->nb_inline_fns);
 }
 
 static void do_Static_assert(void)
@@ -9020,13 +9016,19 @@ static int decl(int l)
                    of macro. Their code will be emitted at the end of
                    the compilation unit only if they are used */
                 if (sym->type.t & VT_INLINE) {
-                    struct InlineFunc *fn;
-                    fn = tcc_malloc(sizeof *fn + strlen(tcc_state->pp->source->filename));
-                    strcpy(fn->filename, tcc_state->pp->source->filename);
-                    fn->sym = sym;
-                    dynarray_add(&tcc_state->inline_fns,
-				 &tcc_state->nb_inline_fns, fn);
-                    skip_or_save_block(&fn->func_str);
+                    struct neocc_inline_save request = {
+                        sym, tcc_state->pp->source->filename };
+                    struct neocc_inline *fn;
+                    unsigned int quantity;
+                    int result = vo_interact3(tcc_state->tokens,
+                        NEOCC_AC3_TOKENS_SAVE_INLINE,
+                        (unsigned char *)&request, sizeof(request),
+                        (unsigned char *)&fn, sizeof(fn), &quantity,
+                        &neocc_host_caller);
+
+                    if (!RP(result) || quantity != sizeof(fn))
+                        tcc_error("cannot save inline body");
+                    skip_or_save_block(&fn->body);
                 } else {
                     /* compute text section */
                     tcc_state->unit->section = text_section;

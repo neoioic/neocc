@@ -39,7 +39,7 @@ def main():
     report.write_text(json.dumps({
         "mode": args.mode,
         "platform": "Windows x86-64 / MinGW-w64",
-        "root_c_suites": 22,
+        "root_c_suites": 24,
         "compiler_integration_suites": 6,
         "tinycc_differential_inputs": 120,
         "tinycc_excluded_inputs": 21,
