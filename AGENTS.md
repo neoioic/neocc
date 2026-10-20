@@ -22,7 +22,7 @@ NeoCC 使用 NEOioic 重构 TinyCC，以 C 编写，通过 NEOioic 对象接口�
 
 路径相对于本仓库根目录；下列目录内的路径均以该目录为基准：
 
-1. `AGENTS.md`、`docs/handoff.md`、`third_party/README.md`：任务边界、进展和来源。
+1. `AGENTS.md`、`docs/handoff.md`、`docs/plan.md`、`third_party/README.md`：任务边界、进展、后续阶段和来源。按计划中的稳定编号选择一个阶段，完成验证后停下并同步状态。
 2. `third_party/neoioic/` 内的 `docs/architecture.md`、`docs/tutorial.md`、`docs/coding_style.md`，再读 `include/object.h`、`include/neoioic.h`、`src/object.c`、`src/neoioic.c`：模型、风格及运行时契约。
 3. `third_party/neoioic/examples/hello_world/` 与 `third_party/neoioic/examples/multiple_inheritance/`：宿主、单继承、共享祖先、构造和接口用法。
 4. `third_party/openoicc/` 内的 `docs/oioic-reference.md`、`docs/openoicc.md`、`docs/openoicc-user-guide.md`、`include/openoicc/construct.h`、`src/objects/project.c`、`src/host/host.c`：生成规则、命令、构造辅助与实际对象实现。

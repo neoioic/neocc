@@ -23,7 +23,8 @@ xmake test -P . -v
 
 完整检查：`python tests/verify.py --mode debug`，Release 改为 `--mode release`。
 详见 [构建与使用](docs/build.md)、[迁移设计](docs/architecture.md)、
-[验证边界](docs/testing.md) 和 [交接记录](docs/handoff.md)。
+[验证边界](docs/testing.md)、[交接记录](docs/handoff.md) 和
+[后续阶段计划](docs/plan.md)。
 Agent 按阶段完成迁移、测试通过后停下，由开发者提交备份；具体规则见
 `AGENTS.md`，进度见 `docs/handoff.md`。
 
