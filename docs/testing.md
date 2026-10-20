@@ -5,14 +5,14 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 以下记录只覆盖所列组合和输入，不表示完整 C11、其他平台或全部 TinyCC 功能通过。
 
 2026-10-20，`python tests/verify.py --mode debug` 和 `--mode release` 均完整通过：
-各二十一组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches` 、`initializers` 和新增 `temporaries` 语义样例和 120 个 TinyCC 输入差分）、
-27 对阶段产物一致性及两种构建方式下各 39 项 OpenOICC 回归。21 个语料排除项见下文。
+各二十二组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 和 `translation` 语义样例和 120 个 TinyCC 输入差分）、
+28 对阶段产物一致性及两种构建方式下各 39 项 OpenOICC 回归。21 个语料排除项见下文。
 两种模式均生成 `verification.json` 成功记录。
 本阶段全量入口未包含可选 `PP_DEBUG` 调试输出运行验证。
 
 ## 根 C 回归
 
-`xmake test -P . -v` 执行二十一组：
+`xmake test -P . -v` 执行二十二组：
 
 - `runtime_dispatch_test`：七个接力接口的结果、访问撤销和席位耗尽。
 - `runtime_robustness_test`：原 NEOioic 的队列随机操作、模式、引用、共享祖先、
@@ -51,6 +51,8 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
   构造、每层 switch、case 与索引扩容失败保留旧状态，检查 VO 记录与分配/释放数量。
 - `initializers_test`：独立字符串/模式、未对齐借用、短消息、扩容保持内容、reset 地址稳定、
   共享打开、部分关闭重试、末次关闭后的拒绝借用及再次打开。
+- `translation_test`：工作区隔离、未对齐/短容量借用、共享关闭、reset 地址稳定、
+  借用节不受修改、部分关闭重试和重开。
 - `temporaries_test` / `temporaries_fault_test`：512 层稳定字符串、嵌套编译边界、
   外层借用保留、严格 LIFO、跨对象/短/未对齐消息、reset、共享打开、部分关闭和再打开；
   每层记录/边界分配失败保留原栈，格式化扩容失败保留内容、长度和缓冲。
@@ -58,7 +60,7 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
   的 1000 次枚举与句柄清理。
 
 宿主故障注入依赖 GNU ld `--wrap`；不是 NeoCC 生产开关。
-`session_fault_test` 另注入十个对象的构造失败及预处理/表达式两个工作区分配失败、宏流和标识符两个 arena 的分配失败，检查输入清理、token
+`session_fault_test` 另注入十一个对象的构造失败及预处理/表达式两个工作区分配失败、宏流和标识符两个 arena 的分配失败，检查输入清理、token
 对象 VO 记录撤销，以及之后新会话的编译；原有会话错误计数累积语义保持不变。
 另注入八处工作字符串与 token 索引扩容失败，以及三处语义符号分配失败，检查池、五类栈头、
 作用域层级归零和新会话恢复编译。另触发真实值栈耗尽诊断，检查表达式数组、栈顶、
@@ -67,7 +69,7 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 清空，覆盖已建立 cleanup 和前向 goto 记录的错误路径及新会话恢复。
 另在普通和 `-gdwarf-5` 配置下，在变参/大结构体返回/VLA 函数内产生临时槽与返回跳转链后，
 触发未声明标识符诊断；回调先确认工作区非空，收尾后检查类型/名称、偏移、跳转链和缓存
-清空以及新会话恢复。构造/工作区故障现在共十二处（十个图和两个独立工作区）。
+清空以及新会话恢复。构造/工作区故障现在共十三处（十一个图和两个独立工作区）。
 另在嵌套 switch 中注入六处帧/case 分配失败及索引扩容失败，检查真实诊断后的整条链
 清空、VO 撤销与新会话恢复；覆盖重复 case/default、非整数 switch、case 表达式及嵌套
 函数体诊断。普通会话的每次编译收尾也检查 switch 链与访问记录归零。
@@ -84,6 +86,11 @@ P02 在会话内额外覆盖：无注入的嵌套汇编诊断、边界首次分�
 正常双会话的每次收尾也检查临时记录和 VO 清空。新增 `temporaries.c` 语义样例比较
 GCC/TinyCC/NeoCC 运行结果、预处理文本及无调试/`-g`/`-gdwarf-5` 的目标字节，
 另以 `-gstabs`、`-ftest-coverage` 编译该样例；后者不据此宣称覆盖率运行库已完整验证。
+
+P03 新增常量表达式、匿名类型、`sizeof`/`typeof`、不可达分支、静态数据、标签、
+自定义代码节与内联汇编样例；C 和独立汇编均比较无调试、STABS、DWARF 对象字节。
+会话故障另覆盖普通 C、STABS、DWARF、预处理和汇编五种诊断，检查工作区/VO 清空、
+借用节仍有效及新会话恢复。
 
 ## 纯 C 与 NEOioic 编译差分
 
@@ -118,12 +125,12 @@ pthread/TLS、多 DLL 边界检查与回溯、ELF 动态链接案例未纳入当
 CLI、宿主、源对象、所有当前后端/编译模块和 NEOioic，链接第二阶段；再用第二阶段
 构建第三阶段。各阶段还重新编译运行库和 OpenOICC。
 
-第二/三阶段的 25 个 NeoCC/NEOioic 目标文件、NeoCC 可执行文件和 OpenOICC
-可执行文件共 27 对逐字节一致；`libtcc1.a`、`runmain.o` 也逐阶段比较。
+第二/三阶段的 26 个 NeoCC/NEOioic 目标文件、NeoCC 可执行文件和 OpenOICC
+可执行文件共 28 对逐字节一致；`libtcc1.a`、`runmain.o` 也逐阶段比较。
 不启用调试路径或时间戳等可变字段，不以修改预期哈希掩盖差异。
 `bootstrap/results.json` 记录本次产物 SHA-256，不提交本机绝对路径。
 
-第二、第三阶段 OpenOICC 各在构建目录副本中预览、显式再生两次，十个对象构造区均无变化，
+第二、第三阶段 OpenOICC 各在构建目录副本中预览、显式再生两次，十一个对象构造区均无变化，
 再用该阶段 NeoCC 编译并运行源对象、token 对象、预处理对象、符号对象、表达式对象、作用域对象、函数对象、switch 对象、初始化器对象及临时字符串对象测试；阶段工具
 还编译运行 C11 语义样例、作用域/标签、函数、switch、初始化器及临时字符串样例。
 这证明当前源码/目标组合的阶段稳定性，不代表整个编译器对象化完成。
@@ -135,8 +142,8 @@ CLI、宿主、源对象、所有当前后端/编译模块和 NEOioic，链接�
 ## 不含 TinyCC 参考树的验证
 
 `tests/independent.py --mode debug`（或 `release`）每次建立全新的仓库内源码副本，
-不复制 `tinycc/`、现有产物或缓存。在副本中用 GCC/xmake 构建，执行二十一组根回归，
-再以 NeoCC 完成第二/三阶段编译、运行库重建、27 对输出比较和十个对象的构造再生。
+不复制 `tinycc/`、现有产物或缓存。在副本中用 GCC/xmake 构建，执行二十二组根回归，
+再以 NeoCC 完成第二/三阶段编译、运行库重建、28 对输出比较和十一个对象的构造再生。
 两种模式的独立性结果位于 `build/independent/debug.json` 和 `release.json`。
 完整验证入口包含该检查；独立性副本不运行需要参考语料的 TinyCC 差分。
 它证明构建和运行不依赖参考树，不能证明全套对象化重写已经完成。

@@ -49,6 +49,7 @@ class Regression(unittest.TestCase):
             "switches": ["tests/cases/switches.c"],
             "initializers": ["tests/cases/initializers.c"],
             "temporaries": ["tests/cases/temporaries.c"],
+            "translation": ["tests/cases/translation.c"],
             "link": ["tests/cases/link_a.c", "tests/cases/link_b.c"],
         }.items():
             with self.subTest(case=case):
@@ -69,7 +70,8 @@ class Regression(unittest.TestCase):
         for source in ["tests/cases/preprocess.c", "tests/cases/semantics.c",
                        "tests/cases/scope.c", "tests/cases/functions.c",
                        "tests/cases/switches.c", "tests/cases/initializers.c",
-                       "tests/cases/temporaries.c"]:
+                       "tests/cases/temporaries.c", "tests/cases/translation.c",
+                       "tests/cases/translation_asm.S"]:
             with self.subTest(source=source):
                 preprocessed = []
                 for compiler in (BASELINE, NEOCC):
@@ -92,6 +94,7 @@ class Regression(unittest.TestCase):
         for command, expected in [
             (["-c", "tests/cases/error.c"], b"nested_error.h:29:"),
             (["-c", "tests/cases/temporaries_error.c"], b"missing_temporary"),
+            (["-c", "tests/cases/translation_error.c"], b"missing_translation"),
             (["-c", "tests/cases/missing.c"], b"not found"),
             (["-c", "tests/cases/semantics.c", "-o", OUT / "absent/file.o"],
              b"could not write"),
@@ -110,17 +113,17 @@ class Regression(unittest.TestCase):
         programs = {
             "dispatch": ["third_party/neoioic/tests/dispatch.c", *runtime_sources],
             "source": ["tests/source.c", "src/objects/source.c",
-                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c",
+                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/objects/translation.c",
                        "src/host/host.c",
                        *runtime_sources],
             "tokens": ["tests/tokens.c", "src/objects/source.c",
-                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/host/host.c", *runtime_sources],
+                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/objects/translation.c", "src/host/host.c", *runtime_sources],
             "preprocessor": ["tests/preprocessor.c", "src/objects/source.c",
-                             "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c",
+                             "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/objects/translation.c",
                              "src/host/host.c", *runtime_sources],
             "symbols": ["tests/symbols.c", "src/objects/source.c",
                         "src/objects/tokens.c", "src/objects/preprocessor.c",
-                        "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/host/host.c", *runtime_sources],
+                        "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/objects/translation.c", "src/host/host.c", *runtime_sources],
             "expressions": ["tests/expressions.c",
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],
@@ -142,6 +145,10 @@ class Regression(unittest.TestCase):
                                sorted((ROOT / "src/objects").glob("*.c"))],
                              "src/host/host.c", *runtime_sources],
             "temporaries": ["tests/temporaries.c",
+                            *[str(p.relative_to(ROOT)) for p in
+                              sorted((ROOT / "src/objects").glob("*.c"))],
+                            "src/host/host.c", *runtime_sources],
+            "translation": ["tests/translation.c",
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],
                             "src/host/host.c", *runtime_sources],

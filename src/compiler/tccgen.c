@@ -22,31 +22,24 @@
 #include "tcc.h"
 
 /********************************************************/
-/* global variables */
+/* Translation-unit code suppression. */
 
-/* Translation-unit symbol and instruction indices. */
-ST_DATA int anon_sym, ind;
-
-ST_DATA char debug_modes;
-
-
-ST_DATA int nocode_wanted; /* no code generation wanted */
-#define NODATA_WANTED (nocode_wanted > 0) /* no static data output wanted either */
+#define NODATA_WANTED (tcc_state->unit->suppression > 0) /* no static data output wanted either */
 #define DATA_ONLY_WANTED 0x80000000 /* ON outside of functions and for static initializers */
 
 /* no code output after unconditional jumps such as with if (0) ... */
 #define CODE_OFF_BIT 0x20000000
-#define CODE_OFF() if(!nocode_wanted)(nocode_wanted |= CODE_OFF_BIT)
-#define CODE_ON() (nocode_wanted &= ~CODE_OFF_BIT)
+#define CODE_OFF() if(!tcc_state->unit->suppression)(tcc_state->unit->suppression |= CODE_OFF_BIT)
+#define CODE_ON() (tcc_state->unit->suppression &= ~CODE_OFF_BIT)
 
 /* no code output when parsing sizeof()/typeof() etc. (using nocode_wanted++/--) */
 #define NOEVAL_MASK 0x0000FFFF
-#define NOEVAL_WANTED (nocode_wanted & NOEVAL_MASK)
+#define NOEVAL_WANTED (tcc_state->unit->suppression & NOEVAL_MASK)
 
 /* no code output when parsing constant expressions */
 #define CONST_WANTED_BIT  0x00010000
 #define CONST_WANTED_MASK 0x0FFF0000
-#define CONST_WANTED  (nocode_wanted & CONST_WANTED_MASK)
+#define CONST_WANTED  (tcc_state->unit->suppression & CONST_WANTED_MASK)
 
 
 #if PTR_SIZE == 4
@@ -113,7 +106,7 @@ static void do_Static_assert(void);
 ST_FUNC void gsym(int t)
 {
   if (t) {
-    gsym_addr(t, ind);
+    gsym_addr(t, tcc_state->unit->instruction);
     CODE_ON();
   }
 }
@@ -121,9 +114,9 @@ ST_FUNC void gsym(int t)
 /* Clear 'nocode_wanted' if current pc is a label */
 static int gind()
 {
-  int t = ind;
+  int t = tcc_state->unit->instruction;
   CODE_ON();
-  if (debug_modes)
+  if (tcc_state->unit->debug_modes)
     tcc_tcov_block_begin(tcc_state);
   return t;
 }
@@ -328,6 +321,11 @@ static void function_reset(TCCState *s)
 /* initialize vstack and types.  This must be done also for tcc -E */
 ST_FUNC void tccgen_init(TCCState *s1)
 {
+    if (!RP(vo_interact0(s1->translation, NEOCC_AC0_TRANSLATION_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset translation workspace");
+    s1->unit->anonymous_symbol = SYM_FIRST_ANOM;
+    s1->unit->suppression = DATA_ONLY_WANTED;
     function_reset(s1);
 
     /* define some often used types */
@@ -350,9 +348,7 @@ ST_FUNC void tccgen_init(TCCState *s1)
 
 ST_FUNC int tccgen_compile(TCCState *s1)
 {
-    anon_sym = SYM_FIRST_ANOM;
-    nocode_wanted = DATA_ONLY_WANTED; /* no code outside of functions */
-    debug_modes = (s1->do_debug ? 1 : 0) | s1->test_coverage << 1;
+    tcc_state->unit->debug_modes = (s1->do_debug ? 1 : 0) | s1->test_coverage << 1;
 
     tcc_debug_start(s1);
     tcc_tcov_start (s1);
@@ -392,7 +388,9 @@ ST_FUNC void tccgen_finish(TCCState *s1)
         tcc_error("cannot reset switch storage");
     label_discard(NEOCC_SYMBOL_STACK_GLOBAL_LABEL);
     label_discard(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
-    cur_text_section = NULL;
+    if (!RP(vo_interact0(s1->translation, NEOCC_AC0_TRANSLATION_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset translation workspace");
     if (!RP(vo_interact0(s1->scopes, NEOCC_AC0_SCOPES_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset scope storage");
@@ -518,7 +516,7 @@ ST_FUNC void put_extern_sym2(struct neocc_symbol *sym, int sh_num,
         info = ELFW(ST_INFO)(sym_bind, sym_type);
         sym->c = put_elf_sym(symtab_section, value, size, info, other, sh_num, name);
 
-        if (debug_modes)
+        if (tcc_state->unit->debug_modes)
             tcc_debug_extern_sym(tcc_state, sym, sh_num, sym_bind, sym_type);
 
     } else {
@@ -532,7 +530,7 @@ ST_FUNC void put_extern_sym2(struct neocc_symbol *sym, int sh_num,
 
 ST_FUNC void put_extern_sym(struct neocc_symbol *sym, Section *s, addr_t value, unsigned long size)
 {
-    if (nocode_wanted && (NODATA_WANTED || (s && s == cur_text_section)))
+    if (tcc_state->unit->suppression && (NODATA_WANTED || (s && s == tcc_state->unit->section)))
         return;
     put_extern_sym2(sym, s ? s->sh_num : SHN_UNDEF, value, size, 1);
 }
@@ -543,7 +541,7 @@ ST_FUNC void greloca(Section *s, struct neocc_symbol *sym, unsigned long offset,
 {
     int c = 0;
 
-    if (nocode_wanted && s == cur_text_section)
+    if (tcc_state->unit->suppression && s == tcc_state->unit->section)
         return;
 
     if (sym) {
@@ -891,7 +889,7 @@ ST_FUNC void label_pop(unsigned int stack, struct neocc_symbol *slast, int keep)
             if (s->c) {
                 /* define corresponding symbol. A size of
                    1 is put. */
-                put_extern_sym(s, cur_text_section, s->jind, 1);
+                put_extern_sym(s, tcc_state->unit->section, s->jind, 1);
             }
         }
         /* remove label */
@@ -939,7 +937,7 @@ static void vcheck_cmp(void)
        actually clear it at the gsym() in load()/VT_JMP in the
        generator backends */
 
-    if (tcc_state->expr->top->r == VT_CMP && 0 == (nocode_wanted & ~CODE_OFF_BIT))
+    if (tcc_state->expr->top->r == VT_CMP && 0 == (tcc_state->unit->suppression & ~CODE_OFF_BIT))
         gv(RC_INT);
 }
 
@@ -1187,7 +1185,7 @@ ST_FUNC struct neocc_symbol *get_sym_ref(struct neocc_type *type, Section *sec, 
     int v;
     struct neocc_symbol *sym;
 
-    v = anon_sym++;
+    v = tcc_state->unit->anonymous_symbol++;
     sym = sym_push(v, type, VT_CONST | VT_SYM, 0);
     sym->type.t |= VT_STATIC;
     put_extern_sym(sym, sec, offset, size);
@@ -1469,7 +1467,7 @@ ST_FUNC void save_reg_upstack(int r, int n)
 
     if ((r &= VT_VALMASK) >= VT_CONST)
         return;
-    if (nocode_wanted)
+    if (tcc_state->unit->suppression)
         return;
     l = r2 = 0;
     for(p = (tcc_state->expr->values + 1), p1 = tcc_state->expr->top - n; p <= p1; p++) {
@@ -1551,7 +1549,7 @@ ST_FUNC int get_reg(int rc)
     /* find a free register */
     for(r=0;r<NB_REGS;r++) {
         if (reg_classes[r] & rc) {
-            if (nocode_wanted)
+            if (tcc_state->unit->suppression)
                 return r;
             for(p=(tcc_state->expr->values + 1);p<=tcc_state->expr->top;p++) {
                 if ((p->r & VT_VALMASK) == r ||
@@ -1652,10 +1650,10 @@ static void gen_bounded_ptr_add(void)
     vpushi(0);
     /* returned pointer is in REG_IRET */
     tcc_state->expr->top->r = REG_IRET | VT_BOUNDED;
-    if (nocode_wanted)
+    if (tcc_state->unit->suppression)
         return;
     /* relocation offset of the bounding function call point */
-    tcc_state->expr->top->c.i = (cur_text_section->reloc->data_offset - sizeof(ElfW_Rel));
+    tcc_state->expr->top->c.i = (tcc_state->unit->section->reloc->data_offset - sizeof(ElfW_Rel));
 }
 
 /* patch pointer addition in vtop so that pointer dereferencing is
@@ -1667,7 +1665,7 @@ static void gen_bounded_ptr_deref(void)
     ElfW_Rel *rel;
     struct neocc_symbol *sym;
 
-    if (nocode_wanted)
+    if (tcc_state->unit->suppression)
         return;
 
     size = type_size(&tcc_state->expr->top->type, &align);
@@ -1687,7 +1685,7 @@ static void gen_bounded_ptr_deref(void)
         put_extern_sym(sym, NULL, 0, 0);
     /* patch relocation */
     /* XXX: find a better solution ? */
-    rel = (ElfW_Rel *)(cur_text_section->reloc->data + tcc_state->expr->top->c.i);
+    rel = (ElfW_Rel *)(tcc_state->unit->section->reloc->data + tcc_state->expr->top->c.i);
     rel->r_info = ELFW(R_INFO)(sym->c, ELFW(R_TYPE)(rel->r_info));
 }
 
@@ -2578,7 +2576,7 @@ void gen_negf(int op)
     if (bt == VT_LDOUBLE)
         size = 10;
 #endif
-    if (nocode_wanted) /* save_reg() wont work */
+    if (tcc_state->unit->suppression) /* save_reg() wont work */
         goto gv2;
     save_reg(gv(RC_TYPE(bt)));
     vdup();
@@ -3410,7 +3408,7 @@ error:
         }
 
         /* cannot generate code for global or static initializers */
-        if (nocode_wanted & DATA_ONLY_WANTED) {
+        if (tcc_state->unit->suppression & DATA_ONLY_WANTED) {
             if (df)
                 tcc_state->expr->top->r = get_reg(RC_FLOAT); /* don't confuse backends */
             goto done;
@@ -4561,7 +4559,7 @@ static void struct_decl(struct neocc_type *type, int u)
     } else {
         if (tcc_state->pp->token != '{')
             expect("struct/union/enum name");
-        v = anon_sym++;
+        v = tcc_state->unit->anonymous_symbol++;
     }
     /* Record the original enum/struct/union token.  */
     type1.t = u | ut;
@@ -4746,7 +4744,7 @@ do_decl:
                     if (v == 0 &&
 			((type1.t & VT_BTYPE) == VT_STRUCT ||
 			 bit_size >= 0)) {
-		        v = anon_sym++;
+		        v = tcc_state->unit->anonymous_symbol++;
 		    }
                     if (v) {
                         ss = sym_push(v | SYM_FIELD, &type1, 0, 0);
@@ -4769,7 +4767,7 @@ do_decl:
 	    check_fields(type, 0);
             struct_layout(type, &ad);
         }
-        if (debug_modes)
+        if (tcc_state->unit->debug_modes)
             tcc_debug_fix_forw(tcc_state, type);
     }
 }
@@ -5214,7 +5212,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
         sym_scope_add(-1);
 
     } else if (tcc_state->pp->token == '[') {
-	int saved_nocode_wanted = nocode_wanted;
+	int saved_nocode_wanted = tcc_state->unit->suppression;
         int array_qualifiers = 0;
         /* array definition */
         next();
@@ -5247,7 +5245,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
             if (tcc_state->pp->token != ']') {
 		/* Code generation is not done now but has to be done
 		   at start of function. Save code here for later use. */
-	        nocode_wanted = 1;
+	        tcc_state->unit->suppression = 1;
 		skip_or_save_block(&vla_array_tok);
 		unget_tok(0);
 		vla_array_str = vla_array_tok->str;
@@ -5269,7 +5267,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 		   length must always be evaluated, even under nocode_wanted,
 		   so that its size slot is initialized (e.g. under sizeof
 		   or typeof).  */
-		nocode_wanted = 0;
+		tcc_state->unit->suppression = 0;
 		gexpr();
 	    }
 check:
@@ -5315,7 +5313,7 @@ check:
         }
         if (n != -1)
             vpop();
-	nocode_wanted = saved_nocode_wanted;
+	tcc_state->unit->suppression = saved_nocode_wanted;
                 
         /* we push an anonymous symbol which will contain the array
            element type */
@@ -5473,11 +5471,11 @@ static void gfunc_param_typed(struct neocc_symbol *func, struct neocc_symbol *ar
 /* parse an expression and return its type without any side effect. */
 static void expr_type(struct neocc_type *type, void (*expr_fn)(void))
 {
-    nocode_wanted++;
+    tcc_state->unit->suppression++;
     expr_fn();
     *type = tcc_state->expr->top->type;
     vpop();
-    nocode_wanted--;
+    tcc_state->unit->suppression--;
 }
 
 /* parse an expression of the form '(type)' or '(expr)' and return its
@@ -5512,7 +5510,7 @@ static void parse_builtin_params(int nc, const char *args)
     char c, sep = '(';
     struct neocc_type type;
     if (nc)
-        nocode_wanted++;
+        tcc_state->unit->suppression++;
     next();
     if (*args == 0)
 	skip(sep);
@@ -5555,7 +5553,7 @@ static void parse_builtin_params(int nc, const char *args)
     }
     skip(')');
     if (nc)
-        nocode_wanted--;
+        tcc_state->unit->suppression--;
 }
 
 static void parse_atomic(int atok)
@@ -5701,7 +5699,7 @@ ST_FUNC void unary(void)
     AttributeDef ad;
 
     /* generate line number info */
-    if (debug_modes)
+    if (tcc_state->unit->debug_modes)
         tcc_debug_line(tcc_state), tcc_tcov_check_line (tcc_state, 1);
 
     type.ref = NULL;
@@ -5814,7 +5812,7 @@ ST_FUNC void unary(void)
                 gen_cast(&type);
             }
         } else if (tcc_state->pp->token == '{') {
-	    int saved_nocode_wanted = nocode_wanted;
+	    int saved_nocode_wanted = tcc_state->unit->suppression;
             if (CONST_WANTED && !NOEVAL_WANTED)
                 expect("constant");
             if (0 == sym_scope_get())
@@ -5834,7 +5832,7 @@ ST_FUNC void unary(void)
                If it can't be entered then the state is that from before the
                statement expression.  */
             if (saved_nocode_wanted)
-              nocode_wanted = saved_nocode_wanted;
+              tcc_state->unit->suppression = saved_nocode_wanted;
             skip(')');
         } else {
             gexpr();
@@ -5928,21 +5926,21 @@ ST_FUNC void unary(void)
 	    c = expr_const64();
 	    skip(',');
 	    if (!c) {
-		nocode_wanted++;
+		tcc_state->unit->suppression++;
 	    }
 	    expr_eq();
 	    if (!c) {
 		vpop();
-		nocode_wanted--;
+		tcc_state->unit->suppression--;
 	    }
 	    skip(',');
 	    if (c) {
-		nocode_wanted++;
+		tcc_state->unit->suppression++;
 	    }
 	    expr_eq();
 	    if (c) {
 		vpop();
-		nocode_wanted--;
+		tcc_state->unit->suppression--;
 	    }
 	    skip(')');
 	}
@@ -6148,15 +6146,15 @@ ST_FUNC void unary(void)
 	int has_match = 0;
 	int learn = 0;
 	struct neocc_token_string *str = NULL;
-	int saved_nocode_wanted = nocode_wanted;
-        nocode_wanted &= ~CONST_WANTED_MASK;
+	int saved_nocode_wanted = tcc_state->unit->suppression;
+        tcc_state->unit->suppression &= ~CONST_WANTED_MASK;
 
         next();
 	skip('(');
 	expr_type(&controlling_type, expr_eq);
 	convert_expression_type(&controlling_type);
 
-        nocode_wanted = saved_nocode_wanted;
+        tcc_state->unit->suppression = saved_nocode_wanted;
 
         for (;;) {
 	    learn = 0;
@@ -6479,7 +6477,7 @@ special_math_val:
                 }
             }
             if (s->f.func_noreturn) {
-                if (debug_modes)
+                if (tcc_state->unit->debug_modes)
 	            tcc_tcov_block_end(tcc_state, -1);
                 CODE_OFF();
 	    }
@@ -6675,7 +6673,7 @@ static void expr_landor(int op)
         if (c < 0)
             save_regs(1), cc = 0;
         else if (c != i)
-            nocode_wanted++, f = 1;
+            tcc_state->unit->suppression++, f = 1;
         if (tcc_state->pp->token != op)
             break;
         if (c < 0)
@@ -6689,7 +6687,7 @@ static void expr_landor(int op)
         vpop();
         vpushi(i ^ f);
         gsym(t);
-        nocode_wanted -= f;
+        tcc_state->unit->suppression -= f;
     } else {
         gvtst_set(i, t);
     }
@@ -6733,7 +6731,7 @@ static void expr_cond(void)
         }
 
         if (c == 0)
-          nocode_wanted++;
+          tcc_state->unit->suppression++;
         if (!g)
           gexpr();
 
@@ -6751,9 +6749,9 @@ static void expr_cond(void)
           u = 0;
 
         if (c == 0)
-          nocode_wanted--;
+          tcc_state->unit->suppression--;
         if (c == 1)
-          nocode_wanted++;
+          tcc_state->unit->suppression++;
         skip(':');
         expr_cond();
 
@@ -6808,7 +6806,7 @@ static void expr_cond(void)
         }
         gsym(u);
         if (c == 1)
-          nocode_wanted--;
+          tcc_state->unit->suppression--;
 
         /* this is horrible, but we must also convert first
            operand */
@@ -6868,7 +6866,7 @@ ST_FUNC void gexpr(void)
         convert_expression_type(&tcc_state->expr->top->type);
 
         /* make builtin_constant_p((1,2)) return 0 (like on gcc) */
-        if ((tcc_state->expr->top->r & VT_VALMASK) == VT_CONST && nocode_wanted && !CONST_WANTED)
+        if ((tcc_state->expr->top->r & VT_VALMASK) == VT_CONST && tcc_state->unit->suppression && !CONST_WANTED)
             if (tcc_state->expr->top->type.t != VT_VOID && (tcc_state->expr->top->type.t & VT_BTYPE) != VT_STRUCT)
                 gv(RC_TYPE(tcc_state->expr->top->type.t));
     }
@@ -6877,9 +6875,9 @@ ST_FUNC void gexpr(void)
 /* parse a constant expression and return value in vtop.  */
 static void expr_const1(void)
 {
-    nocode_wanted += CONST_WANTED_BIT;
+    tcc_state->unit->suppression += CONST_WANTED_BIT;
     expr_cond();
-    nocode_wanted -= CONST_WANTED_BIT;
+    tcc_state->unit->suppression -= CONST_WANTED_BIT;
 }
 
 /* parse an integer constant and return its value. */
@@ -7223,7 +7221,7 @@ static void prev_scope(struct neocc_scope *o, int is_expr)
     if (o->cl.s != o->prev->cl.s)
         block_cleanup(o->prev);
 
-    if (debug_modes)
+    if (tcc_state->unit->debug_modes)
         tcc_debug_end_scope(o->lstk, !is_expr);
 
     /* pop locally defined labels */
@@ -7318,7 +7316,7 @@ again:
         goto expr;
     next();
 
-    if (debug_modes)
+    if (tcc_state->unit->debug_modes)
         tcc_tcov_check_line (tcc_state, 0), tcc_tcov_block_begin (tcc_state);
 
     if (t == TOK_IF) {
@@ -7354,8 +7352,8 @@ again:
         prev_scope_s(boundary);
 
     } else if (t == '{') {
-        if (debug_modes)
-            tcc_debug_stabn(tcc_state, N_LBRAC, ind - function->start);
+        if (tcc_state->unit->debug_modes)
+            tcc_debug_stabn(tcc_state, N_LBRAC, tcc_state->unit->instruction - function->start);
         o = new_scope();
 
         /* handle local labels declarations */
@@ -7379,11 +7377,11 @@ again:
         }
 
         prev_scope(o, flags & STMT_EXPR);
-        if (debug_modes)
-            tcc_debug_stabn(tcc_state, N_RBRAC, ind - function->start);
+        if (tcc_state->unit->debug_modes)
+            tcc_debug_stabn(tcc_state, N_RBRAC, tcc_state->unit->instruction - function->start);
         if (sym_scope_get())
             next();
-        else if (!nocode_wanted)
+        else if (!tcc_state->unit->suppression)
             check_func_return();
 
     } else if (t == TOK_RETURN) {
@@ -7410,7 +7408,7 @@ again:
         /* jump unless last stmt in top-level block */
         if (tcc_state->pp->token != '}' || sym_scope_get() != 1)
             function->return_jumps = gjmp(function->return_jumps);
-        if (debug_modes)
+        if (tcc_state->unit->debug_modes)
 	    tcc_tcov_block_end (tcc_state, -1);
         CODE_OFF();
 
@@ -7495,7 +7493,7 @@ again:
             tcc_error("cannot allocate switch context");
         sw->bsym = &a;
         sw->scope = tcc_state->scope->current;
-        sw->nocode_wanted = nocode_wanted;
+        sw->nocode_wanted = tcc_state->unit->suppression;
 
         boundary = new_scope_s();
         skip('(');
@@ -7584,7 +7582,7 @@ again:
 
 	    if (s->r & LABEL_FORWARD) {
 		/* start new goto chain for cleanups, linked via label->next */
-		if (tcc_state->scope->current->cl.s && !nocode_wanted) {
+		if (tcc_state->scope->current->cl.s && !tcc_state->unit->suppression) {
                     sym_push2(&tcc_state->scope->pending_gotos, SYM_FIELD, 0, tcc_state->scope->current->cl.n);
                     tcc_state->scope->pending_gotos->cleanup_label = s;
                     s = sym_push2(&s->next, SYM_FIELD, 0, 0);
@@ -7632,7 +7630,7 @@ again:
             /* Accept attributes after labels (e.g. 'unused') */
             parse_attribute(NULL);
 
-            if (debug_modes)
+            if (tcc_state->unit->debug_modes)
                 tcc_tcov_reset_ind(tcc_state);
             vla_restore(tcc_state->scope->current->vla.loc);
 
@@ -7661,7 +7659,7 @@ again:
         }
     }
 
-    if (debug_modes)
+    if (tcc_state->unit->debug_modes)
         tcc_tcov_check_line (tcc_state, 0), tcc_tcov_block_end (tcc_state, 0);
 }
 
@@ -7741,7 +7739,7 @@ static void parse_init_elem(int expr_type)
 static void init_assert(init_params *p, int offset)
 {
     if (p->sec ? !NODATA_WANTED && offset > p->sec->data_offset
-               : !nocode_wanted && offset > p->local_offset)
+               : !tcc_state->unit->suppression && offset > p->local_offset)
         tcc_internal_error("initializer overflow");
 }
 #else
@@ -8165,7 +8163,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
     struct neocc_type *t1;
 
     /* generate line number info */
-    if (debug_modes && !(flags & DIF_SIZE_ONLY) && !p->sec)
+    if (tcc_state->unit->debug_modes && !(flags & DIF_SIZE_ONLY) && !p->sec)
         tcc_debug_line(tcc_state), tcc_tcov_check_line (tcc_state, 1);
 
     if (!(flags & DIF_HAVE_ELEM) && tcc_state->pp->token != '{' &&
@@ -8180,11 +8178,11 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
                it for compatibility below */
             || (type->t & VT_BTYPE) == VT_STRUCT)
         ) {
-        int ncw_prev = nocode_wanted;
+        int ncw_prev = tcc_state->unit->suppression;
         if ((flags & DIF_SIZE_ONLY) && !p->sec)
-            ++nocode_wanted;
+            ++tcc_state->unit->suppression;
 	parse_init_elem(!p->sec ? EXPR_ANY : EXPR_CONST);
-        nocode_wanted = ncw_prev;
+        tcc_state->unit->suppression = ncw_prev;
         flags |= DIF_HAVE_ELEM;
     }
 
@@ -8392,7 +8390,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
     Section *sec;
     struct neocc_symbol *flexible_array;
     struct neocc_symbol *sym = NULL;
-    int saved_nocode_wanted = nocode_wanted;
+    int saved_nocode_wanted = tcc_state->unit->suppression;
 #ifdef CONFIG_TCC_BCHECK
     int bcheck = tcc_state->do_bounds_check && !NODATA_WANTED;
 #endif
@@ -8412,7 +8410,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 
     /* Always allocate static or global variables */
     if (v && (r & VT_VALMASK) == VT_CONST)
-        nocode_wanted |= DATA_ONLY_WANTED;
+        tcc_state->unit->suppression |= DATA_ONLY_WANTED;
 
     flexible_array = NULL;
     size = type_size(type, &align);
@@ -8654,7 +8652,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
         next();
     }
 
-    nocode_wanted = saved_nocode_wanted;
+    tcc_state->unit->suppression = saved_nocode_wanted;
 }
 
 /* generate vla code saved in post_type() */
@@ -8724,25 +8722,25 @@ static void sym_push_params(struct neocc_symbol *ref)
 }
 
 /* parse a function defined by symbol 'sym' and generate its code in
-   'cur_text_section' */
+   the translation workspace's section */
 static void gen_function(struct neocc_symbol *sym)
 {
     struct neocc_function *function = tcc_state->function;
     scope_push();
-    nocode_wanted = 0;
+    tcc_state->unit->suppression = 0;
 
-    ind = cur_text_section->data_offset;
+    tcc_state->unit->instruction = tcc_state->unit->section->data_offset;
     if (sym->a.aligned) {
-	size_t newoff = section_add(cur_text_section, 0,
+	size_t newoff = section_add(tcc_state->unit->section, 0,
 				    1 << (sym->a.aligned - 1));
-	gen_fill_nops(newoff - ind);
+	gen_fill_nops(newoff - tcc_state->unit->instruction);
     }
 
     {
         struct neocc_function initial = {
             .type = sym->type.ref->type,
             .name = get_tok_str(sym->v, NULL),
-            .start = ind,
+            .start = tcc_state->unit->instruction,
             .variadic = sym->type.ref->f.func_type == FUNC_ELLIPSIS,
             .old_style = sym->type.ref->f.func_type == FUNC_OLD,
         };
@@ -8753,7 +8751,7 @@ static void gen_function(struct neocc_symbol *sym)
     }
 
     /* NOTE: we patch the symbol size later */
-    put_extern_sym(sym, cur_text_section, ind, 0);
+    put_extern_sym(sym, tcc_state->unit->section, tcc_state->unit->instruction, 0);
 
     if (sym->type.ref->f.func_ctor)
         add_array (tcc_state, ".init_array", sym->c);
@@ -8776,17 +8774,17 @@ static void gen_function(struct neocc_symbol *sym)
     func_vla_arg(sym);
     block(0);
     gsym(function->return_jumps);
-    nocode_wanted = 0;
+    tcc_state->unit->suppression = 0;
     tcc_debug_end_scope(NULL, !function->variadic);
     tcc_debug_prolog_epilog(tcc_state, 1);
     gfunc_epilog();
 
     /* end of function */
-    tcc_debug_funcend(tcc_state, ind - function->start);
+    tcc_debug_funcend(tcc_state, tcc_state->unit->instruction - function->start);
 
     /* patch symbol size */
-    elfsym(sym)->st_size = ind - function->start;
-    cur_text_section->data_offset = ind;
+    elfsym(sym)->st_size = tcc_state->unit->instruction - function->start;
+    tcc_state->unit->section->data_offset = tcc_state->unit->instruction;
 
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     label_pop(NEOCC_SYMBOL_STACK_GLOBAL_LABEL, NULL, 0);
@@ -8795,11 +8793,11 @@ static void gen_function(struct neocc_symbol *sym)
     sym_scope_set(0);
 
     /* It's better to crash than to generate wrong code */
-    cur_text_section = NULL;
+    tcc_state->unit->section = NULL;
     function_reset(tcc_state);
     function->type.t = VT_VOID; /* for safety */
-    ind = 0; /* for safety */
-    nocode_wanted = DATA_ONLY_WANTED;
+    tcc_state->unit->instruction = 0; /* for safety */
+    tcc_state->unit->suppression = DATA_ONLY_WANTED;
     check_vstack();
 
     /* do this after funcend debug info */
@@ -8826,7 +8824,7 @@ static void gen_inline_functions(TCCState *s)
                 tccpp_putfile(fn->filename);
                 begin_macro(fn->func_str, 1);
                 next();
-                cur_text_section = text_section;
+                tcc_state->unit->section = text_section;
                 gen_function(sym);
                 end_macro();
 
@@ -9031,9 +9029,9 @@ static int decl(int l)
                     skip_or_save_block(&fn->func_str);
                 } else {
                     /* compute text section */
-                    cur_text_section = text_section;
+                    tcc_state->unit->section = text_section;
                     if (ad.section) {
-                        cur_text_section = ad.section;
+                        tcc_state->unit->section = ad.section;
                         if (ad.new_section)
                             ad.section->sh_flags = text_section->sh_flags;
                     }
@@ -9074,7 +9072,7 @@ static int decl(int l)
                     sym->a = ad.a;
                     if ((type.t & VT_BTYPE) == VT_FUNC)
                       merge_funcattr(&sym->type.ref->f, &ad.f);
-                    if (debug_modes)
+                    if (tcc_state->unit->debug_modes)
                         tcc_debug_typedef (tcc_state, sym);
 		} else if ((type.t & VT_BTYPE) == VT_VOID
 			   && !(type.t & VT_EXTERN)) {

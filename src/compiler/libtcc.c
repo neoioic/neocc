@@ -892,12 +892,13 @@ LIBTCCAPI TCCState *tcc_new(void)
     struct object **objects[] = { &s->sources, &s->tokens,
                                    &s->preprocessor, &s->symbols, &s->expressions,
                                    &s->scopes, &s->functions, &s->switches,
-                                   &s->initializers, &s->temporaries };
+                                   &s->initializers, &s->temporaries, &s->translation };
     const unsigned short models[] = { NEOCC_MSN_SOURCE, NEOCC_MSN_TOKENS,
                                       NEOCC_MSN_PREPROCESSOR, NEOCC_MSN_SYMBOLS,
                                       NEOCC_MSN_EXPRESSIONS, NEOCC_MSN_SCOPES,
                                       NEOCC_MSN_FUNCTIONS, NEOCC_MSN_SWITCHES,
-                                      NEOCC_MSN_INITIALIZERS, NEOCC_MSN_TEMPORARIES };
+                                      NEOCC_MSN_INITIALIZERS, NEOCC_MSN_TEMPORARIES,
+                                      NEOCC_MSN_TRANSLATION };
     size_t i;
 
     for (i = 0; i < sizeof(models) / sizeof(models[0]); i++) {
@@ -939,7 +940,11 @@ LIBTCCAPI TCCState *tcc_new(void)
             result = vo_interact1(s->initializers,
                 NEOCC_AC1_INITIALIZERS_BORROW, (unsigned char *)&s->initializer,
                 sizeof(s->initializer), &quantity, &neocc_host_caller);
-        if (!RP(result) || quantity != sizeof(s->initializer)) {
+        if (RP(result) && quantity == sizeof(s->initializer))
+            result = vo_interact1(s->translation,
+                NEOCC_AC1_TRANSLATION_BORROW, (unsigned char *)&s->unit,
+                sizeof(s->unit), &quantity, &neocc_host_caller);
+        if (!RP(result) || quantity != sizeof(s->unit)) {
             while (i)
                 neocc_close_object(*objects[--i]);
             tcc_free(s);
@@ -993,6 +998,7 @@ LIBTCCAPI TCCState *tcc_new(void)
 
 LIBTCCAPI void tcc_delete(TCCState *s1)
 {
+    neocc_close_object(s1->translation);
     neocc_close_object(s1->temporaries);
     neocc_close_object(s1->initializers);
     neocc_close_object(s1->switches);

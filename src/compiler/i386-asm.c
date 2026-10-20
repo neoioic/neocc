@@ -489,7 +489,7 @@ ST_FUNC void gen_expr32(ExprValue *pe)
     if (pe->pcrel)
         /* If PC-relative, always set VT_SYM, even without symbol,
 	   so as to force a relocation to be emitted.  */
-	gen_addrpc32(VT_SYM, pe->sym, pe->v + (ind + 4));
+	gen_addrpc32(VT_SYM, pe->sym, pe->v + (tcc_state->unit->instruction + 4));
     else
 	gen_addr32(pe->sym ? VT_SYM : 0, pe->sym, pe->v);
 }
@@ -499,19 +499,19 @@ static void gen_disp32(ExprValue *pe)
 {
     struct neocc_symbol *sym = pe->sym;
     ElfSym *esym = elfsym(sym);
-    if (esym && esym->st_shndx == cur_text_section->sh_num) {
+    if (esym && esym->st_shndx == tcc_state->unit->section->sh_num) {
         /* same section: we can output an absolute value. Note
            that the TCC compiler behaves differently here because
            it always outputs a relocation to ease (future) code
            elimination in the linker */
-        gen_le32(pe->v + esym->st_value - ind - 4);
+        gen_le32(pe->v + esym->st_value - tcc_state->unit->instruction - 4);
     } else {
         if (sym && sym->type.t == VT_VOID) {
             sym->type.t = VT_FUNC;
             sym->type.ref = NULL;
         }
 #ifdef TCC_TARGET_X86_64
-        greloca(cur_text_section, sym, ind, R_X86_64_PLT32, pe->v - 4);
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction, R_X86_64_PLT32, pe->v - 4);
         gen_le32(0);
 #else
         gen_addrpc32(VT_SYM, sym, pe->v);
@@ -541,7 +541,7 @@ static inline int asm_modrm(int reg, Operand *op)
         ExprValue *pe = &op->e;
         g(0x05 + (reg << 3));
         gen_addrpc32(pe->sym ? VT_SYM : 0, pe->sym, pe->v);
-        return ind;
+        return tcc_state->unit->instruction;
 #endif
     } else {
         sib_reg1 = op->reg;
@@ -1062,9 +1062,9 @@ again:
 
         /* see if we can really generate the jump with a byte offset */
 	esym = elfsym(ops[0].e.sym);
-        if (!esym || esym->st_shndx != cur_text_section->sh_num)
+        if (!esym || esym->st_shndx != tcc_state->unit->section->sh_num)
             goto no_short_jump;
-        jmp_disp = ops[0].e.v + esym->st_value - ind - 2 - (v >= 0xff);
+        jmp_disp = ops[0].e.v + esym->st_value - tcc_state->unit->instruction - 2 - (v >= 0xff);
         if (jmp_disp == (int8_t)jmp_disp) {
             /* OK to generate jump */
 	    ops[0].e.sym = 0;
@@ -1164,7 +1164,7 @@ again:
 
     /* after immediate operands, adjust pc-relative address */
     if (pc)
-        add32le(cur_text_section->data + pc - 4, pc - ind);
+        add32le(tcc_state->unit->section->data + pc - 4, pc - tcc_state->unit->instruction);
 }
 
 /* return the constraint priority (we allocate first the lowest

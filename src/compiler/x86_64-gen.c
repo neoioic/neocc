@@ -172,13 +172,13 @@ static int func_scratch, func_alloca;
 ST_FUNC void g(int c)
 {
     int ind1;
-    if (nocode_wanted)
+    if (tcc_state->unit->suppression)
         return;
-    ind1 = ind + 1;
-    if (ind1 > cur_text_section->data_allocated)
-        section_realloc(cur_text_section, ind1);
-    cur_text_section->data[ind] = c;
-    ind = ind1;
+    ind1 = tcc_state->unit->instruction + 1;
+    if (ind1 > tcc_state->unit->section->data_allocated)
+        section_realloc(tcc_state->unit->section, ind1);
+    tcc_state->unit->section->data[tcc_state->unit->instruction] = c;
+    tcc_state->unit->instruction = ind1;
 }
 
 ST_FUNC void o(unsigned int c)
@@ -233,7 +233,7 @@ static void orex(int ll, int r, int r2, int b)
 ST_FUNC void gsym_addr(int t, int a)
 {
     while (t) {
-        unsigned char *ptr = cur_text_section->data + t;
+        unsigned char *ptr = tcc_state->unit->section->data + t;
         uint32_t n = read32le(ptr); /* next value */
         write32le(ptr, a < 0 ? -a : a - t - 4);
         t = n;
@@ -251,10 +251,10 @@ static int is64_type(int t)
 static int oad(int c, int s)
 {
     int t;
-    if (nocode_wanted)
+    if (tcc_state->unit->suppression)
         return s;
     o(c);
-    t = ind;
+    t = tcc_state->unit->instruction;
     gen_le32(s);
     return t;
 }
@@ -265,7 +265,7 @@ static int oad(int c, int s)
 ST_FUNC void gen_addr32(int r, struct neocc_symbol *sym, int c)
 {
     if (r & VT_SYM)
-        greloca(cur_text_section, sym, ind, R_X86_64_32S, c), c=0;
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction, R_X86_64_32S, c), c=0;
     gen_le32(c);
 }
 
@@ -273,7 +273,7 @@ ST_FUNC void gen_addr32(int r, struct neocc_symbol *sym, int c)
 ST_FUNC void gen_addrpc32(int r, struct neocc_symbol *sym, int c)
 {
     if (r & VT_SYM)
-        greloca(cur_text_section, sym, ind, R_X86_64_PC32, c-4), c=4;
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction, R_X86_64_PC32, c-4), c=4;
     gen_le32(c-4);
 }
 
@@ -283,12 +283,12 @@ static void gen_gotpcrel(int r, struct neocc_symbol *sym, int c)
 #ifdef TCC_TARGET_PE
     tcc_error("internal error: no GOT on PE: %s %x %x | %02x %02x %02x\n",
         get_tok_str(sym->v, NULL), c, r,
-        cur_text_section->data[ind-3],
-        cur_text_section->data[ind-2],
-        cur_text_section->data[ind-1]
+        tcc_state->unit->section->data[tcc_state->unit->instruction-3],
+        tcc_state->unit->section->data[tcc_state->unit->instruction-2],
+        tcc_state->unit->section->data[tcc_state->unit->instruction-1]
         );
 #endif
-    greloca(cur_text_section, sym, ind, R_X86_64_GOTPCREL, -4);
+    greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction, R_X86_64_GOTPCREL, -4);
     gen_le32(0);
     if (c) {
         /* we use add c, %xxx for displacement */
@@ -313,13 +313,13 @@ static void gen_modrm_impl(int opcode, int ll, int op_reg_0, int r, struct neocc
         o(0x4865), oad(0x250403 | r << 11, 11*PTR_SIZE); /* add gs:0x58,r */
         gen_modrm_impl(0x8B, 1, r, r | VT_LVAL, 0, 0); /* mov (r),r */
         orex(ll, r, op_reg_0, opcode), oad(0x80 | op_reg | r, 0);
-        greloca(cur_text_section, sym, ind - 4, R_X86_64_TPOFF32, c);
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction - 4, R_X86_64_TPOFF32, c);
 #else
         o(0x64); /* fs segment prefix */
         orex(ll, r, op_reg_0, opcode);
 	o(0x04 | op_reg); /* [sib] | destreg */
 	oad(0x25, 0);     /* disp32 (relocated) */
-	greloca(cur_text_section, sym, ind - 4, R_X86_64_TPOFF32, c);
+	greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction - 4, R_X86_64_TPOFF32, c);
 #endif
         return;
     }
@@ -485,7 +485,7 @@ void load(int r, struct neocc_expression_value *sv)
                     o(0x64), gen_modrm64(0x8b, r, VT_CONST, NULL, 0);
                     /* add $tpoff,r */
                     orex(1,0,r,0x81), oad(0xC0 | REG_VALUE(r), 0);
-                    greloca(cur_text_section, sv->sym, ind - 4, R_X86_64_TPOFF32, fc);
+                    greloca(tcc_state->unit->section, sv->sym, tcc_state->unit->instruction - 4, R_X86_64_TPOFF32, fc);
                 } else if (sv->sym->type.t & VT_STATIC) {
                     orex(1,0,r,0x8d);
                     o(0x05 + REG_VALUE(r) * 8); /* lea xx(%rip), r */
@@ -627,7 +627,7 @@ static void gcall_or_jmp(int is_jmp)
     if ((tcc_state->expr->top->r & (VT_VALMASK | VT_LVAL)) == VT_CONST &&
 	((tcc_state->expr->top->r & VT_SYM) && (tcc_state->expr->top->c.i-4) == (int)(tcc_state->expr->top->c.i-4))) {
         /* constant symbolic case -> simple relocation */
-        greloca(cur_text_section, tcc_state->expr->top->sym, ind + 1, R_X86_64_PLT32, (int)(tcc_state->expr->top->c.i-4));
+        greloca(tcc_state->unit->section, tcc_state->expr->top->sym, tcc_state->unit->instruction + 1, R_X86_64_PLT32, (int)(tcc_state->expr->top->c.i-4));
         oad(0xe8 + is_jmp, 0); /* call/jmp im */
     } else {
         /* otherwise, indirect call */
@@ -645,7 +645,7 @@ static void gen_bounds_call(int v)
 {
     struct neocc_symbol *sym = external_helper_sym(v);
     oad(0xe8, 0);
-    greloca(cur_text_section, sym, ind-4, R_X86_64_PLT32, -4);
+    greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction-4, R_X86_64_PLT32, -4);
 }
 
 #ifdef TCC_TARGET_PE
@@ -658,7 +658,7 @@ static void gen_bounds_prolog(void)
 {
     /* leave some room for bound checking code */
     func_bound_offset = lbounds_section->data_offset;
-    func_bound_ind = ind;
+    func_bound_ind = tcc_state->unit->instruction;
     func_bound_add_epilog = 0;
     o(0x0d8d48 + ((TREG_FASTCALL_1 == TREG_RDI) * 0x300000)); /*lbound section pointer */
     gen_le32 (0);
@@ -684,12 +684,12 @@ static void gen_bounds_epilog(void)
 
     /* generate bound local allocation */
     if (offset_modified) {
-        saved_ind = ind;
-        ind = func_bound_ind;
-        greloca(cur_text_section, sym_data, ind + 3, R_X86_64_PC32, -4);
-        ind = ind + 7;
+        saved_ind = tcc_state->unit->instruction;
+        tcc_state->unit->instruction = func_bound_ind;
+        greloca(tcc_state->unit->section, sym_data, tcc_state->unit->instruction + 3, R_X86_64_PC32, -4);
+        tcc_state->unit->instruction = tcc_state->unit->instruction + 7;
         gen_bounds_call(TOK___bound_local_new);
-        ind = saved_ind;
+        tcc_state->unit->instruction = saved_ind;
     }
 
     /* generate bound check local freeing */
@@ -698,7 +698,7 @@ static void gen_bounds_epilog(void)
     o(0x290f);     /* movaps %xmm0,0x10(%rsp) */
     o(0x102444);
     o(0x240c290f); /* movaps %xmm1,(%rsp) */
-    greloca(cur_text_section, sym_data, ind + 3, R_X86_64_PC32, -4);
+    greloca(tcc_state->unit->section, sym_data, tcc_state->unit->instruction + 3, R_X86_64_PC32, -4);
     o(0x0d8d48 + ((TREG_FASTCALL_1 == TREG_RDI) * 0x300000)); /* lea xxx(%rip), %rcx/rdi */
     gen_le32 (0);
     gen_bounds_call(TOK___bound_local_delete);
@@ -931,8 +931,8 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
     function->stack_offset = 0;
 
     addr = PTR_SIZE * 2;
-    ind += FUNC_PROLOG_SIZE;
-    func_sub_sp_offset = ind;
+    tcc_state->unit->instruction += FUNC_PROLOG_SIZE;
+    func_sub_sp_offset = tcc_state->unit->instruction;
     reg_param_index = 0;
 
     sym = func_type->ref;
@@ -1014,22 +1014,22 @@ void gfunc_epilog(void)
 
     v = -function->stack_offset;
     start = func_sub_sp_offset - FUNC_PROLOG_SIZE;
-    cur_text_section->data_offset = ind;
-    pe_add_unwind_data(start, ind, v);
+    tcc_state->unit->section->data_offset = tcc_state->unit->instruction;
+    pe_add_unwind_data(start, tcc_state->unit->instruction, v);
 
-    ind = start;
+    tcc_state->unit->instruction = start;
     if (v >= 4096) {
         struct neocc_symbol *sym = external_helper_sym(TOK___chkstk);
         oad(0xb8, v); /* mov stacksize, %eax */
         oad(0xe8, 0); /* call __chkstk, (does the stackframe too) */
-        greloca(cur_text_section, sym, ind-4, R_X86_64_PLT32, -4);
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction-4, R_X86_64_PLT32, -4);
         o(0x90); /* fill for FUNC_PROLOG_SIZE = 11 bytes */
     } else {
         o(0xe5894855);  /* push %rbp, mov %rsp, %rbp */
         o(0xec8148);  /* sub rsp, stacksize */
         gen_le32(v);
     }
-    ind = cur_text_section->data_offset;
+    tcc_state->unit->instruction = tcc_state->unit->section->data_offset;
 
     /* add the "func_scratch" area after each alloca seen */
     gsym_addr(func_alloca, -func_scratch);
@@ -1437,8 +1437,8 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
     sym = func_type->ref;
     addr = PTR_SIZE * 2;
     function->stack_offset = 0;
-    ind += FUNC_PROLOG_SIZE;
-    func_sub_sp_offset = ind;
+    tcc_state->unit->instruction += FUNC_PROLOG_SIZE;
+    func_sub_sp_offset = tcc_state->unit->instruction;
     func_ret_sub = 0;
     ret_mode = classify_x86_64_arg(&function->type, NULL, &size, &align, &reg_count);
 
@@ -1595,12 +1595,12 @@ void gfunc_epilog(void)
     }
     /* align local size to word & save local variables */
     v = (-tcc_state->function->stack_offset + 15) & -16;
-    saved_ind = ind;
-    ind = func_sub_sp_offset - FUNC_PROLOG_SIZE;
+    saved_ind = tcc_state->unit->instruction;
+    tcc_state->unit->instruction = func_sub_sp_offset - FUNC_PROLOG_SIZE;
     o(0xe5894855);  /* push %rbp, mov %rsp, %rbp */
     o(0xec8148);  /* sub rsp, stacksize */
     gen_le32(v);
-    ind = saved_ind;
+    tcc_state->unit->instruction = saved_ind;
 }
 
 #endif /* not PE */
@@ -1621,12 +1621,12 @@ int gjmp(int t)
 void gjmp_addr(int a)
 {
     int r;
-    r = a - ind - 2;
+    r = a - tcc_state->unit->instruction - 2;
     if (r == (signed char)r) {
         g(0xeb);
         g(r);
     } else {
-        oad(0xe9, a - ind - 5);
+        oad(0xe9, a - tcc_state->unit->instruction - 5);
     }
 }
 
@@ -1636,7 +1636,7 @@ ST_FUNC int gjmp_append(int n, int t)
     /* insert vtop->c jump list in t */
     if (n) {
         uint32_t n1 = n, n2;
-        while ((n2 = read32le(p = cur_text_section->data + n1)))
+        while ((n2 = read32le(p = tcc_state->unit->section->data + n1)))
             n1 = n2;
         write32le(p, t);
         t = n;
@@ -2183,7 +2183,7 @@ ST_FUNC void gen_cvt_csti(int t)
 ST_FUNC void gen_increment_tcov (struct neocc_expression_value *sv)
 {
    o(0x058348); /* addq $1, xxx(%rip) */
-   greloca(cur_text_section, sv->sym, ind, R_X86_64_PC32, -5);
+   greloca(tcc_state->unit->section, sv->sym, tcc_state->unit->instruction, R_X86_64_PC32, -5);
    gen_le32(0);
    o(1);
 }

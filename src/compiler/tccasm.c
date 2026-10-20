@@ -34,7 +34,7 @@ static struct neocc_symbol* asm_new_label1(TCCState *s1, int label, int is_local
 ST_FUNC void gen_addr64(int r, struct neocc_symbol *sym, int64_t c)
 {
     if (r & VT_SYM)
-        greloca(cur_text_section, sym, ind, R_DATA_PTR, c), c=0;
+        greloca(tcc_state->unit->section, sym, tcc_state->unit->instruction, R_DATA_PTR, c), c=0;
     gen_le32(c);
     gen_le32(c>>32);
 }
@@ -208,8 +208,8 @@ static void asm_expr_unary(TCCState *s1, ExprValue *pe)
         skip(')');
         break;
     case '.':
-        pe->v = ind;
-        pe->sym = asm_section_sym(s1, cur_text_section);
+        pe->v = tcc_state->unit->instruction;
+        pe->sym = asm_section_sym(s1, tcc_state->unit->section);
         pe->pcrel = 0;
         next();
         break;
@@ -346,7 +346,7 @@ static inline void asm_expr_sum(TCCState *s1, ExprValue *pe)
 		    /* we also accept defined symbols in the same section */
 		    pe->v += (int)(esym1->st_value - esym2->st_value);
 		    pe->sym = NULL;
-		} else if (esym2->st_shndx == cur_text_section->sh_num) {
+		} else if (esym2->st_shndx == tcc_state->unit->section->sh_num) {
 		    /* When subtracting a defined symbol in current section
 		       this actually makes the value PC-relative.  */
 		    pe->v += (int)(0 - esym2->st_value);
@@ -456,7 +456,7 @@ static struct neocc_symbol* asm_new_label1(TCCState *s1, int label, int is_local
 
 static struct neocc_symbol* asm_new_label(TCCState *s1, int label, int is_local)
 {
-    return asm_new_label1(s1, label, is_local, cur_text_section->sh_num, ind);
+    return asm_new_label1(s1, label, is_local, tcc_state->unit->section->sh_num, tcc_state->unit->instruction);
 }
 
 /* Set the value of LABEL to that of some expression (possibly
@@ -480,9 +480,9 @@ static struct neocc_symbol* set_symbol(TCCState *s1, int label)
 
 static void use_section1(TCCState *s1, Section *sec)
 {
-    cur_text_section->data_offset = ind;
-    cur_text_section = sec;
-    ind = cur_text_section->data_offset;
+    tcc_state->unit->section->data_offset = tcc_state->unit->instruction;
+    tcc_state->unit->section = sec;
+    tcc_state->unit->instruction = tcc_state->unit->section->data_offset;
 }
 
 static void use_section(TCCState *s1, const char *name)
@@ -495,16 +495,16 @@ static void use_section(TCCState *s1, const char *name)
 static void push_section(TCCState *s1, const char *name)
 {
     Section *sec = find_section(s1, name);
-    sec->prev = cur_text_section;
+    sec->prev = tcc_state->unit->section;
     use_section1(s1, sec);
 }
 
 static void pop_section(TCCState *s1)
 {
-    Section *prev = cur_text_section->prev;
+    Section *prev = tcc_state->unit->section->prev;
     if (!prev)
         tcc_error(".popsection without .pushsection");
-    cur_text_section->prev = NULL;
+    tcc_state->unit->section->prev = NULL;
     use_section1(s1, prev);
 }
 
@@ -515,7 +515,7 @@ static void asm_parse_directive(TCCState *s1, int global)
     uint8_t *ptr;
 
     /* assembler directive */
-    sec = cur_text_section;
+    sec = tcc_state->unit->section;
     switch(s1->pp->token) {
     case TOK_ASMDIR_align:
     case TOK_ASMDIR_balign:
@@ -535,8 +535,8 @@ static void asm_parse_directive(TCCState *s1, int global)
         if (tok1 == TOK_ASMDIR_align || tok1 == TOK_ASMDIR_balign) {
             if (n <= 0 || (n & (n-1)) != 0)
                 tcc_error("alignment must be a positive power of two");
-            offset = (ind + n - 1) & -n;
-            size = offset - ind;
+            offset = (tcc_state->unit->instruction + n - 1) & -n;
+            size = offset - tcc_state->unit->instruction;
             /* the section must have a compatible alignment */
             if (sec->sh_addralign < n)
                 sec->sh_addralign = n;
@@ -552,18 +552,18 @@ static void asm_parse_directive(TCCState *s1, int global)
             v = asm_int_expr(s1), c = 0;
         }
     zero_pad:
-	if ((uint64_t)ind + size >= 1<<30)
+	if ((uint64_t)tcc_state->unit->instruction + size >= 1<<30)
 	    tcc_error("too much data");
         if (sec->sh_type != SHT_NOBITS) {
             if (c) {
                 gen_fill_nops(size);
                 break;
             }
-            sec->data_offset = ind;
+            sec->data_offset = tcc_state->unit->instruction;
             ptr = section_ptr_add(sec, size);
             memset(ptr, v, size);
         }
-        ind += size;
+        tcc_state->unit->instruction += size;
         break;
     case TOK_ASMDIR_quad:
 #if PTR_SIZE == 8
@@ -589,7 +589,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                 gen_le32(vl);
                 gen_le32(vl >> 32);
             } else {
-                ind += 8;
+                tcc_state->unit->instruction += 8;
             }
             if (s1->pp->token != ',')
                 break;
@@ -628,7 +628,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                         gen_le16(e.v);
                 }
             } else {
-                ind += size;
+                tcc_state->unit->instruction += size;
             }
             if (s1->pp->token != ',')
                 break;
@@ -709,14 +709,14 @@ static void asm_parse_directive(TCCState *s1, int global)
 	    n = e.v;
 	    esym = elfsym(e.sym);
 	    if (esym) {
-		if (esym->st_shndx != cur_text_section->sh_num)
+		if (esym->st_shndx != tcc_state->unit->section->sh_num)
 		  expect("constant or same-section symbol");
 		n += esym->st_value;
 	    }
-            if (n < ind)
+            if (n < tcc_state->unit->instruction)
                 tcc_error("attempt to .org backwards");
             v = c = 0;
-            size = n - ind;
+            size = n - tcc_state->unit->instruction;
             goto zero_pad;
         }
         break;
@@ -929,7 +929,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                     next();
                 }
             }
-            last_text_section = cur_text_section;
+            last_text_section = tcc_state->unit->section;
 	    if (tok1 == TOK_ASMDIR_section)
 	        use_section(s1, sname);
 	    else
@@ -938,12 +938,12 @@ static void asm_parse_directive(TCCState *s1, int global)
 	       1.  new_section normally acts for GCC compatibility and
 	       sets alignment to PTR_SIZE.  The assembler behaves different. */
 	    if (old_nb_section != s1->nb_sections) {
-	        cur_text_section->sh_addralign = 1;
+	        tcc_state->unit->section->sh_addralign = 1;
                 /* Make .init and .fini sections executable by default.
                    GAS does so, too, and musl relies on it. */
                 if (!strcmp(sname, ".init") || !strcmp(sname, ".fini"))
                     flags |= SHF_EXECINSTR;
-	        cur_text_section->sh_flags = flags;
+	        tcc_state->unit->section->sh_flags = flags;
             }
         }
         break;
@@ -953,7 +953,7 @@ static void asm_parse_directive(TCCState *s1, int global)
             next();
             if (!last_text_section)
                 tcc_error("no previous section referenced");
-            sec = cur_text_section;
+            sec = tcc_state->unit->section;
             use_section1(s1, last_text_section);
             last_text_section = sec;
         }
@@ -1053,7 +1053,7 @@ static void asm_parse_directive(TCCState *s1, int global)
 	        tcc_error("unimp: reloc '%s' unknown", reloc_name);
 	    next();
 	    skip(',');
-	    greloca(cur_text_section, get_asm_sym(s1->pp->token, NULL), e.v, reloc_type, 0);
+	    greloca(tcc_state->unit->section, get_asm_sym(s1->pp->token, NULL), e.v, reloc_type, 0);
 	    next();
 	}
 	break;
@@ -1131,13 +1131,16 @@ static int tcc_assemble_internal(TCCState *s1, int do_preprocess, int global)
 ST_FUNC int tcc_assemble(TCCState *s1, int do_preprocess)
 {
     int ret;
+    /* Standalone assembly uses absolute STABS line values, as the original
+       zero-initialized function cursor did before C function parsing. */
+    s1->function->start = 0;
     tcc_debug_start(s1);
     /* default section is text */
-    cur_text_section = text_section;
-    ind = cur_text_section->data_offset;
-    nocode_wanted = 0;
+    tcc_state->unit->section = text_section;
+    tcc_state->unit->instruction = tcc_state->unit->section->data_offset;
+    tcc_state->unit->suppression = 0;
     ret = tcc_assemble_internal(s1, do_preprocess, 1);
-    cur_text_section->data_offset = ind;
+    tcc_state->unit->section->data_offset = tcc_state->unit->instruction;
     tcc_debug_end(s1);
     return ret;
 }
@@ -1452,11 +1455,11 @@ ST_FUNC void asm_instr(void)
 
     /* We don't allow switching section within inline asm to
        bleed out to surrounding code.  */
-    sec = cur_text_section;
+    sec = tcc_state->unit->section;
     /* assemble the string with tcc internal assembler */
     tcc_assemble_inline(tcc_state, astr->data, astr->size - 1, 0);
     neocc_temp_free(tcc_state, astr);
-    if (sec != cur_text_section) {
+    if (sec != tcc_state->unit->section) {
         tcc_warning("inline asm tries to change current section");
         use_section1(tcc_state, sec);
     }
@@ -1478,10 +1481,10 @@ ST_FUNC void asm_instr(void)
 ST_FUNC void asm_global_instr(void)
 {
     struct neocc_string *astr;
-    int saved_nocode_wanted = nocode_wanted;
+    int saved_nocode_wanted = tcc_state->unit->suppression;
 
     /* Global asm blocks are always emitted.  */
-    nocode_wanted = 0;
+    tcc_state->unit->suppression = 0;
     next();
     astr = parse_asm_str();
     skip(')');
@@ -1493,18 +1496,18 @@ ST_FUNC void asm_global_instr(void)
 #ifdef ASM_DEBUG
     printf("asm_global: \"%s\"\n", (char *)astr->data);
 #endif
-    cur_text_section = text_section;
-    ind = cur_text_section->data_offset;
+    tcc_state->unit->section = text_section;
+    tcc_state->unit->instruction = tcc_state->unit->section->data_offset;
 
     /* assemble the string with tcc internal assembler */
     tcc_assemble_inline(tcc_state, astr->data, astr->size - 1, 1);
     
-    cur_text_section->data_offset = ind;
+    tcc_state->unit->section->data_offset = tcc_state->unit->instruction;
 
     /* restore the current C token */
     next();
 
-    nocode_wanted = saved_nocode_wanted;
+    tcc_state->unit->suppression = saved_nocode_wanted;
 }
 
 /********************************************************/

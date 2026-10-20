@@ -39,11 +39,11 @@ def main():
     report.write_text(json.dumps({
         "mode": args.mode,
         "platform": "Windows x86-64 / MinGW-w64",
-        "root_c_suites": 21,
+        "root_c_suites": 22,
         "compiler_integration_suites": 6,
         "tinycc_differential_inputs": 120,
         "tinycc_excluded_inputs": 21,
-        "bootstrap_identical_pairs": 27,
+        "bootstrap_identical_pairs": 28,
         "fresh_build_and_bootstrap_without_tinycc": True,
         "openoicc_suites_per_compiler": 39,
         "openoicc_compilers": ["GCC", "NeoCC stage 3"],

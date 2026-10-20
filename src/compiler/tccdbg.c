@@ -977,7 +977,7 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
     dwarf_uleb128(eh_frame_section, 0); // ofs 0
     dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
     while (size >= 4 &&
-	   read32le(cur_text_section->data + s1->function->start + size - 4) != 0x00008067)
+	   read32le(s1->unit->section->data + s1->function->start + size - 4) != 0x00008067)
 	size -= 4;
     dwarf_data4(eh_frame_section, size - 36);
     dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
@@ -1205,10 +1205,10 @@ ST_FUNC void tcc_debug_start(TCCState *s1)
             dwarf_line_strp(dwarf_info_section, buf);
             dwarf_reloc(dwarf_info_section, section_sym, R_DATA_PTR);
 #if PTR_SIZE == 4
-            dwarf_data4(dwarf_info_section, ind); // low pc
+            dwarf_data4(dwarf_info_section, s1->unit->instruction); // low pc
             dwarf_data4(dwarf_info_section, 0); // high pc
 #else
-            dwarf_data8(dwarf_info_section, ind); // low pc
+            dwarf_data8(dwarf_info_section, s1->unit->instruction); // low pc
             dwarf_data8(dwarf_info_section, 0); // high pc
 #endif
             dwarf_reloc(dwarf_info_section, dwarf_sym.line, R_DATA_32DW);
@@ -1430,7 +1430,7 @@ static struct neocc_source_buffer* put_new_file(TCCState *s1)
         if (s1->dwarf)
             dwarf_file(s1);
         else
-            put_stabs_r(s1, f->filename, N_SOL, 0, 0, ind, text_section, section_sym);
+            put_stabs_r(s1, f->filename, N_SOL, 0, 0, s1->unit->instruction, text_section, section_sym);
     }
     return f;
 }
@@ -1476,7 +1476,7 @@ ST_FUNC void tcc_debug_line(TCCState *s1)
 
     if (!s1->do_debug)
         return;
-    if (cur_text_section != text_section || nocode_wanted)
+    if (s1->unit->section != text_section || s1->unit->suppression)
         return;
     f = put_new_file(s1);
     if (!f)
@@ -1486,7 +1486,7 @@ ST_FUNC void tcc_debug_line(TCCState *s1)
     last_line_num = f->line_num;
 
     if (s1->dwarf) {
-	int len_pc = (ind - dwarf_line.last_pc) / DWARF_MIN_INSTR_LEN;
+	int len_pc = (s1->unit->instruction - dwarf_line.last_pc) / DWARF_MIN_INSTR_LEN;
 	int len_line = f->line_num - dwarf_line.last_line;
 	int n = len_pc * DWARF_LINE_RANGE + len_line + DWARF_OPCODE_BASE - DWARF_LINE_BASE;
 
@@ -1522,16 +1522,16 @@ ST_FUNC void tcc_debug_line(TCCState *s1)
 		}
 	    }
 	}
-	dwarf_line.last_pc = ind;
+	dwarf_line.last_pc = s1->unit->instruction;
 	dwarf_line.last_line = f->line_num;
     }
     else
     {
 	if (s1->function->start != -1) {
-            put_stabn(s1, N_SLINE, 0, f->line_num, ind - s1->function->start);
+            put_stabn(s1, N_SLINE, 0, f->line_num, s1->unit->instruction - s1->function->start);
         } else {
             /* from tcc_assemble */
-            put_stabs_r(s1, NULL, N_SLINE, 0, f->line_num, ind, text_section, section_sym);
+            put_stabs_r(s1, NULL, N_SLINE, 0, f->line_num, s1->unit->instruction, text_section, section_sym);
         }
     }
 }
@@ -2316,7 +2316,7 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
         return;
     debug_info_root = NULL;
     debug_info = NULL;
-    tcc_debug_stabn(s1, N_LBRAC, ind - s1->function->start);
+    tcc_debug_stabn(s1, N_LBRAC, s1->unit->instruction - s1->function->start);
     f = put_new_file(s1);
     if (!f)
 	return;
@@ -2341,7 +2341,7 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
         debug_str = neocc_temp_new(s1);
         cstr_printf(debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
         tcc_get_debug_info(s1, sym->type.ref, debug_str);
-        put_stabs_r(s1, debug_str->data, N_FUN, 0, f->line_num, 0, cur_text_section, sym->c);
+        put_stabs_r(s1, debug_str->data, N_FUN, 0, f->line_num, 0, s1->unit->section, sym->c);
         neocc_temp_free(s1, debug_str);
         tcc_debug_line(s1);
     }
@@ -2368,10 +2368,10 @@ ST_FUNC void tcc_debug_funcend(TCCState *s1, int size)
 #endif
     if (!s1->do_debug)
         return;
-    min_instr_len = dwarf_line.last_pc == ind ? 0 : DWARF_MIN_INSTR_LEN;
-    ind -= min_instr_len;
+    min_instr_len = dwarf_line.last_pc == s1->unit->instruction ? 0 : DWARF_MIN_INSTR_LEN;
+    s1->unit->instruction -= min_instr_len;
     tcc_debug_line(s1);
-    ind += min_instr_len;
+    s1->unit->instruction += min_instr_len;
     tcc_debug_stabn(s1, N_RBRAC, size);
     if (s1->dwarf) {
         int func_sib = 0;
@@ -2520,7 +2520,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
     unsigned long last_offset = tcov_data.offset;
 
     tcc_tcov_block_end (tcc_state, 0);
-    if (s1->test_coverage == 0 || nocode_wanted)
+    if (s1->test_coverage == 0 || s1->unit->suppression)
 	return;
 
     if (tcov_data.last_file_name == 0 ||
@@ -2566,7 +2566,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	ptr = section_ptr_add(tcov_section, 8);
 	write64le (ptr, s1->pp->source->line_num);
     }
-    if (ind == tcov_data.ind && tcov_data.line == s1->pp->source->line_num)
+    if (s1->unit->instruction == tcov_data.ind && tcov_data.line == s1->pp->source->line_num)
         tcov_data.offset = last_offset;
     else {
         struct neocc_symbol label = {0};
@@ -2592,7 +2592,7 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
         vpop();
 #endif
         tcov_data.offset = (unsigned char *)ptr - tcov_section->data;
-        tcov_data.ind = ind;
+        tcov_data.ind = s1->unit->instruction;
     }
 }
 

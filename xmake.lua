@@ -265,3 +265,11 @@ for _, fault in ipairs({false, true}) do
         set_rundir(".")
         add_tests("default")
 end
+
+target("translation_test")
+    set_kind("binary")
+    add_deps("neoioic")
+    add_includedirs("include", "src", "third_party/openoicc/include")
+    add_files("tests/translation.c", "src/objects/*.c", "src/host/host.c")
+    set_rundir(".")
+    add_tests("default")

@@ -12,7 +12,7 @@ NeoCC 采用 TinyCC 算法的逐步职责迁移。当前阶段完成源文件、
 | 所有者 | 资源及有效期 |
 | --- | --- |
 | `src/main.c` | CLI 选项和输出流，创建/销毁编译上下文 |
-| 编译上下文 | 组合并打开独立的 `source`、`tokens`、`preprocessor`、`symbols`、`expressions`、`scopes`、`functions`、`switches`、`initializers`、`temporaries` 对象，销毁前完成关闭 |
+| 编译上下文 | 组合并打开独立的 `source`、`tokens`、`preprocessor`、`symbols`、`expressions`、`scopes`、`functions`、`switches`、`initializers`、`temporaries`、`translation` 对象，销毁前完成关闭 |
 | `source` 的 `em_source` | 唯一的输入缓冲栈顶，拥有整条链、fd > 0 和真实文件名副本 |
 | `tokens` 的 `em_tokens` | 标识符哈希/索引表、稳定的 token 实例、标识符实例与宏流的分配块 |
 | `preprocessor` 的 `em_preprocessor` | 拥有独立分配的工作区：当前 token/值、借用源游标、宏栈/恢复游标、词法模式、字符串、字符分类和计数器 |
@@ -23,6 +23,7 @@ NeoCC 采用 TinyCC 算法的逐步职责迁移。当前阶段完成源文件、
 | `switches` 的 `em_switches` | 当前 switch 链、case 记录及索引数组；表达式类型、作用域与 break 目标仅为借用 |
 | `initializers` 的 `em_initializers` | 共享拼接字符串与全局复合字面量模式；字符串有效至下次解析/reset/末次关闭 |
 | `temporaries` 的 `em_temporaries` | 稳定的临时字符串描述符、缓冲及编译边界；POP/UNWIND/LEAVE/reset/末次关闭结束对应借用 |
+| `translation` 的 `em_translation` | 匿名编号、指令游标、抑制位、调试模式及链接代码节借用；RESET/末次关闭清零，不拥有节 |
 | 解析器 | 借用当前缓冲及其字段，弹栈后不得继续持有旧指针 |
 | `src/host/` | 创建选择、单线程 OID 分配与回收、宿主调用者身份 |
 | NEOioic | 接口分派、访问记录、继承根和队列；保持独立 |
@@ -83,7 +84,7 @@ drop/reset 前先撤销 token 链接：普通符号与宏定义逐个退栈，�
 错误收尾由 `label_discard` 清除链接，最后才 reset 对象。正常和错误收尾先清理内联函数、
 符号/宏定义/标签栈、switch 与其他借用，再 reset 符号池；共享打开的中间关闭保留池，
 部分关闭保留资源供重试，末次关闭兜底释放所有块和栈状态。
-编译会话组合十个资源对象，创建失败清理已取得的对象，销毁时先关闭 temporaries、initializers、switches、functions、scopes、expressions、preprocessor，
+编译会话组合十一个资源对象，创建失败清理已取得的对象，销毁时先关闭 translation、temporaries、initializers、switches、functions、scopes、expressions、preprocessor，
 再关闭 symbols、tokens、source。
 
 ## 表达式值栈与常用类型
@@ -207,7 +208,7 @@ calloc 独立分配自然对齐的完整工作区，不修改运行时或放宽�
 
 正常与失败收尾均先释放语义符号、展开宏栈并弹出源文件，再重置预处理工作区，最后
 重置 tokens arena；不能先释放 arena 再访问宏流或解析字符串。会话销毁先关闭
-temporaries、initializers、switches、functions、scopes、expressions、preprocessor，再关闭 symbols、tokens/source。构造区与阶段测试覆盖十个对象。
+translation、temporaries、initializers、switches、functions、scopes、expressions、preprocessor，再关闭 symbols、tokens/source。构造区与阶段测试覆盖十一个对象。
 
 ## 初始化器工作区
 
@@ -248,6 +249,18 @@ PUSH 返回零初始化字符串，POP 校验当前栈顶及边界，拒绝跨�
 非跳转格式化辅助；申请或格式化失败输出常量兜底消息，释放诊断记录后再清理当前
 边界。预处理表达式特殊诊断先清除表达式标记，避免构造诊断过程中再次进入同一处理。
 
+## 翻译单元工作区
+
+`translation` 独立继承 NEOioic，内嵌 `neocc_translation`；会话经 VO 借用为
+`TCCState.unit`。匿名编号、指令游标、抑制位和调试模式不再由共享变量保存，
+当前代码节仅借用链接存储，RESET/末次关闭不释放或修改节。抑制位保留原有符号、
+常量表达式和不可达代码语义；指令游标保持原 int 宽度。
+
+`tccgen_init` 在类型初始化前 reset 并建立匿名编号/顶层数据模式，预处理入口同样执行；
+汇编入口设置代码节、游标和零抑制。独立汇编显式采用原零初始化函数起点，保持 STABS
+行记录及重定位输出。收尾先完成调试、内联与符号/标签清理，再 reset 翻译单元，随后
+清理作用域、函数、表达式和符号池。对象无额外分配，两个会话工作区互相独立。
+
 ## 错误退出
 
 TinyCC 的诊断跳转保留在编译驱动中。对象方法不调用会 `longjmp` 的编译器诊断；
@@ -259,7 +272,7 @@ TinyCC 的诊断跳转保留在编译驱动中。对象方法不调用会 `longj
 失败测试注入主文件、命令行伪文件和预定义头三处缓冲分配失败，随后创建新会话编译；
 检查输入链为空、访问记录归零、进程句柄数不增加。源对象另测构造区、队列、真实
 文件名分配失败和可重试部分关闭。预处理测试覆盖嵌套流、未对齐消息与部分关闭；
-会话故障测试还覆盖十个对象构造、两个工作区分配、工作字符串与索引扩容失败，以及三个符号池分配失败点；
+会话故障测试还覆盖十一个对象构造、两个工作区分配、工作字符串与索引扩容失败，以及三个符号池分配失败点；
 符号 push 失败不改变栈，标签未定义跳转后的错误清理会撤销符号/token 借用。测试检查池、五类栈头、
 作用域层级和 VO 记录清空，整体分配/释放数量及新会话恢复编译。
 
@@ -270,19 +283,19 @@ TinyCC 的诊断跳转保留在编译驱动中。对象方法不调用会 `longj
 源游标、当前 token/值、符号栈头、作用域层级、作用域帧与清理/goto 链入口已归对象；
 当前函数上下文与临时槽缓存已归 functions，switch/case 链与资源已归 switches，初始化器共享字符串与存储模式已归 initializers；
 `tcc_state`、
-指令游标/代码抑制和目标后端专有状态仍有全局或文件级定义，尚未获得并行或重入保证。
-不得把独立编译、自举或十个资源对象误称为全部状态迁移完成。
+目标后端专有状态仍有全局或文件级定义，尚未获得并行或重入保证。
+不得把独立编译、自举或十一个资源对象误称为全部状态迁移完成。
 
 下一职责按原算法边界迁移剩余语法与代码生成工作状态，并逐步显式传递预处理算法的协作上下文，
 随后迁移目标代码生成、链接输出和装载资源。跨对象操作使用 `vo_*`，通过参数传递
 协作上下文，不增加新的全局服务定位器，也不把所有状态堆进一个会话对象。
 每步替换活跃路径、删除被替代实现并重跑差分和阶段稳定性验证。
 具体阶段编号、前置关系、阅读入口与完成条件见 [后续阶段计划](plan.md)；
-P01、P02 已完成，当前下一阶段为 P03，计划范围不代表已经实现的架构。
+P01～P03 已完成，当前下一阶段为 P04，计划范围不代表已经实现的架构。
 
 ## 参考树独立性
 
 根构建只在参考树存在时声明可选 `tinycc_baseline` 目标。`tests/independent.py` 每次创建
 新的源码副本，只复制 NeoCC、运行库、仓库内运行时/生成器及必要回归输入，不复制
-`tinycc/` 或既有构建缓存；在该副本中构建、执行二十一组回归和阶段自举。
+`tinycc/` 或既有构建缓存；在该副本中构建、执行二十二组回归和阶段自举。
 这验证文件和工具依赖的独立性，不等于剩余算法已经完成对象化迁移。

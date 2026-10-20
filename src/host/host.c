@@ -29,6 +29,8 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 				    struct object **, unsigned char *);
 	extern int crt_temporaries(uint64_t *, unsigned int, unsigned int, int,
 				   struct object **, unsigned char *);
+	extern int crt_translation(uint64_t *, unsigned int, unsigned int, int,
+				   struct object **, unsigned char *);
 	size_t i;
 	uint64_t oid;
 	int result;
@@ -40,7 +42,8 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 	     model_id != NEOCC_MSN_EXPRESSIONS && model_id != NEOCC_MSN_SCOPES &&
 	     model_id != NEOCC_MSN_FUNCTIONS && model_id != NEOCC_MSN_SWITCHES &&
 	     model_id != NEOCC_MSN_INITIALIZERS &&
-	     model_id != NEOCC_MSN_TEMPORARIES) ||
+	     model_id != NEOCC_MSN_TEMPORARIES &&
+	     model_id != NEOCC_MSN_TRANSLATION) ||
 	    caller_capacity < 1 ||
 	    (!!object_out == !!exotic_memory))
 		return RN_INVALIDARG;
@@ -74,6 +77,9 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 	else if (model_id == NEOCC_MSN_TEMPORARIES)
 		result = crt_temporaries(&oid, input_capacity, output_capacity,
 					caller_capacity, object_out, exotic_memory);
+	else if (model_id == NEOCC_MSN_TRANSLATION)
+		result = crt_translation(&oid, input_capacity, output_capacity,
+					caller_capacity, object_out, exotic_memory);
 	else if (model_id == NEOCC_MSN_SCOPES)
 		result = crt_scopes(&oid, input_capacity, output_capacity,
 				    caller_capacity, object_out, exotic_memory);
@@ -100,7 +106,8 @@ char host_destroy_object(struct object *object)
 	     object->model_id != NEOCC_MSN_FUNCTIONS &&
 	     object->model_id != NEOCC_MSN_SWITCHES &&
 	     object->model_id != NEOCC_MSN_INITIALIZERS &&
-	     object->model_id != NEOCC_MSN_TEMPORARIES) || !object->oid)
+	     object->model_id != NEOCC_MSN_TEMPORARIES &&
+	     object->model_id != NEOCC_MSN_TRANSLATION) || !object->oid)
 		return FALSE;
 	for (i = 0; i < object->node_count; i++) {
 		struct object *node = object->nodes + i;

@@ -437,6 +437,7 @@ typedef int nwchar_t;
 #include "neocc/switches.h"
 #include "neocc/initializers.h"
 #include "neocc/temporaries.h"
+#include "neocc/translation.h"
 
 /* section definition */
 typedef struct Section {
@@ -585,6 +586,8 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *translation;
+    struct neocc_translation *unit; /* VO borrow until close. */
     struct object *temporaries;
     struct object *initializers;
     struct neocc_initializers *initializer; /* VO borrow until close. */
@@ -760,7 +763,6 @@ struct TCCState {
     /* predefined sections */
     Section *text_section, *data_section, *rodata_section, *bss_section;
     Section *common_section;
-    Section *cur_text_section; /* current section where function code is generated */
 #ifdef CONFIG_TCC_BCHECK
     /* bound check related sections */
     Section *bounds_section; /* contains global data bound description */
@@ -1267,11 +1269,6 @@ static inline int toup(int c) {
 }
 
 /* ------------ tccgen.c ------------ */
-
-ST_DATA int anon_sym, ind;
-ST_DATA char debug_modes;
-
-ST_DATA int nocode_wanted; /* true if no code generation wanted for an expression */
 
 ST_FUNC void tccgen_init(TCCState *s1);
 ST_FUNC int tccgen_compile(TCCState *s1);
@@ -1820,7 +1817,6 @@ static inline void post_sem(TCCSem *p) {
 #define rodata_section      TCC_STATE_VAR(rodata_section)
 #define bss_section         TCC_STATE_VAR(bss_section)
 #define common_section      TCC_STATE_VAR(common_section)
-#define cur_text_section    TCC_STATE_VAR(cur_text_section)
 #define bounds_section      TCC_STATE_VAR(bounds_section)
 #define lbounds_section     TCC_STATE_VAR(lbounds_section)
 #define symtab_section      TCC_STATE_VAR(symtab_section)

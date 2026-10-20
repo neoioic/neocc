@@ -1,12 +1,12 @@
 # NeoCC 迁移交接
 
-截至 2026-10-20，最近完成 P02 临时字符串所有权与诊断跳转清理迁移和对应回归，Debug/Release
+截至 2026-10-20，最近完成 P03 翻译单元直接代码生成工作区迁移和对应回归，Debug/Release
 全量验证结果见下文。后续迁移使用仓库内材料，不访问外部项目；Agent 不执行 Git 暂存、提交或推送，
 TinyCC 基线保持不变。详细设计、命令和验证边界见
 [架构](architecture.md)、[构建](build.md) 和 [测试](testing.md)。
 
 后续未完成工作按 [阶段计划](plan.md) 的 P01～P18 编号交接，包含前置条件、源码入口、
-职责边界及验收要求。P01、P02 已完成，当前下一阶段为 **P03：翻译单元直接代码生成工作区**。
+职责边界及验收要求。P01～P03 已完成，当前下一阶段为 **P04：延迟内联函数资源**。
 后续每完成一个阶段，同步计划状态与本记录。
 
 ## 接手与阶段工作方式
@@ -24,7 +24,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
 
 ## 已实现
 
-- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及二十一组
+- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及二十二组
   C 回归。活跃编译路径在 src/，删除 ONE_SOURCE 聚合分支，tinycc/ 仅作差分基线。
 - source 对象实际拥有输入缓冲栈、文件句柄及真实文件名，解析器借用当前缓冲。
   构造区由仓库 OpenOICC 预览并显式生成，常规构建不隐式再生。
@@ -73,7 +73,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
   short 大小/对齐及八项缓存算法；缓存满后继续分配，偏移计算检查 int 可表示范围，失败
   不改动状态。正常函数结束在调试/异常帧和符号大小输出后 reset；错误收尾在 debug/
   switch/标签清理后 reset scopes/functions/expressions，再 reset symbols。
-  新增函数对象回归；会话故障覆盖十个构造与两个独立工作区共十二处分配失败，另在普通/
+  新增函数对象回归；会话故障覆盖十一个构造与两个独立工作区共十三处分配失败，另在普通/
   DWARF 配置下观察填充的函数状态、临时槽和返回链，触发真实诊断后检查清理及恢复。
   新增 functions 样例覆盖结构体返回、十个结构体实参、递归/间接/内联调用、变参浮点、
   旧式参数、函数指针返回、VLA 参数和 __func__，纳入运行/目标字节比较及阶段测试。
@@ -99,7 +99,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
   正常收尾与末次关闭配套，不访问失效的 C 局部地址。公共格式化辅助返回失败，
   诊断内分配失败使用常量消息，预处理特殊诊断避免递归进入自身。
   新增普通/故障对象测试、七种真实编译故障场景、嵌套汇编差分与阶段再生验证。
-- 不含 tinycc/、不带既有缓存的干净副本已验证构建、二十一组回归和第二/三阶段自举。
+- 不含 tinycc/、不带既有缓存的干净副本已验证构建、二十二组回归和第二/三阶段自举。
   参考树只影响可选 tinycc_baseline 与差分语料，不是生产依赖。
 - 缓冲/文件名分配失败先正常返回 VO，再执行编译器错误跳转；主文件缓冲失败关闭
   已打开的句柄，早期预定义文件失败只清理已初始化的算法资源。
@@ -119,45 +119,52 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含二十一组 C 回归、
-六组编译集成检查（含 `scope`、`functions`、`switches` 、`initializers` 和新增 `temporaries` 语义样例、120 个 TinyCC 输入差分）、NeoCC 编译并运行
-NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/表达式对象/作用域对象/函数对象/switch 对象/初始化器对象/目录测试。
+2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含二十二组 C 回归、
+六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 和 `translation` 语义样例、120 个 TinyCC 输入差分）、NeoCC 编译并运行
+NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/表达式对象/作用域对象/函数对象/switch 对象/初始化器对象/临时字符串对象/翻译单元对象/目录测试。
 未纳入当前平台的输入及原因保留在脚本和结果 JSON，不把共同失败当作 C 功能正确的证据。
 
-第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：25 个目标文件及
-两个可执行文件共 27 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
-source/tokens/preprocessor/symbols/expressions/scopes/functions/switches/initializers/temporaries 构造区无变化，并使用该阶段 NeoCC 重新编译运行
-十个对象测试、C11 语义样例、作用域、函数、switch、初始化器及临时字符串样例。统一入口还分别对 GCC 构建和第三阶段
+第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：26 个目标文件及
+两个可执行文件共 28 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
+source/tokens/preprocessor/symbols/expressions/scopes/functions/switches/initializers/temporaries/translation 构造区无变化，并使用该阶段 NeoCC 重新编译运行
+十一个对象测试、C11 语义样例、作用域、函数、switch、初始化器、临时字符串及翻译单元样例。统一入口还分别对 GCC 构建和第三阶段
 构建的 OpenOICC 运行 39 项回归。
 结果记录在对应构建目录的 regression/results.json、bootstrap/results.json；
 生成器测试辅助 C 程序仍由 GCC 编译。两次验证分别写入 Debug/Release 的
 verification.json 成功记录；120 个差分输入及 21 个排除项见脚本和结果文件。
 这些 build/ 结果受忽略，不要求随源码交付，新环境需重新生成，不能当作后续修改的验证结果。
-新增 temporaries 构造区经仓库 OpenOICC 预览后显式写入；阶段工具重复再生无差异。
+新增 translation 构造区经仓库 OpenOICC 预览后显式写入；阶段工具重复再生无差异。
 来源清单与 UTF-8/LF 随迁移复核；Git 由开发者管理，提交状态应在接手时重新检查。
 
 ## 待迁移与限制
 
 1. 逐步显式传递预处理算法协作上下文，移除对全局 tcc_state 入口的依赖；
    token/值、源游标、宏展开工作区和宏定义栈已有独立所有者，不宣称预处理器全部迁移完成。
-2. 按 tccgen.c 边界迁移翻译单元代码生成工作状态，保持直接代码生成。
+2. 按 tccgen.c 边界迁移延迟内联函数等剩余语法资源，保持直接代码生成。
 3. 分别迁移目标代码生成、链接输出和装载资源，删除被替代的活跃路径。
 4. 增加 Linux/其他目标的配置、ABI、运行库和差分验证。
 5. 扩展 TLS/pthread、回溯/边界检查和复杂 DLL/ELF 场景，当前尚未覆盖。
 
-当前仍有 tcc_state、指令游标/代码抑制、目标后端专有全局状态及算法间隐式协作，
+当前仍有 tcc_state、目标后端专有全局状态及算法间隐式协作，
 尚未完成整个 TinyCC 的对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态
 塞进一个对象外壳代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
 
-本阶段完成 P02 临时字符串所有权、编译边界与诊断跳转前清理迁移、活跃调用点替换和失败清理验证。
+本阶段完成 P03 翻译单元工作区迁移、活跃调用点替换、三种调试配置差分和失败清理验证。
 完成阶段验证后停下供开发者提交备份；后续从剩余语法/代码生成状态和算法协作继续。
 
 ## 下一阶段入口与注意事项
 
-按 [阶段计划](plan.md) 从 P03 开始；开发者指定其他编号时先核对其前置阶段。
-优先阅读 `tccgen.c` 的 `anon_sym`、`ind`、`nocode_wanted`、`debug_modes`，
-`tcc.h` 的共享声明、`cur_text_section` 及全部消费者。保持直接生成算法、输出和 ABI，
-迁移翻译单元工作状态与当前代码节借用；链接节所有权仍留给后续职责，不跨阶段推进。
+按 [阶段计划](plan.md) 从 P04 开始；开发者指定其他编号时先核对其前置阶段。
+优先阅读 `gen_inline_functions`、`free_inline_functions`、内联定义保存路径及
+`TCCState.inline_fns`，迁移延迟记录与保存 token 流，保持延迟生成语义。
+
+- P03 的 `translation` 对象经 VO 借用为 `TCCState.unit`，拥有匿名编号、指令游标、
+  抑制位、调试模式及代码节借用；原 `anon_sym`、`ind`、`nocode_wanted`、`debug_modes`
+  共享定义和 `cur_text_section` 字段/宏均删除。节仍由链接器拥有。
+  初始化覆盖 C、预处理和汇编；收尾在调试/标签清理后 reset，先于作用域和符号池。
+  独立汇编显式采用原零初始化函数起点，保持 STABS 行记录和重定位字节。
+  对象回归覆盖共享打开、隔离、未对齐借用、reset 和部分关闭；会话诊断覆盖普通 C、
+  STABS、DWARF、预处理表达式及汇编五条路径，检查零状态、VO、借用节与新会话恢复。
 
 - 临时字符串契约在 `include/neocc/temporaries.h`，对象在 `src/objects/temporaries.c`。
   描述符由对象拥有，禁止重新登记 C 局部地址。ENTER 在主输入分配前建立边界，

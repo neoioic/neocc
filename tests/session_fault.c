@@ -143,6 +143,16 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	CHECK(!state->unit->anonymous_symbol && !state->unit->instruction);
+	CHECK(!state->unit->suppression && !state->unit->debug_modes &&
+	      !state->unit->section);
+	for (unsigned int i = 0; i < state->translation->node_count; i++) {
+		struct object *node = state->translation->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+
 	CHECK(!((struct em_temporaries *)state->temporaries->members)->top);
 	for (unsigned int i = 0; i < state->temporaries->node_count; i++) {
 		struct object *node = state->temporaries->nodes + i;
@@ -257,6 +267,41 @@ static void temporary_error(void *opaque, const char *text)
 	}
 }
 
+struct translation_failure {
+	struct TCCState *state;
+	Section *section;
+	int mode;
+	int seen;
+};
+
+static void translation_error(void *opaque, const char *text)
+{
+	struct translation_failure *failure = opaque;
+	struct TCCState *state = failure->state;
+	struct neocc_translation *unit = state->unit;
+
+	CHECK(strstr(text, failure->mode == 3 ? "bad preprocessor expression" :
+		failure->mode == 4 ? "unknown opcode" : "missing_translation"));
+	CHECK(unit->anonymous_symbol >= SYM_FIRST_ANOM);
+	if (failure->mode == 3) {
+		CHECK(!unit->section && !unit->instruction && !unit->debug_modes);
+	} else {
+		CHECK(unit->section && unit->instruction > 0);
+		if (failure->mode < 3) {
+			CHECK(unit->suppression & 0xffff); /* sizeof operand */
+			CHECK(unit->debug_modes == (failure->mode != 0));
+		}
+		failure->section = unit->section;
+	}
+	for (unsigned int i = 0; i < state->translation->node_count; i++) {
+		struct object *node = state->translation->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+	failure->seen++;
+}
+
 struct function_failure {
 	struct TCCState *state;
 	int seen;
@@ -351,8 +396,61 @@ int main(int argc, char **argv)
 		tcc_delete(state);
 		CHECK(live == initial_live);
 	}
-	/* Reject ten constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 12; failure++) {
+	/* Observe live generation state, then verify diagnostic cleanup without
+	 * releasing the borrowed linker section. Cover C, preprocessing and asm.
+	 */
+	for (int mode = 0; mode < 5; mode++) {
+		struct translation_failure context = { .mode = mode };
+		FILE *output = NULL;
+
+		state = tcc_new();
+		CHECK(state);
+		context.state = state;
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, &context, translation_error);
+		if (mode == 1 || mode == 2)
+			tcc_set_options(state, mode == 1 ? "-g" : "-gdwarf-5");
+		if (mode == 4)
+			tcc_set_options(state, "-x assembler");
+		CHECK(tcc_set_output_type(state, mode == 3 ?
+			TCC_OUTPUT_PREPROCESS : TCC_OUTPUT_OBJ) == 0);
+		if (mode == 3) {
+			output = tmpfile();
+			CHECK(output);
+			state->ppfp = output;
+		}
+		if (mode == 3)
+			CHECK(tcc_compile_string(state, "#if 1 +\n#endif\n") < 0);
+		else if (mode == 4)
+			CHECK(tcc_compile_string(state,
+				".text\n.byte 1\nunknown_translation_opcode\n") < 0);
+		else
+			CHECK(tcc_compile_string(state,
+				"int broken(int n) __attribute__((section(\".text.unit\")));"
+				"int broken(int n) { if (n) goto done; "
+				"return sizeof(missing_translation); done: return 1; }") < 0);
+		CHECK(context.seen == 1);
+		clean_preprocessor(state);
+		if (context.section) {
+			CHECK(state->sections[context.section->sh_num] == context.section);
+			CHECK(context.section->data && context.section->data_allocated);
+		}
+		if (output)
+			CHECK(fclose(output) == 0);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"int recovered_translation(void) { return sizeof(int); }") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Reject eleven constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 13; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;

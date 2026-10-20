@@ -7,7 +7,7 @@
       "source": "tinycc/libtcc.c",
       "destination": "src/compiler/libtcc.c",
       "sha256": "87373a094a1067c6a37d7c8e8c7102240a217cd2fd66b20baab3a71750afddcd",
-      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics. Compose expressions object and borrow its aligned workspace; unwind failures and close it before symbols. Compose scopes object and borrow its inline workspace; close it before expression and symbol storage. Compose functions object, borrow its inline workspace and close it before other semantic resources. Compose switches object, borrow its stack entry and close it before scope/symbol owners. Compose initializers object, borrow its workspace, unwind construction failure and close it before other semantic resources. Compose temporaries owner for stable descriptors and buffers; remove global stack registry; enter compilation boundaries before source allocation, unwind via VO before longjmp and preserve outer generated source; use non-throwing diagnostic formatting with allocation-free fallback.",
+      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics. Compose expressions object and borrow its aligned workspace; unwind failures and close it before symbols. Compose scopes object and borrow its inline workspace; close it before expression and symbol storage. Compose functions object, borrow its inline workspace and close it before other semantic resources. Compose switches object, borrow its stack entry and close it before scope/symbol owners. Compose initializers object, borrow its workspace, unwind construction failure and close it before other semantic resources. Compose temporaries owner for stable descriptors and buffers; remove global stack registry; enter compilation boundaries before source allocation, unwind via VO before longjmp and preserve outer generated source; use non-throwing diagnostic formatting with allocation-free fallback. Compose and VO-borrow translation workspace; unwind and close before semantic owners.",
       "additional_derivatives": [
         "src/objects/temporaries.c",
         "src/objects/temporaries.h",
@@ -23,12 +23,13 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs. Extract neocc_expression_value and expressions workspace, removing SValue, vtop and canonical type globals. Add per-context scopes object and workspace pointers. Replace shared current-function, local-stack and return-chain globals with per-context functions object/workspace. Add per-context switches object and borrowed workspace. Add the initializers contract and per-context object/workspace pointers; remove the global_expr declaration. Compose temporaries, remove stack registry and _s macros, declare explicit-context allocation wrappers.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs. Extract neocc_expression_value and expressions workspace, removing SValue, vtop and canonical type globals. Add per-context scopes object and workspace pointers. Replace shared current-function, local-stack and return-chain globals with per-context functions object/workspace. Add per-context switches object and borrowed workspace. Add the initializers contract and per-context object/workspace pointers; remove the global_expr declaration. Compose temporaries, remove stack registry and _s macros, declare explicit-context allocation wrappers. Remove anon_sym, ind, nocode_wanted, debug_modes declarations and cur_text_section field/macro; compose translation and borrowed unit.",
       "additional_derivatives": [
         "include/neocc/tokens.h",
         "include/neocc/preprocessor.h",
         "include/neocc/symbols.h",
-        "include/neocc/expressions.h"
+        "include/neocc/expressions.h",
+        "include/neocc/translation.h"
       ]
     },
     {
@@ -46,7 +47,7 @@
       "source": "tinycc/tccgen.c",
       "destination": "src/compiler/tccgen.c",
       "sha256": "1a26ca7a7090ce6e43b6af3056cf7d81633283b298850fded2510579749c73f6",
-      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks, reuse chain, five stack heads and scope level into symbols object; push/copy/move/drop and reset via VO after token-link cleanup; remove global pools, stacks, scope counter and SYM_DEBUG allocation branch. Move expression array, sentinel, top and canonical types to expressions object; borrow workspace via VO and reset all value/type references before symbols reset; retain stack capacity and direct generation algorithms. Move full scope frames, current/loop/root pointers and cleanup/pending-goto chain heads to scopes object; enter/exit/reuse/reset via VO, retain short symbol-boundary snapshots and original VLA/cleanup/goto emission algorithms; reset after switch/label cleanup and before symbol storage. Move current function type/name/start, variadic/old-style flags, local stack offset, implicit structure return address, return jump chain and temporary-slot cache into functions object. BEGIN/reset and first-fit temporary-slot reuse/reservation use VO; retain expression occupancy tags, eight-slot cache and direct code generation. Clear borrowed types/names/cache on normal and diagnostic completion before symbol/token storage release. Move current switch chain, case records and index ownership into switches object; enter/append/remove/exit/reset through VO. Keep sorting, range merging and direct branch generation; choose signed/unsigned qsort comparators explicitly instead of consulting session state. Reset on diagnostic completion before scope/symbol owners. Move the shared initializer/attribute/asm string and compound-literal storage mode into initializers; delete initstr/global_expr definitions and adapt all consumers. Reset on normal/diagnostic completion. Keep local init_params and tokens-arena/preprocessor-stack ownership of initializer replay streams. Remove legacy temporary-registry finalization; driver owns compilation boundary cleanup.",
+      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks, reuse chain, five stack heads and scope level into symbols object; push/copy/move/drop and reset via VO after token-link cleanup; remove global pools, stacks, scope counter and SYM_DEBUG allocation branch. Move expression array, sentinel, top and canonical types to expressions object; borrow workspace via VO and reset all value/type references before symbols reset; retain stack capacity and direct generation algorithms. Move full scope frames, current/loop/root pointers and cleanup/pending-goto chain heads to scopes object; enter/exit/reuse/reset via VO, retain short symbol-boundary snapshots and original VLA/cleanup/goto emission algorithms; reset after switch/label cleanup and before symbol storage. Move current function type/name/start, variadic/old-style flags, local stack offset, implicit structure return address, return jump chain and temporary-slot cache into functions object. BEGIN/reset and first-fit temporary-slot reuse/reservation use VO; retain expression occupancy tags, eight-slot cache and direct code generation. Clear borrowed types/names/cache on normal and diagnostic completion before symbol/token storage release. Move current switch chain, case records and index ownership into switches object; enter/append/remove/exit/reset through VO. Keep sorting, range merging and direct branch generation; choose signed/unsigned qsort comparators explicitly instead of consulting session state. Reset on diagnostic completion before scope/symbol owners. Move the shared initializer/attribute/asm string and compound-literal storage mode into initializers; delete initstr/global_expr definitions and adapt all consumers. Reset on normal/diagnostic completion. Keep local init_params and tokens-arena/preprocessor-stack ownership of initializer replay streams. Remove legacy temporary-registry finalization; driver owns compilation boundary cleanup. Move anonymous numbering, instruction cursor, suppression bits, debug modes and borrowed code section into translation; reset through VO for all translation-unit modes and after debug/label cleanup; retain algorithms and flag semantics.",
       "additional_derivatives": [
         "src/objects/symbols.c",
         "src/objects/symbols.h",
@@ -63,20 +64,23 @@
         "src/objects/switches.h",
         "include/neocc/initializers.h",
         "src/objects/initializers.c",
-        "src/objects/initializers.h"
+        "src/objects/initializers.h",
+        "src/objects/translation.c",
+        "src/objects/translation.h",
+        "include/neocc/translation.h"
       ]
     },
     {
       "source": "tinycc/tccdbg.c",
       "destination": "src/compiler/tccdbg.c",
       "sha256": "62c14837a1e68283d4505e4837d3cc2f7e3df422a727124a5129cc71f74399fa",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; query the local symbol stack and push debug type records through symbols VO; preserve debug algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state. Read current function name/start/stack offset through the explicit context functions workspace. Allocate and release local temporary string descriptors through temporaries VO; retain algorithms and output."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; query the local symbol stack and push debug type records through symbols VO; preserve debug algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state. Read current function name/start/stack offset through the explicit context functions workspace. Allocate and release local temporary string descriptors through temporaries VO; retain algorithms and output. Read translation workspace through explicit context; retain debug algorithms."
     },
     {
       "source": "tinycc/tccasm.c",
       "destination": "src/compiler/tccasm.c",
       "sha256": "390bd7a7af628e35c892b02e31d142f5f33ed88e393a4f29e03631f3b5e4c1eb",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; push assembler goto labels through the symbols object's global label stack; preserve assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state. Allocate and release local temporary string descriptors through temporaries VO; retain algorithms and output."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; push assembler goto labels through the symbols object's global label stack; preserve assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state. Allocate and release local temporary string descriptors through temporaries VO; retain algorithms and output. Use borrowed translation workspace; explicitly initialize standalone assembly function cursor to the original zero-initialized value for stable STABS line relocations."
     },
     {
       "source": "tinycc/tccelf.c",
@@ -128,7 +132,7 @@
       "source": "tinycc/x86_64-gen.c",
       "destination": "src/compiler/x86_64-gen.c",
       "sha256": "4bc0cc51486f5fda2f26d94f869798a41fa1116e78abe6a98a0c5a31da418b0a",
-      "local_changes": "Use neocc_expression_value and the current context expression workspace instead of global expression state. Read/update local stack offset, return type, variadic flag and implicit structure return address through the current context functions workspace; preserve PE and SysV ABI algorithms."
+      "local_changes": "Use neocc_expression_value and the current context expression workspace instead of global expression state. Read/update local stack offset, return type, variadic flag and implicit structure return address through the current context functions workspace; preserve PE and SysV ABI algorithms. Use translation-owned instruction cursor, suppression and borrowed section; preserve target emission."
     },
     {
       "source": "tinycc/x86_64-link.c",
@@ -144,7 +148,7 @@
       "source": "tinycc/i386-asm.c",
       "destination": "src/compiler/i386-asm.c",
       "sha256": "c967423800ceeee68454385dee9dac39f7ea190a74dd8a19ae227e719757be00",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state. Use translation-owned instruction cursor and borrowed section."
     },
     {
       "source": "tinycc/i386-asm.h",

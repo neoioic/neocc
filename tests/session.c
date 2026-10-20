@@ -33,6 +33,16 @@ static void clean_semantics(struct TCCState *state)
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
 
+	CHECK(!state->unit->anonymous_symbol && !state->unit->instruction);
+	CHECK(!state->unit->suppression && !state->unit->debug_modes &&
+	      !state->unit->section);
+	for (unsigned int i = 0; i < state->translation->node_count; i++) {
+		struct object *node = state->translation->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+
 	CHECK(!((struct em_temporaries *)state->temporaries->members)->top);
 	for (unsigned int i = 0; i < state->temporaries->node_count; i++) {
 		struct object *node = state->temporaries->nodes + i;
@@ -107,6 +117,7 @@ int main(int argc, char **argv)
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
 		CHECK(a->temporaries != b->temporaries);
+		CHECK(a->translation != b->translation && a->unit != b->unit);
 		CHECK(a->scope != b->scope && a->scopes != b->scopes);
 		CHECK(a->initializer != b->initializer &&
 		      a->initializers != b->initializers);
