@@ -10,6 +10,7 @@ void __real_free(void *);
 static int fail_at, calls;
 static int arena_fail_at, arena_calls;
 static int symbol_fail_at, symbol_calls, symbol_error;
+static int expression_error;
 static int resize_fail_at, resize_calls;
 static size_t live;
 
@@ -89,6 +90,17 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	CHECK(state->expr->top == state->expr->values);
+	CHECK(!state->expr->int_type.ref && !state->expr->func_old_type.ref);
+	CHECK(!state->expr->char_type.ref && !state->expr->char_pointer_type.ref);
+	for (unsigned int i = 0; i <= NEOCC_EXPRESSION_CAPACITY; i++)
+		CHECK(!state->expr->values[i].sym && !state->expr->values[i].c.i);
+	for (unsigned int i = 0; i < state->expressions->node_count; i++) {
+		struct object *node = state->expressions->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(!((struct em_symbols *)state->symbols->members)->blocks);
 	CHECK(!((struct em_symbols *)state->symbols->members)->free_first);
 	CHECK(!((struct em_symbols *)state->symbols->members)->scope);
@@ -119,6 +131,8 @@ static void quiet_error(void *unused, const char *text)
 	(void)unused;
 	if (strstr(text, "semantic symbol"))
 		symbol_error = 1;
+	if (strstr(text, "memory full (vstack)"))
+		expression_error = 1;
 }
 
 int main(int argc, char **argv)
@@ -141,8 +155,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject four constructors and the aligned preprocessor workspace. */
-	for (failure = 1; failure <= 5; failure++) {
+	/* Reject five constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 7; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -253,6 +267,38 @@ int main(int argc, char **argv)
 		clean_preprocessor(state);
 		tcc_delete(state);
 		CHECK(live == initial_live);
+	}
+	/* Leave a populated expression stack through the diagnostic jump. */
+	{
+		char input[NEOCC_EXPRESSION_CAPACITY * 5 + 128];
+		int length = snprintf(input, sizeof(input),
+			"int deep(void) { return ");
+
+		for (int n = 0; n < NEOCC_EXPRESSION_CAPACITY; n++) {
+			memcpy(input + length, "1+(", 3);
+			length += 3;
+		}
+		input[length++] = '1';
+		for (int n = 0; n < NEOCC_EXPRESSION_CAPACITY; n++)
+			input[length++] = ')';
+		memcpy(input + length, "; }", 4);
+		expression_error = 0;
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, NULL, quiet_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, input) < 0);
+		CHECK(expression_error);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, "int after_depth = 19;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
 	}
 	CHECK(live == initial_live);
 	puts("compiler allocation failures: handles and VO records released before longjmp");

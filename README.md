@@ -5,8 +5,9 @@
 驻留、索引表和宏流存储由 `tokens` 对象拥有。`preprocessor` 对象拥有宏展开栈、
 当前 token/值、借用源游标、工作字符串、词法模式、字符分类表及计数器。
 语义符号池、回收链、global/local/宏定义/标签栈头及当前作用域层级由 `symbols`
-对象拥有，符号记录的分配、移动、出栈和归还通过 VO 完成。作用域结构体、表达式
-栈及其余编译状态仍在迁移中，尚未完成全套对象化重写。
+对象拥有，符号记录的分配、移动、出栈和归还通过 VO 完成。`expressions` 对象拥有
+表达式值栈、栈顶和四种常用类型，算法经 VO 借用工作区。作用域结构体、函数与后端
+状态仍在迁移中，尚未完成全套对象化重写。
 
 当前验证 Windows x86-64 / MinGW-w64，生成 x86-64 PE 程序及 ELF 可重定位目标。
 根 xmake 构建不访问外部项目、不联网，也不隐式再生源码。
@@ -21,7 +22,8 @@ xmake test -P . -v
 详见 [构建与使用](docs/build.md)、[迁移设计](docs/architecture.md)、
 [验证边界](docs/testing.md) 和 [交接记录](docs/handoff.md)。
 Agent 按阶段完成迁移、测试通过后停下，由开发者提交备份；具体规则见
-`AGENTS.md`，进度与接手入口以 `docs/handoff.md` 为准。
+`AGENTS.md`，进度见 `docs/handoff.md`，接手可使用
+[下一位 Agent 提示词](docs/next-agent-prompt.md)。
 
 `tinycc/` 保持可选独立行为基线；NeoCC 的活跃编译实现位于 `src/`。
 `python tests/independent.py --mode debug` 在不含 `tinycc/` 的干净源码副本中验证

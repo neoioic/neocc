@@ -1,6 +1,6 @@
 # NeoCC 迁移交接
 
-截至 2026-10-20，最近完成语义符号栈、作用域层级对象迁移及对应回归，Debug/Release
+截至 2026-10-20，最近完成表达式值栈、常用类型对象迁移及对应回归，Debug/Release
 全量验证结果见下文。后续迁移使用仓库内材料，不访问外部项目；Agent 不执行 Git 暂存、提交或推送，
 TinyCC 基线保持不变。详细设计、命令和验证边界见
 [架构](architecture.md)、[构建](build.md) 和 [测试](testing.md)。
@@ -9,7 +9,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
 
 1. 先读根 `AGENTS.md`、本记录及 `third_party/README.md`，再按指南阅读仓库内
    NEOioic/OpenOICC 契约、相关源码和测试。检查 Git 状态，保留已有修改；不要依赖
-   会话记忆、旧构建缓存或外部项目目录。接手入口以本记录和根 `AGENTS.md` 为准。
+   会话记忆、旧构建缓存或外部项目目录。可直接使用[下一位 Agent 提示词](next-agent-prompt.md)。
 2. 继续编译器职责迁移，每次只完成一个可独立审查、可验证的完整阶段。常规实现和
    验证直接推进，不反复请求确认；不得把所有剩余状态一次性塞进巨型对象。
 3. 实现、必要回归和受影响文档同阶段完成。编译器迁移阶段串行执行 Debug/Release
@@ -20,7 +20,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
 
 ## 已实现
 
-- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十二组
+- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十三组
   C 回归。活跃编译路径在 src/，删除 ONE_SOURCE 聚合分支，tinycc/ 仅作差分基线。
 - source 对象实际拥有输入缓冲栈、文件句柄及真实文件名，解析器借用当前缓冲。
   构造区由仓库 OpenOICC 预览并显式生成，常规构建不隐式再生。
@@ -47,7 +47,12 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
   回归覆盖 600 个符号的增长/复用、五类栈、作用域边界、copy/move、对象隔离、未对齐
   消息、共享打开、部分关闭、push/池分配失败保留原状态，以及编译中三处池分配失败和
   未定义标签错误后的清理、新会话恢复。
-- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十二组回归和第二/三阶段自举。
+- expressions 对象拥有值栈数组、真实空栈哨兵、栈顶和四种常用类型，删除 vtop、_vstack、
+  常用类型全局定义及 SValue typedef，改用 neocc_expression_value 保持布局。工作区独立
+  calloc 满足宿主 long double 对齐，经 VO 借用和 reset；正常和错误收尾均清除值与类型
+  的符号引用，再 reset 符号池。共享打开、部分关闭和再次打开沿用运行时契约。
+  新增对象回归，并扩展双会话、七处构造/工作区分配失败和值栈耗尽错误后的清理验证。
+- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十三组回归和第二/三阶段自举。
   参考树只影响可选 tinycc_baseline 与差分语料，不是生产依赖。
 - 缓冲/文件名分配失败先正常返回 VO，再执行编译器错误跳转；主文件缓冲失败关闭
   已打开的句柄，早期预定义文件失败只清理已初始化的算法资源。
@@ -67,50 +72,51 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含十二组 C 回归、
+2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含十三组 C 回归、
 六组编译集成检查（含新增 `scope` 语义样例和 120 个 TinyCC 输入差分）、NeoCC 编译并运行
-NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/目录测试。
+NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/表达式对象/目录测试。
 未纳入当前平台的输入及原因保留在脚本和结果 JSON，不把共同失败当作 C 功能正确的证据。
 
-第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：19 个目标文件及
-两个可执行文件共 21 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
-source/tokens/preprocessor/symbols 构造区无变化，并使用该阶段 NeoCC 重新编译运行
-四个对象测试、C11 语义样例和新增作用域样例。统一入口还分别对 GCC 构建和第三阶段
+第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：20 个目标文件及
+两个可执行文件共 22 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
+source/tokens/preprocessor/symbols/expressions 构造区无变化，并使用该阶段 NeoCC 重新编译运行
+五个对象测试、C11 语义样例和新增作用域样例。统一入口还分别对 GCC 构建和第三阶段
 构建的 OpenOICC 运行 39 项回归。
 结果记录在对应构建目录的 regression/results.json、bootstrap/results.json；
 生成器测试辅助 C 程序仍由 GCC 编译。两次验证分别写入 Debug/Release 的
 verification.json 成功记录；120 个差分输入及 21 个排除项见脚本和结果文件。
 这些 build/ 结果受忽略，不要求随源码交付，新环境需重新生成，不能当作后续修改的验证结果。
-构造区检查确认本次 `em_symbols` 布局变化由生成代码的 `sizeof`/对齐参数覆盖，无需改写生成文本。
+新增 expressions 构造区经仓库 OpenOICC 预览后显式写入；阶段工具重复再生无差异。
 来源清单与 UTF-8/LF 随迁移复核；Git 由开发者管理，提交状态应在接手时重新检查。
 
 ## 待迁移与限制
 
 1. 逐步显式传递预处理算法协作上下文，移除对全局 tcc_state 入口的依赖；
    token/值、源游标、宏展开工作区和宏定义栈已有独立所有者，不宣称预处理器全部迁移完成。
-2. 按 tccgen.c 边界迁移类型状态、`vstack`/`vtop`、函数与代码生成状态，以及
+2. 按 tccgen.c 边界迁移函数类型、函数与代码生成状态，以及
    `cur_scope`/`loop_scope`/`root_scope` 等作用域结构，保持直接代码生成。
 3. 分别迁移目标代码生成、链接输出和装载资源，删除被替代的活跃路径。
 4. 增加 Linux/其他目标的配置、ABI、运行库和差分验证。
 5. 扩展 TLS/pthread、回溯/边界检查和复杂 DLL/ELF 场景，当前尚未覆盖。
 
-当前仍有 tcc_state、类型/表达式栈、函数与代码生成全局状态、作用域结构及清理/goto 链，
+当前仍有 tcc_state、函数类型、函数与代码生成全局状态、作用域结构及清理/goto 链，
 尚未完成整个 TinyCC 的对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态
 塞进一个对象外壳代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
 
-本阶段完成语义符号池、五类符号栈头和作用域层级的所有权迁移，VO 分配/复制/移动/出栈，
-标签正常与错误收尾，以及栈和 token 链接的失败清理验证。完成阶段验证后停下供开发者
-提交备份；后续从类型/表达式栈、作用域结构和算法协作继续，不把本阶段等同于全套重写。
+本阶段完成表达式值栈与常用类型的所有权迁移、活跃调用点替换及失败清理验证。
+完成阶段验证后停下供开发者提交备份；后续从作用域结构、函数状态和算法协作继续。
 
 ## 下一阶段入口与注意事项
 
-优先阅读 `src/compiler/tccgen.c` 的 `vstack`/`vtop`、类型表、函数状态、
+优先阅读 `src/compiler/tccgen.c` 的函数状态、
 `sym_push`/`sym_pop` 的剩余调用点及 `new_scope`/`prev_scope`/`leave_scope`，连同
-`tcc.h` 的共享声明，选择类型/表达式栈或作用域结构的一个完整职责继续迁移。
+`tcc.h` 的共享声明，选择作用域结构或函数状态的一个完整职责继续迁移。
 `cur_scope`、`loop_scope`、`root_scope`、`all_cleanups` 和 `pending_gotos` 仍为文件级状态，
 不应直接塞入 `symbols` 对象。这不是要求下一阶段一次完成全部剩余语义状态；边界应由
 调用和生命周期决定。
 
+- 新增表达式工作区契约在 `include/neocc/expressions.h`，对象在 `src/objects/expressions.c`；
+  算法借用 `TCCState.expr`，不可重新定义全局栈顶。表达式 reset 必须在符号池 reset 之前。
 - 现有存储与栈契约在 `include/neocc/symbols.h`，拥有者为 `src/objects/symbols.c`；
   `tokens` 的符号链接只是借用，不另复制一份符号所有权。
 - 五个栈头与作用域层级已经对象化；`tccgen_finish` 仍必须先撤销 token 链接、清理

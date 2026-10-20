@@ -7,7 +7,7 @@
       "source": "tinycc/libtcc.c",
       "destination": "src/compiler/libtcc.c",
       "sha256": "87373a094a1067c6a37d7c8e8c7102240a217cd2fd66b20baab3a71750afddcd",
-      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics."
+      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics. Compose expressions object and borrow its aligned workspace; unwind failures and close it before symbols."
     },
     {
       "source": "tinycc/libtcc.h",
@@ -18,11 +18,12 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs. Extract neocc_expression_value and expressions workspace, removing SValue, vtop and canonical type globals.",
       "additional_derivatives": [
         "include/neocc/tokens.h",
         "include/neocc/preprocessor.h",
-        "include/neocc/symbols.h"
+        "include/neocc/symbols.h",
+        "include/neocc/expressions.h"
       ]
     },
     {
@@ -40,23 +41,25 @@
       "source": "tinycc/tccgen.c",
       "destination": "src/compiler/tccgen.c",
       "sha256": "1a26ca7a7090ce6e43b6af3056cf7d81633283b298850fded2510579749c73f6",
-      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks, reuse chain, five stack heads and scope level into symbols object; push/copy/move/drop and reset via VO after token-link cleanup; remove global pools, stacks, scope counter and SYM_DEBUG allocation branch.",
+      "local_changes": "Query borrowed tokens through VO instead of accessing a global identifier table; use the per-context preprocessor token/value and source cursor; keep semantic and code-generation algorithms. Move symbol blocks, reuse chain, five stack heads and scope level into symbols object; push/copy/move/drop and reset via VO after token-link cleanup; remove global pools, stacks, scope counter and SYM_DEBUG allocation branch. Move expression array, sentinel, top and canonical types to expressions object; borrow workspace via VO and reset all value/type references before symbols reset; retain stack capacity and direct generation algorithms.",
       "additional_derivatives": [
         "src/objects/symbols.c",
-        "src/objects/symbols.h"
+        "src/objects/symbols.h",
+        "src/objects/expressions.c",
+        "src/objects/expressions.h"
       ]
     },
     {
       "source": "tinycc/tccdbg.c",
       "destination": "src/compiler/tccdbg.c",
       "sha256": "62c14837a1e68283d4505e4837d3cc2f7e3df422a727124a5129cc71f74399fa",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; query the local symbol stack and push debug type records through symbols VO; preserve debug algorithms."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; query the local symbol stack and push debug type records through symbols VO; preserve debug algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state."
     },
     {
       "source": "tinycc/tccasm.c",
       "destination": "src/compiler/tccasm.c",
       "sha256": "390bd7a7af628e35c892b02e31d142f5f33ed88e393a4f29e03631f3b5e4c1eb",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; push assembler goto labels through the symbols object's global label stack; preserve assembler algorithms."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; push assembler goto labels through the symbols object's global label stack; preserve assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state."
     },
     {
       "source": "tinycc/tccelf.c",
@@ -106,7 +109,8 @@
     {
       "source": "tinycc/x86_64-gen.c",
       "destination": "src/compiler/x86_64-gen.c",
-      "sha256": "4bc0cc51486f5fda2f26d94f869798a41fa1116e78abe6a98a0c5a31da418b0a"
+      "sha256": "4bc0cc51486f5fda2f26d94f869798a41fa1116e78abe6a98a0c5a31da418b0a",
+      "local_changes": "Use neocc_expression_value and the current context expression workspace instead of global expression state."
     },
     {
       "source": "tinycc/x86_64-link.c",
@@ -122,7 +126,7 @@
       "source": "tinycc/i386-asm.c",
       "destination": "src/compiler/i386-asm.c",
       "sha256": "c967423800ceeee68454385dee9dac39f7ea190a74dd8a19ae227e719757be00",
-      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms."
+      "local_changes": "Use the per-context preprocessor token/value and source cursor; preserve debug and assembler algorithms. Use neocc_expression_value and the current context expression workspace instead of global expression state."
     },
     {
       "source": "tinycc/i386-asm.h",

@@ -2515,7 +2515,7 @@ ST_FUNC void tcc_tcov_block_end(TCCState *s1, int line);
 
 ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 {
-    SValue sv;
+    struct neocc_expression_value sv;
     void *ptr;
     unsigned long last_offset = tcov_data.offset;
 

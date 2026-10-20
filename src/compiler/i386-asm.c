@@ -1507,7 +1507,7 @@ ST_FUNC void asm_compute_constraints(ASMOperand *operands,
 }
 
 ST_FUNC void subst_asm_operand(struct neocc_string *add_str,
-                              SValue *sv, int modifier)
+                              struct neocc_expression_value *sv, int modifier)
 {
     int r, reg, size, val;
 
@@ -1664,7 +1664,7 @@ ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands,
                     op->is_memory) {
                     /* memory reference case (for both input and
                        output cases) */
-                    SValue sv;
+                    struct neocc_expression_value sv;
                     sv = *op->vt;
                     sv.r = (sv.r & ~VT_VALMASK) | VT_LOCAL | VT_LVAL;
                     sv.type.t = VT_PTR;
@@ -1673,7 +1673,7 @@ ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands,
                     /* load value in register */
                     load(op->reg, op->vt);
                     if (op->is_llong) {
-                        SValue sv;
+                        struct neocc_expression_value sv;
                         sv = *op->vt;
                         sv.c.i += 4;
                         load(TREG_XDX, &sv);
@@ -1688,7 +1688,7 @@ ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands,
             if (op->reg >= 0) {
                 if ((op->vt->r & VT_VALMASK) == VT_LLOCAL) {
                     if (!op->is_memory) {
-                        SValue sv;
+                        struct neocc_expression_value sv;
                         sv = *op->vt;
                         sv.r = (sv.r & ~VT_VALMASK) | VT_LOCAL;
 			sv.type.t = VT_PTR;
@@ -1701,7 +1701,7 @@ ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands,
                 } else {
                     store(op->reg, op->vt);
                     if (op->is_llong) {
-                        SValue sv;
+                        struct neocc_expression_value sv;
                         sv = *op->vt;
                         sv.c.i += 4;
                         store(TREG_XDX, &sv);

@@ -413,7 +413,6 @@ extern long double strtold (const char *__nptr, char **__endptr);
 
 #define INCLUDE_STACK_SIZE  32
 #define IFDEF_STACK_SIZE    64
-#define VSTACK_SIZE         512
 #define STRING_MAX_SIZE     NEOCC_PREPROCESSOR_STRING_MAX
 #define TOKSTR_MAX_SIZE     256
 #define PACK_STACK_SIZE     8
@@ -432,22 +431,7 @@ typedef int nwchar_t;
 
 #include "neocc/symbols.h"
 
-/* value on stack */
-typedef struct SValue {
-    struct neocc_type type;      /* type */
-    unsigned short r;      /* register + flags */
-    unsigned short r2;     /* second register, used for 'long long'
-                              type. If not used, set to VT_CONST */
-    union {
-      struct { int jtrue, jfalse; }; /* forward jmps */
-      union neocc_value c;         /* constant, if VT_CONST */
-    };
-    union {
-      struct { unsigned short cmp_op, cmp_r; }; /* VT_CMP operation */
-      struct neocc_symbol *sym;  /* symbol, if (VT_SYM | VT_CONST), or if */
-    };                  /* result of unary() for an identifier. */
-
-} SValue;
+#include "neocc/expressions.h"
 
 /* section definition */
 typedef struct Section {
@@ -568,7 +552,7 @@ typedef struct ASMOperand {
     int id; /* GCC 3 optional identifier (0 if number only supported) */
     char constraint[16];
     char asm_str[16]; /* computed asm string for operand */
-    SValue *vt; /* C value of the expression */
+    struct neocc_expression_value *vt; /* C value of the expression */
     int ref_index; /* if >= 0, gives reference to a output constraint */
     int input_index; /* if >= 0, gives reference to an input constraint */
     int priority; /* priority, used to assign registers */
@@ -596,6 +580,8 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *expressions;
+    struct neocc_expressions *expr; /* VO borrow; valid until close. */
     struct object *preprocessor;
     struct neocc_preprocessor *pp; /* VO borrow; valid until close. */
     unsigned char verbose; /* if true, display some information during compilation */
@@ -1275,8 +1261,6 @@ static inline int toup(int c) {
 
 /* ------------ tccgen.c ------------ */
 
-ST_DATA struct neocc_type int_type, func_old_type, char_pointer_type;
-ST_DATA SValue *vtop;
 ST_DATA int rsym, anon_sym, ind, loc;
 ST_DATA char debug_modes;
 
@@ -1336,7 +1320,7 @@ ST_FUNC void vpush_helper_func(int v);
 ST_FUNC void vset(struct neocc_type *type, int r, int v);
 ST_FUNC void vset_VT_CMP(int op);
 ST_FUNC void vpushi(int v);
-ST_FUNC void vpushv(SValue *v);
+ST_FUNC void vpushv(struct neocc_expression_value *v);
 ST_FUNC void vpushsym(struct neocc_type *type, struct neocc_symbol *sym);
 ST_FUNC void vswap(void);
 ST_FUNC void vrott(int n);
@@ -1479,8 +1463,8 @@ ST_DATA const int reg_classes[NB_REGS];
 
 ST_FUNC void gsym_addr(int t, int a);
 ST_FUNC void gsym(int t);
-ST_FUNC void load(int r, SValue *sv);
-ST_FUNC void store(int r, SValue *v);
+ST_FUNC void load(int r, struct neocc_expression_value *sv);
+ST_FUNC void store(int r, struct neocc_expression_value *v);
 ST_FUNC int gfunc_sret(struct neocc_type *vt, int variadic, struct neocc_type *ret, int *align, int *regsize);
 ST_FUNC void gfunc_call(int nb_args);
 ST_FUNC void gfunc_prolog(struct neocc_symbol *func_sym);
@@ -1537,7 +1521,7 @@ ST_FUNC void gen_le32(int c);
 ST_FUNC void gen_addr32(int r, struct neocc_symbol *sym, int c);
 ST_FUNC void gen_addrpc32(int r, struct neocc_symbol *sym, int c);
 ST_FUNC void gen_cvt_csti(int t);
-ST_FUNC void gen_increment_tcov (SValue *sv);
+ST_FUNC void gen_increment_tcov (struct neocc_expression_value *sv);
 #endif
 
 /* ------------ x86_64-gen.c ------------ */
@@ -1556,7 +1540,7 @@ ST_FUNC void gen_cvt_csti(int t);
 PUB_FUNC const char *default_elfinterp(struct TCCState *s);
 #endif
 ST_FUNC void arm_init(struct TCCState *s);
-ST_FUNC void gen_increment_tcov (SValue *sv);
+ST_FUNC void gen_increment_tcov (struct neocc_expression_value *sv);
 #endif
 
 /* ------------ arm64-gen.c ------------ */
@@ -1568,7 +1552,7 @@ ST_FUNC void gen_va_arg(struct neocc_type *t);
 ST_FUNC void gen_clear_cache(void);
 ST_FUNC void gen_cvt_sxtw(void);
 ST_FUNC void gen_cvt_csti(int t);
-ST_FUNC void gen_increment_tcov (SValue *sv);
+ST_FUNC void gen_increment_tcov (struct neocc_expression_value *sv);
 #endif
 
 /* ------------ riscv64-gen.c ------------ */
@@ -1578,7 +1562,7 @@ ST_FUNC void gen_va_start(void);
 ST_FUNC void arch_transfer_ret_regs(int);
 ST_FUNC void gen_cvt_sxtw(void);
 ST_FUNC void gen_cvt_csti(int t);
-ST_FUNC void gen_increment_tcov (SValue *sv);
+ST_FUNC void gen_increment_tcov (struct neocc_expression_value *sv);
 ST_FUNC void gen_clear_cache(void);
 #endif
 
@@ -1609,7 +1593,7 @@ ST_FUNC void gen_expr32(ExprValue *pe);
 ST_FUNC void asm_opcode(TCCState *s1, int opcode);
 ST_FUNC int asm_parse_regvar(int t);
 ST_FUNC void asm_compute_constraints(ASMOperand *operands, int nb_operands, int nb_outputs, const uint8_t *clobber_regs, int *pout_reg);
-ST_FUNC void subst_asm_operand(struct neocc_string *add_str, SValue *sv, int modifier);
+ST_FUNC void subst_asm_operand(struct neocc_string *add_str, struct neocc_expression_value *sv, int modifier);
 ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands, int nb_outputs, int is_output, uint8_t *clobber_regs, int out_reg);
 ST_FUNC void asm_clobber(uint8_t *clobber_regs, const char *str);
 #endif

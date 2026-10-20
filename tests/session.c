@@ -55,6 +55,7 @@ int main(int argc, char **argv)
 		b = session(argv[1]);
 		CHECK(a->sources != b->sources && a->sources->oid != b->sources->oid);
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
+		CHECK(a->expr != b->expr && a->expressions != b->expressions);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,
@@ -80,6 +81,9 @@ int main(int argc, char **argv)
 			"return x * 2.0 == 5.0; }") == 0);
 		CHECK(!a->pp->source && !a->pp->token && !a->pp->value.i);
 		CHECK(!b->pp->source && !b->pp->token && !b->pp->value.i);
+		CHECK(a->expr->top == a->expr->values);
+		CHECK(b->expr->top == b->expr->values);
+		CHECK(!a->expr->char_pointer_type.ref && !b->expr->func_old_type.ref);
 		clean_access(a->sources);
 		clean_access(b->sources);
 		CHECK(a->symbols != b->symbols);

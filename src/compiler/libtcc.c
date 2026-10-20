@@ -851,9 +851,10 @@ LIBTCCAPI TCCState *tcc_new(void)
 {
     TCCState *s = tcc_mallocz(sizeof(TCCState));
     struct object **objects[] = { &s->sources, &s->tokens,
-                                   &s->preprocessor, &s->symbols };
+                                   &s->preprocessor, &s->symbols, &s->expressions };
     const unsigned short models[] = { NEOCC_MSN_SOURCE, NEOCC_MSN_TOKENS,
-                                      NEOCC_MSN_PREPROCESSOR, NEOCC_MSN_SYMBOLS };
+                                      NEOCC_MSN_PREPROCESSOR, NEOCC_MSN_SYMBOLS,
+                                      NEOCC_MSN_EXPRESSIONS };
     size_t i;
 
     for (i = 0; i < sizeof(models) / sizeof(models[0]); i++) {
@@ -875,7 +876,11 @@ LIBTCCAPI TCCState *tcc_new(void)
         int result = vo_interact1(s->preprocessor,
             NEOCC_AC1_PREPROCESSOR_BORROW, (unsigned char *)&s->pp,
             sizeof(s->pp), &quantity, &neocc_host_caller);
-        if (!RP(result) || quantity != sizeof(s->pp)) {
+        if (RP(result) && quantity == sizeof(s->pp))
+            result = vo_interact1(s->expressions,
+                NEOCC_AC1_EXPRESSIONS_BORROW, (unsigned char *)&s->expr,
+                sizeof(s->expr), &quantity, &neocc_host_caller);
+        if (!RP(result) || quantity != sizeof(s->expr)) {
             while (i)
                 neocc_close_object(*objects[--i]);
             tcc_free(s);
@@ -929,6 +934,7 @@ LIBTCCAPI TCCState *tcc_new(void)
 
 LIBTCCAPI void tcc_delete(TCCState *s1)
 {
+    neocc_close_object(s1->expressions);
     neocc_close_object(s1->preprocessor);
     neocc_close_object(s1->symbols);
     neocc_close_object(s1->tokens);

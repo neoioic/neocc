@@ -1214,7 +1214,7 @@ static void subst_asm_operands(ASMOperand *operands, int nb_operands,
 {
     int c, index, modifier;
     ASMOperand *op;
-    SValue sv;
+    struct neocc_expression_value sv;
 
     for(;;) {
         c = *str++;
@@ -1292,16 +1292,16 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr,
             skip('(');
             gexpr();
             if (is_output) {
-                if (!(vtop->type.t & VT_ARRAY))
+                if (!(tcc_state->expr->top->type.t & VT_ARRAY))
                     test_lvalue();
             } else {
                 /* we want to avoid LLOCAL case, except when the 'm'
                    constraint is used. Note that it may come from
                    register storage, so we need to convert (reg)
                    case */
-                if ((vtop->r & VT_LVAL) &&
-                    ((vtop->r & VT_VALMASK) == VT_LLOCAL ||
-                     (vtop->r & VT_VALMASK) < VT_CONST) &&
+                if ((tcc_state->expr->top->r & VT_LVAL) &&
+                    ((tcc_state->expr->top->r & VT_VALMASK) == VT_LLOCAL ||
+                     (tcc_state->expr->top->r & VT_VALMASK) < VT_CONST) &&
                     !strchr(op->constraint, 'm')
 #ifdef TCC_TARGET_ARM64
                     && !strchr(op->constraint, 'Q')
@@ -1311,7 +1311,7 @@ static void parse_asm_operands(ASMOperand *operands, int *nb_operands_ptr,
                     gv(RC_INT);
                 }
             }
-            op->vt = vtop;
+            op->vt = tcc_state->expr->top;
             skip(')');
             if (tcc_state->pp->token == ',') {
                 next();
