@@ -3,6 +3,7 @@
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
+#include "objects/functions.h"
 
 static char diagnostic[4096];
 
@@ -28,6 +29,7 @@ static void clean_semantics(struct TCCState *state)
 {
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
+	struct em_functions *functions = state->functions->members;
 
 	CHECK(!symbols->blocks && !symbols->free_first && !symbols->scope);
 	for (int i = 0; i < NEOCC_SYMBOL_STACK_COUNT; i++)
@@ -35,6 +37,20 @@ static void clean_semantics(struct TCCState *state)
 	CHECK(!scopes->active && !scopes->available);
 	CHECK(!state->scope->current && !state->scope->root && !state->scope->loop);
 	CHECK(!state->scope->all_cleanups && !state->scope->pending_gotos);
+	CHECK(!state->function->type.ref && !state->function->type.t);
+	CHECK(!*state->function->name && state->function->start == -1);
+	CHECK(!state->function->variadic && !state->function->old_style);
+	CHECK(!state->function->stack_offset && !state->function->struct_return);
+	CHECK(!state->function->return_jumps && !functions->temp_count);
+	for (int i = 0; i < NEOCC_FUNCTION_TEMP_CAPACITY; i++)
+		CHECK(!functions->temps[i].location && !functions->temps[i].size &&
+		      !functions->temps[i].alignment);
+	for (unsigned int i = 0; i < state->functions->node_count; i++) {
+		struct object *node = state->functions->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 }
 
 static struct TCCState *session(const char *runtime)
@@ -64,6 +80,7 @@ int main(int argc, char **argv)
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
 		CHECK(a->scope != b->scope && a->scopes != b->scopes);
+		CHECK(a->function != b->function && a->functions != b->functions);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,

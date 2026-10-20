@@ -3,6 +3,7 @@
 #include "objects/source.h"
 #include "objects/symbols.h"
 #include "objects/scopes.h"
+#include "objects/functions.h"
 
 void *__real_calloc(size_t, size_t);
 void *__real_malloc(size_t);
@@ -96,7 +97,22 @@ static void *compiler_reallocator(void *old, unsigned long size)
 static void clean_preprocessor(struct TCCState *state)
 {
 	struct em_scopes *scopes = state->scopes->members;
+	struct em_functions *functions = state->functions->members;
 
+	CHECK(!state->function->type.ref && !state->function->type.t);
+	CHECK(!*state->function->name && state->function->start == -1);
+	CHECK(!state->function->variadic && !state->function->old_style);
+	CHECK(!state->function->stack_offset && !state->function->struct_return);
+	CHECK(!state->function->return_jumps && !functions->temp_count);
+	for (int i = 0; i < NEOCC_FUNCTION_TEMP_CAPACITY; i++)
+		CHECK(!functions->temps[i].location && !functions->temps[i].size &&
+		      !functions->temps[i].alignment);
+	for (unsigned int i = 0; i < state->functions->node_count; i++) {
+		struct object *node = state->functions->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(!scopes->active && !scopes->available);
 	CHECK(!state->scope->current && !state->scope->loop && !state->scope->root);
 	CHECK(!state->scope->all_cleanups && !state->scope->pending_gotos);
@@ -153,6 +169,27 @@ static void quiet_error(void *unused, const char *text)
 		scope_error = 1;
 }
 
+struct function_failure {
+	struct TCCState *state;
+	int seen;
+};
+
+static void function_error(void *opaque, const char *text)
+{
+	struct function_failure *failure = opaque;
+	struct neocc_function *function = failure->state->function;
+	struct em_functions *members = failure->state->functions->members;
+
+	if (!strstr(text, "missing_function_value"))
+		return;
+	CHECK(!strcmp(function->name, "broken_function"));
+	CHECK(function->type.ref && function->variadic && function->start >= 0);
+	CHECK(function->stack_offset < 0 && function->struct_return);
+	CHECK(function->return_jumps);
+	CHECK(members->temp_count);
+	failure->seen++;
+}
+
 int main(int argc, char **argv)
 {
 	struct TCCState *state;
@@ -173,8 +210,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject six constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 8; failure++) {
+	/* Reject seven constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 9; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -345,6 +382,42 @@ int main(int argc, char **argv)
 		tcc_set_lib_path(state, argv[1]);
 		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
 		CHECK(tcc_compile_string(state, "int after_depth = 19;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+	}
+	/* Observe a populated function workspace/cache before the error jump,
+	 * then verify normal cleanup removes every borrowed name/type and slot.
+	 */
+	for (int debug = 0; debug < 2; debug++) {
+		struct function_failure failure = { 0 };
+
+		state = tcc_new();
+		CHECK(state);
+		failure.state = state;
+		tcc_set_lib_path(state, argv[1]);
+		if (debug)
+			tcc_set_options(state, "-gdwarf-5");
+		tcc_set_error_func(state, &failure, function_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"struct big { long long a, b, c; }; "
+			"extern struct big create(int); "
+			"extern struct big join(struct big, struct big); "
+			"extern int number(void); "
+			"struct big broken_function(int n, ...) { int array[n]; "
+			"array[0] = n + number(); "
+			"if (n) return join(create(1), create(2)); "
+			"return missing_function_value; }") < 0);
+		CHECK(failure.seen == 1);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"int recovered_function(int n) { return n + 1; }") == 0);
 		clean_preprocessor(state);
 		tcc_delete(state);
 	}

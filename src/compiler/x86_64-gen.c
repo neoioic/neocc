@@ -919,6 +919,7 @@ void gfunc_call(int nb_args)
 /* generate function prolog of type 't' */
 void gfunc_prolog(struct neocc_symbol *func_sym)
 {
+    struct neocc_function *function = tcc_state->function;
     struct neocc_type *func_type = &func_sym->type;
     int addr, reg_param_index, bt, size;
     struct neocc_symbol *sym;
@@ -927,7 +928,7 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
     func_ret_sub = 0;
     func_scratch = 32;
     func_alloca = 0;
-    loc = 0;
+    function->stack_offset = 0;
 
     addr = PTR_SIZE * 2;
     ind += FUNC_PROLOG_SIZE;
@@ -938,10 +939,10 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
 
     /* if the function returns a structure, then add an
        implicit pointer parameter */
-    size = gfunc_arg_size(&func_vt);
+    size = gfunc_arg_size(&function->type);
     if (!using_regs(size)) {
         gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
-        func_vc = addr;
+        function->struct_return = addr;
         reg_param_index++;
         addr += 8;
     }
@@ -975,7 +976,7 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
     }
 
     while (reg_param_index < REGN) {
-        if (func_var) {
+        if (function->variadic) {
             gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, addr);
             addr += 8;
         }
@@ -990,11 +991,12 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
 /* generate function epilog */
 void gfunc_epilog(void)
 {
+    struct neocc_function *function = tcc_state->function;
     int v, start;
 
     /* align local size to word & save local variables */
     func_scratch = (func_scratch + 15) & -16;
-    loc = (loc & -16) - func_scratch;
+    function->stack_offset = (function->stack_offset & -16) - func_scratch;
 
 #ifdef CONFIG_TCC_BCHECK
     if (tcc_state->do_bounds_check)
@@ -1010,7 +1012,7 @@ void gfunc_epilog(void)
         g(func_ret_sub >> 8);
     }
 
-    v = -loc;
+    v = -function->stack_offset;
     start = func_sub_sp_offset - FUNC_PROLOG_SIZE;
     cur_text_section->data_offset = ind;
     pe_add_unwind_data(start, ind, v);
@@ -1417,13 +1419,14 @@ void gfunc_call(int nb_args)
 #define FUNC_PROLOG_SIZE 11
 
 static void push_arg_reg(int i) {
-    loc -= 8;
-    gen_modrm64(0x89, arg_regs[i], VT_LOCAL, NULL, loc);
+    tcc_state->function->stack_offset -= 8;
+    gen_modrm64(0x89, arg_regs[i], VT_LOCAL, NULL, tcc_state->function->stack_offset);
 }
 
 /* generate function prolog of type 't' */
 void gfunc_prolog(struct neocc_symbol *func_sym)
 {
+    struct neocc_function *function = tcc_state->function;
     struct neocc_type *func_type = &func_sym->type;
     X86_64_Mode mode, ret_mode;
     int i, addr, align, size, reg_count;
@@ -1433,13 +1436,13 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
 
     sym = func_type->ref;
     addr = PTR_SIZE * 2;
-    loc = 0;
+    function->stack_offset = 0;
     ind += FUNC_PROLOG_SIZE;
     func_sub_sp_offset = ind;
     func_ret_sub = 0;
-    ret_mode = classify_x86_64_arg(&func_vt, NULL, &size, &align, &reg_count);
+    ret_mode = classify_x86_64_arg(&function->type, NULL, &size, &align, &reg_count);
 
-    if (func_var) {
+    if (function->variadic) {
         int seen_reg_num, seen_sse_num, seen_stack_size;
         seen_reg_num = ret_mode == x86_64_mode_memory;
         seen_sse_num = 0;
@@ -1470,7 +1473,7 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
             }
         }
 
-        loc -= 24;
+        function->stack_offset -= 24;
         /* movl $0x????????, -0x18(%rbp) */
         o(0xe845c7);
         gen_le32(seen_reg_num * 8);
@@ -1490,14 +1493,14 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
 
         /* save all register passing arguments */
         for (i = 0; i < 8; i++) {
-            loc -= 16;
+            function->stack_offset -= 16;
 	    if (!tcc_state->nosse) {
                 /* movq */
-		gen_modrm32(0xd60f66, 7 - i, VT_LOCAL, NULL, loc);
+		gen_modrm32(0xd60f66, 7 - i, VT_LOCAL, NULL, function->stack_offset);
 	    }
             /* movq $0, loc+8(%rbp) */
             o(0x85c748);
-            gen_le32(loc + 8);
+            gen_le32(function->stack_offset + 8);
             gen_le32(0);
         }
         for (i = 0; i < REGN; i++) {
@@ -1513,7 +1516,7 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
        implicit pointer parameter */
     if (ret_mode == x86_64_mode_memory) {
         push_arg_reg(reg_param_index);
-        func_vc = loc;
+        function->struct_return = function->stack_offset;
         reg_param_index++;
     }
     /* define parameters */
@@ -1526,8 +1529,8 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
 	        tcc_error("SSE disabled but floating point arguments used");
             if (sse_param_index + reg_count <= 8) {
                 /* save arguments passed by register */
-                loc -= reg_count * 8;
-                param_addr = loc;
+                function->stack_offset -= reg_count * 8;
+                param_addr = function->stack_offset;
                 for (i = 0; i < reg_count; ++i) {
                     gen_modrm32(0xd60f66, sse_param_index, VT_LOCAL, NULL, param_addr + i*8);
                     ++sse_param_index;
@@ -1549,8 +1552,8 @@ void gfunc_prolog(struct neocc_symbol *func_sym)
         case x86_64_mode_integer: {
             if (reg_param_index + reg_count <= REGN) {
                 /* save arguments passed by register */
-                loc -= reg_count * 8;
-                param_addr = loc;
+                function->stack_offset -= reg_count * 8;
+                param_addr = function->stack_offset;
                 for (i = 0; i < reg_count; ++i) {
                     gen_modrm64(0x89, arg_regs[reg_param_index], VT_LOCAL, NULL, param_addr + i*8);
                     ++reg_param_index;
@@ -1591,7 +1594,7 @@ void gfunc_epilog(void)
         g(func_ret_sub >> 8);
     }
     /* align local size to word & save local variables */
-    v = (-loc + 15) & -16;
+    v = (-tcc_state->function->stack_offset + 15) & -16;
     saved_ind = ind;
     ind = func_sub_sp_offset - FUNC_PROLOG_SIZE;
     o(0xe5894855);  /* push %rbp, mov %rsp, %rbp */

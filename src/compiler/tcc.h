@@ -433,6 +433,7 @@ typedef int nwchar_t;
 
 #include "neocc/expressions.h"
 #include "neocc/scopes.h"
+#include "neocc/functions.h"
 
 /* section definition */
 typedef struct Section {
@@ -581,6 +582,8 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *functions;
+    struct neocc_function *function; /* VO borrow; valid until close. */
     struct object *scopes;
     struct neocc_scopes *scope; /* VO borrow; valid until close. */
     struct object *expressions;
@@ -1264,16 +1267,11 @@ static inline int toup(int c) {
 
 /* ------------ tccgen.c ------------ */
 
-ST_DATA int rsym, anon_sym, ind, loc;
+ST_DATA int anon_sym, ind;
 ST_DATA char debug_modes;
 
 ST_DATA int nocode_wanted; /* true if no code generation wanted for an expression */
 ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
-ST_DATA struct neocc_type func_vt; /* current function return type (used by return instruction) */
-ST_DATA int func_var; /* true if current function is variadic */
-ST_DATA int func_vc; /* stack address for implicit struct return storage */
-ST_DATA int func_ind; /* function start address */
-ST_DATA const char *funcname;
 
 ST_FUNC void tccgen_init(TCCState *s1);
 ST_FUNC int tccgen_compile(TCCState *s1);

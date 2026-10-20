@@ -17,6 +17,8 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 				    struct object **, unsigned char *);
 	extern int crt_symbols(uint64_t *, unsigned int, unsigned int, int,
 			       struct object **, unsigned char *);
+	extern int crt_functions(uint64_t *, unsigned int, unsigned int, int,
+				 struct object **, unsigned char *);
 	extern int crt_scopes(uint64_t *, unsigned int, unsigned int, int,
 			      struct object **, unsigned char *);
 	extern int crt_expressions(uint64_t *, unsigned int, unsigned int, int,
@@ -29,7 +31,8 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 		*object_out = NULL;
 	if ((model_id != NEOCC_MSN_SOURCE && model_id != NEOCC_MSN_TOKENS &&
 	     model_id != NEOCC_MSN_PREPROCESSOR && model_id != NEOCC_MSN_SYMBOLS &&
-	     model_id != NEOCC_MSN_EXPRESSIONS && model_id != NEOCC_MSN_SCOPES) ||
+	     model_id != NEOCC_MSN_EXPRESSIONS && model_id != NEOCC_MSN_SCOPES &&
+	     model_id != NEOCC_MSN_FUNCTIONS) ||
 	    caller_capacity < 1 ||
 	    (!!object_out == !!exotic_memory))
 		return RN_INVALIDARG;
@@ -51,6 +54,9 @@ int host_create_object(unsigned short model_id, unsigned int input_capacity,
 	else if (model_id == NEOCC_MSN_EXPRESSIONS)
 		result = crt_expressions(&oid, input_capacity, output_capacity,
 					 caller_capacity, object_out, exotic_memory);
+	else if (model_id == NEOCC_MSN_FUNCTIONS)
+		result = crt_functions(&oid, input_capacity, output_capacity,
+				       caller_capacity, object_out, exotic_memory);
 	else if (model_id == NEOCC_MSN_SCOPES)
 		result = crt_scopes(&oid, input_capacity, output_capacity,
 				    caller_capacity, object_out, exotic_memory);
@@ -73,7 +79,8 @@ char host_destroy_object(struct object *object)
 	     object->model_id != NEOCC_MSN_PREPROCESSOR &&
 	     object->model_id != NEOCC_MSN_SYMBOLS &&
 	     object->model_id != NEOCC_MSN_EXPRESSIONS &&
-	     object->model_id != NEOCC_MSN_SCOPES) || !object->oid)
+	     object->model_id != NEOCC_MSN_SCOPES &&
+	     object->model_id != NEOCC_MSN_FUNCTIONS) || !object->oid)
 		return FALSE;
 	for (i = 0; i < object->node_count; i++) {
 		struct object *node = object->nodes + i;

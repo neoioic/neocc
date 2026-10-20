@@ -45,6 +45,7 @@ class Regression(unittest.TestCase):
         for case, sources in {
             "semantics": ["tests/cases/semantics.c"],
             "scope": ["tests/cases/scope.c"],
+            "functions": ["tests/cases/functions.c"],
             "link": ["tests/cases/link_a.c", "tests/cases/link_b.c"],
         }.items():
             with self.subTest(case=case):
@@ -63,7 +64,7 @@ class Regression(unittest.TestCase):
 
     def test_preprocessing_and_object_bytes(self):
         for source in ["tests/cases/preprocess.c", "tests/cases/semantics.c",
-                       "tests/cases/scope.c"]:
+                       "tests/cases/scope.c", "tests/cases/functions.c"]:
             with self.subTest(source=source):
                 preprocessed = []
                 for compiler in (BASELINE, NEOCC):
@@ -103,17 +104,17 @@ class Regression(unittest.TestCase):
         programs = {
             "dispatch": ["third_party/neoioic/tests/dispatch.c", *runtime_sources],
             "source": ["tests/source.c", "src/objects/source.c",
-                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c",
+                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c",
                        "src/host/host.c",
                        *runtime_sources],
             "tokens": ["tests/tokens.c", "src/objects/source.c",
-                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/host/host.c", *runtime_sources],
+                       "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/host/host.c", *runtime_sources],
             "preprocessor": ["tests/preprocessor.c", "src/objects/source.c",
-                             "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c",
+                             "src/objects/tokens.c", "src/objects/preprocessor.c", "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c",
                              "src/host/host.c", *runtime_sources],
             "symbols": ["tests/symbols.c", "src/objects/source.c",
                         "src/objects/tokens.c", "src/objects/preprocessor.c",
-                        "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/host/host.c", *runtime_sources],
+                        "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/host/host.c", *runtime_sources],
             "expressions": ["tests/expressions.c",
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],
@@ -122,6 +123,10 @@ class Regression(unittest.TestCase):
                        *[str(p.relative_to(ROOT)) for p in
                          sorted((ROOT / "src/objects").glob("*.c"))],
                        "src/host/host.c", *runtime_sources],
+            "functions": ["tests/functions.c",
+                          *[str(p.relative_to(ROOT)) for p in
+                            sorted((ROOT / "src/objects").glob("*.c"))],
+                          "src/host/host.c", *runtime_sources],
             "directory": ["tests/directory.c", "third_party/openoicc/src/support/text.c"],
             "diamond": ["third_party/neoioic/examples/multiple_inheritance/host.c",
                         "third_party/neoioic/examples/multiple_inheritance/factory.c",

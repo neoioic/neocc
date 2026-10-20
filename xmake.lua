@@ -191,6 +191,14 @@ target("expressions_test")
     set_rundir(".")
     add_tests("default")
 
+target("functions_test")
+    set_kind("binary")
+    add_deps("neoioic")
+    add_includedirs("include", "src", "third_party/openoicc/include")
+    add_files("tests/functions.c", "src/objects/*.c", "src/host/host.c")
+    set_rundir(".")
+    add_tests("default")
+
 for _, name in ipairs({"scopes_test", "scopes_fault_test"}) do
     target(name)
         set_kind("binary")

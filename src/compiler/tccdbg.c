@@ -900,7 +900,7 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
 #elif defined TCC_TARGET_RISCV64
     dwarf_reloc(eh_frame_section, eh_section_sym, R_RISCV_32_PCREL);
 #endif
-    dwarf_data4(eh_frame_section, func_ind); // PC Begin
+    dwarf_data4(eh_frame_section, s1->function->start); // PC Begin
     dwarf_data4(eh_frame_section, size); // PC Range
     dwarf_data1(eh_frame_section, 0); // Augmentation Length
 #if defined TCC_TARGET_I386
@@ -955,7 +955,7 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
     dwarf_uleb128(eh_frame_section, 27); // cfa-216
     dwarf_data1(eh_frame_section, DW_CFA_advance_loc + 3);
     dwarf_data1(eh_frame_section, DW_CFA_def_cfa_offset);
-    dwarf_uleb128(eh_frame_section, 224 + ((-loc + 15) & ~15));
+    dwarf_uleb128(eh_frame_section, 224 + ((-s1->function->stack_offset + 15) & ~15));
     dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
     dwarf_data4(eh_frame_section, size / 4 - 5);
     dwarf_data1(eh_frame_section, DW_CFA_restore + 30); // x30 (lr)
@@ -977,7 +977,7 @@ static void tcc_debug_frame_end(TCCState *s1, int size)
     dwarf_uleb128(eh_frame_section, 0); // ofs 0
     dwarf_data1(eh_frame_section, DW_CFA_advance_loc4);
     while (size >= 4 &&
-	   read32le(cur_text_section->data + func_ind + size - 4) != 0x00008067)
+	   read32le(cur_text_section->data + s1->function->start + size - 4) != 0x00008067)
 	size -= 4;
     dwarf_data4(eh_frame_section, size - 36);
     dwarf_data1(eh_frame_section, DW_CFA_def_cfa);
@@ -1527,8 +1527,8 @@ ST_FUNC void tcc_debug_line(TCCState *s1)
     }
     else
     {
-	if (func_ind != -1) {
-            put_stabn(s1, N_SLINE, 0, f->line_num, ind - func_ind);
+	if (s1->function->start != -1) {
+            put_stabn(s1, N_SLINE, 0, f->line_num, ind - s1->function->start);
         } else {
             /* from tcc_assemble */
             put_stabs_r(s1, NULL, N_SLINE, 0, f->line_num, ind, text_section, section_sym);
@@ -2243,10 +2243,10 @@ static void tcc_debug_finish (TCCState *s1, struct _debug_info *cur)
 			           : DWARF_ABBREV_LEXICAL_EMPTY_BLOCK);
             dwarf_reloc(dwarf_info_section, section_sym, R_DATA_PTR);
 #if PTR_SIZE == 4
-            dwarf_data4(dwarf_info_section, func_ind + cur->start);
+            dwarf_data4(dwarf_info_section, s1->function->start + cur->start);
             dwarf_data4(dwarf_info_section, cur->end - cur->start);
 #else
-            dwarf_data8(dwarf_info_section, func_ind + cur->start);
+            dwarf_data8(dwarf_info_section, s1->function->start + cur->start);
             dwarf_data8(dwarf_info_section, cur->end - cur->start);
 #endif
             tcc_debug_finish (s1, cur->child);
@@ -2316,7 +2316,7 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
         return;
     debug_info_root = NULL;
     debug_info = NULL;
-    tcc_debug_stabn(s1, N_LBRAC, ind - func_ind);
+    tcc_debug_stabn(s1, N_LBRAC, ind - s1->function->start);
     f = put_new_file(s1);
     if (!f)
 	return;
@@ -2329,17 +2329,17 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
 	    int i, len;
 
 	    dwarf_line_op(s1, 0); // extended
-	    dwarf_uleb128_op(s1, strlen(funcname) + 2);
+	    dwarf_uleb128_op(s1, strlen(s1->function->name) + 2);
 	    dwarf_line_op(s1, DW_LNE_hi_user - 1);
-	    len = strlen(funcname) + 1;
+	    len = strlen(s1->function->name) + 1;
 	    for (i = 0; i < len; i++)
-		dwarf_line_op(s1, funcname[i]);
+		dwarf_line_op(s1, s1->function->name[i]);
 	}
     }
     else
     {
         cstr_new (&debug_str);
-        cstr_printf(&debug_str, "%s:%c", funcname, sym->type.t & VT_STATIC ? 'f' : 'F');
+        cstr_printf(&debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
         tcc_get_debug_info(s1, sym->type.ref, &debug_str);
         put_stabs_r(s1, debug_str.data, N_FUN, 0, f->line_num, 0, cur_text_section, sym->c);
         cstr_free (&debug_str);
@@ -2383,17 +2383,17 @@ ST_FUNC void tcc_debug_funcend(TCCState *s1, int size)
 				    : DWARF_ABBREV_SUBPROGRAM_EXTERNAL);
         if ((sym->type.t & VT_STATIC) == 0)
             dwarf_data1(dwarf_info_section, 1);
-        dwarf_strp(dwarf_info_section, funcname);
+        dwarf_strp(dwarf_info_section, s1->function->name);
         dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
         dwarf_uleb128(dwarf_info_section, dwarf_info.line);
 	tcc_debug_check_forw(s1, sym->type.ref, dwarf_info_section->data_offset);
         dwarf_data4(dwarf_info_section, n_debug_info - dwarf_info.start);
         dwarf_reloc(dwarf_info_section, section_sym, R_DATA_PTR);
 #if PTR_SIZE == 4
-        dwarf_data4(dwarf_info_section, func_ind); // low_pc
+        dwarf_data4(dwarf_info_section, s1->function->start); // low_pc
         dwarf_data4(dwarf_info_section, size); // high_pc
 #else
-        dwarf_data8(dwarf_info_section, func_ind); // low_pc
+        dwarf_data8(dwarf_info_section, s1->function->start); // low_pc
         dwarf_data8(dwarf_info_section, size); // high_pc
 #endif
         func_sib = dwarf_info_section->data_offset;
@@ -2466,7 +2466,7 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh
         cstr_new (&str);
         cstr_printf (&str, "%s:%c",
                 get_tok_str(sym->v, NULL),
-                sym_bind == STB_GLOBAL ? 'G' : func_ind != -1 ? 'V' : 'S'
+                sym_bind == STB_GLOBAL ? 'G' : s1->function->start != -1 ? 'V' : 'S'
                 );
         tcc_get_debug_info(s1, sym, &str);
         if (sym_bind == STB_GLOBAL)
@@ -2553,15 +2553,15 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
     }
     if (tcov_data.last_func_name == 0 ||
 	strcmp ((const char *)(tcov_section->data + tcov_data.last_func_name),
-		funcname) != 0) {
+		s1->function->name) != 0) {
 	size_t len;
 
 	if (tcov_data.last_func_name)
 	    section_ptr_add(tcov_section, 1);
 	tcov_data.last_func_name = tcov_section->data_offset;
-	len = strlen (funcname);
+	len = strlen (s1->function->name);
 	ptr = section_ptr_add(tcov_section, len + 1);
-	strcpy((char *)ptr, funcname);
+	strcpy((char *)ptr, s1->function->name);
 	section_ptr_add(tcov_section, -tcov_section->data_offset & 7);
 	ptr = section_ptr_add(tcov_section, 8);
 	write64le (ptr, s1->pp->source->line_num);

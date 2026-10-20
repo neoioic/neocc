@@ -24,12 +24,8 @@
 /********************************************************/
 /* global variables */
 
-/* loc : local variable index
-   ind : output code index
-   rsym: return symbol
-   anon_sym: anonymous symbol index
-*/
-ST_DATA int rsym, anon_sym, ind, loc;
+/* Translation-unit symbol and instruction indices. */
+ST_DATA int anon_sym, ind;
 
 ST_DATA char debug_modes;
 
@@ -53,12 +49,6 @@ ST_DATA int nocode_wanted; /* no code generation wanted */
 #define CONST_WANTED  (nocode_wanted & CONST_WANTED_MASK)
 
 ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
-ST_DATA struct neocc_type func_vt; /* current function return type (used by return instruction) */
-ST_DATA int func_var; /* true if current function is variadic (used by return instruction) */
-ST_DATA int func_vc; /* stack address for implicit struct return storage */
-ST_DATA int func_ind; /* function start address */
-static int func_old;
-ST_DATA const char *funcname;
 static struct neocc_string initstr;
 
 #if PTR_SIZE == 4
@@ -84,15 +74,6 @@ static struct switch_t {
     struct switch_t *prev;
     struct neocc_expression_value sv;
 } *cur_switch; /* current switch */
-
-#define MAX_TEMP_LOCAL_VARIABLE_NUMBER 8
-/*list of temporary local variables on the stack in current function. */
-static struct temp_local_variable {
-	int location; //offset on stack. Svalue.c.i
-	short size;
-	short align;
-} arr_temp_local_vars[MAX_TEMP_LOCAL_VARIABLE_NUMBER];
-static int nb_temp_local_vars;
 
 typedef struct {
     Section *sec;
@@ -352,9 +333,17 @@ static void ptype(const char *msg, struct neocc_type *type, int v)
 #endif
 
 /* ------------------------------------------------------------------------- */
+static void function_reset(TCCState *s)
+{
+    if (!RP(vo_interact0(s->functions, NEOCC_AC0_FUNCTIONS_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset function context");
+}
+
 /* initialize vstack and types.  This must be done also for tcc -E */
 ST_FUNC void tccgen_init(TCCState *s1)
 {
+    function_reset(s1);
     cstr_new(&initstr);
 
     /* define some often used types */
@@ -377,8 +366,6 @@ ST_FUNC void tccgen_init(TCCState *s1)
 
 ST_FUNC int tccgen_compile(TCCState *s1)
 {
-    funcname = "";
-    func_ind = -1;
     anon_sym = SYM_FIRST_ANOM;
     nocode_wanted = DATA_ONLY_WANTED; /* no code outside of functions */
     debug_modes = (s1->do_debug ? 1 : 0) | s1->test_coverage << 1;
@@ -420,11 +407,11 @@ ST_FUNC void tccgen_finish(TCCState *s1)
         end_switch();
     label_discard(NEOCC_SYMBOL_STACK_GLOBAL_LABEL);
     label_discard(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
-    nb_temp_local_vars = 0;
     cur_text_section = NULL;
     if (!RP(vo_interact0(s1->scopes, NEOCC_AC0_SCOPES_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset scope storage");
+    function_reset(s1);
     if (!RP(vo_interact0(s1->expressions, NEOCC_AC0_EXPRESSIONS_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset expression storage");
@@ -1612,44 +1599,31 @@ ST_FUNC int get_reg(int rc)
 
 /* find a free temporary local variable (return the offset on stack) match
    size and align. If none, add new temporary stack variable */
-static int get_temp_local_var(int size,int align, int *r2)
+static int get_temp_local_var(int size, int align, int *r2)
 {
-    int i;
-    struct temp_local_variable *temp_var;
+    struct neocc_function_temp_request request = { size, align, 0 };
+    struct neocc_function_temp_result result;
     struct neocc_expression_value *p;
-    int r;
-    unsigned used = 0;
+    unsigned int quantity;
+    int code;
 
-    /* mark locations that are still in use */
-    for (p = (tcc_state->expr->values + 1); p <= tcc_state->expr->top; p++) {
-	r = p->r & VT_VALMASK;
-	if (r == VT_LOCAL || r == VT_LLOCAL) {
-	    r = p->r2 - (VT_CONST + 1);
-	    if (r >= 0 && r < MAX_TEMP_LOCAL_VARIABLE_NUMBER)
-	        used |= 1<<r;
-	}
+    /* Expression tags identify cached slots that are still live. */
+    for (p = tcc_state->expr->values + 1; p <= tcc_state->expr->top; p++) {
+        int r = p->r & VT_VALMASK;
+
+        if (r != VT_LOCAL && r != VT_LLOCAL)
+            continue;
+        r = p->r2 - (VT_CONST + 1);
+        if (r >= 0 && r < NEOCC_FUNCTION_TEMP_CAPACITY)
+            request.used |= 1U << r;
     }
-    for (i=0;i<nb_temp_local_vars;i++) {
-	temp_var=&arr_temp_local_vars[i];
-	if(!(used & 1<<i)
-	 && temp_var->size>=size
-	 && temp_var->align>=align) {
-ret_tmp:
-	    *r2 = (VT_CONST + 1) + i;
-	    return temp_var->location;
-	}
-    }
-    loc = (loc - size) & -align;
-    if (nb_temp_local_vars<MAX_TEMP_LOCAL_VARIABLE_NUMBER) {
-	temp_var=&arr_temp_local_vars[i];
-	temp_var->location=loc;
-	temp_var->size=size;
-	temp_var->align=align;
-	nb_temp_local_vars++;
-	goto ret_tmp;
-    }
-    *r2 = VT_CONST;
-    return loc;
+    code = vo_interact3(tcc_state->functions, NEOCC_AC3_FUNCTIONS_TEMP,
+        (unsigned char *)&request, sizeof(request), (unsigned char *)&result,
+        sizeof(result), &quantity, &neocc_host_caller);
+    if (!RP(code) || quantity != sizeof(result))
+        tcc_error("cannot reserve temporary stack slot");
+    *r2 = result.slot < 0 ? VT_CONST : (VT_CONST + 1) + result.slot;
+    return result.offset;
 }
 
 /* move register 's' (of type 't') to 'r', and flush previous value of r to memory
@@ -5341,9 +5315,9 @@ check:
                     tcc_error("need explicit inner array size in VLAs");
 	    }
 	    else {
-                loc -= type_size(&tcc_state->expr->int_type, &align);
-                loc &= -align;
-                n = loc;
+                tcc_state->function->stack_offset -= type_size(&tcc_state->expr->int_type, &align);
+                tcc_state->function->stack_offset &= -align;
+                n = tcc_state->function->stack_offset;
 
                 vpush_type_size(type, &align);
                 gen_op('*');
@@ -5733,6 +5707,7 @@ static void parse_atomic(int atok)
 
 ST_FUNC void unary(void)
 {
+    struct neocc_function *function = tcc_state->function;
     int n, t, align, size, r;
     struct neocc_type type;
     struct neocc_symbol *s;
@@ -5799,7 +5774,7 @@ ST_FUNC void unary(void)
     case TOK___FUNC__:
         tcc_state->pp->token = TOK_STR;
         cstr_reset(&tcc_state->pp->parsed);
-        cstr_cat(&tcc_state->pp->parsed, funcname, 0);
+        cstr_cat(&tcc_state->pp->parsed, function->name, 0);
         tcc_state->pp->value.str.size = tcc_state->pp->parsed.size;
         tcc_state->pp->value.str.data = tcc_state->pp->parsed.data;
         goto case_TOK_STR;
@@ -6271,7 +6246,7 @@ special_math_val:
                 tcc_error("'%s' undeclared", name);
             /* for simple function calls, we tolerate undeclared
                external reference to int() function */
-            if (!func_old)
+            if (!function->old_style)
             tcc_warning_c(warn_implicit_function_declaration)(
                 "implicit declaration of function '%s'", name);
             s = external_global_sym(t, &tcc_state->expr->func_old_type);
@@ -6387,15 +6362,15 @@ special_math_val:
                     while (size & (size - 1))
                         size = (size | (size - 1)) + 1;
 #endif
-                    loc = (loc - size) & -align;
+                    function->stack_offset = (function->stack_offset - size) & -align;
                     ret.type = s->type;
                     ret.r = VT_LOCAL | VT_LVAL;
                     /* pass it as 'int' to avoid structure arg passing
                        problems */
-                    vseti(VT_LOCAL, loc);
+                    vseti(VT_LOCAL, function->stack_offset);
 #ifdef CONFIG_TCC_BCHECK
                     if (tcc_state->do_bounds_check)
-                        --loc;
+                        --function->stack_offset;
 #endif
                     ret.c = tcc_state->expr->top->c;
                     if (ret_nregs < 0)
@@ -6487,8 +6462,8 @@ special_math_val:
                     size = (size + regsize - 1) & -regsize;
                     if (ret_align > align)
                         align = ret_align;
-                    loc = (loc - size) & -align;
-                    addr = loc;
+                    function->stack_offset = (function->stack_offset - size) & -align;
+                    addr = function->stack_offset;
                     offset = 0;
                     for (;;) {
                         vset(&ret.type, VT_LOCAL | VT_LVAL, addr + offset);
@@ -6950,10 +6925,11 @@ ST_FUNC int expr_const(void)
 #ifndef TCC_TARGET_ARM64
 static void gfunc_return(struct neocc_type *func_type)
 {
+    struct neocc_function *function = tcc_state->function;
     if ((func_type->t & VT_BTYPE) == VT_STRUCT) {
         struct neocc_type type, ret_type;
         int ret_align, ret_nregs, regsize;
-        ret_nregs = gfunc_sret(func_type, func_var, &ret_type,
+        ret_nregs = gfunc_sret(func_type, function->variadic, &ret_type,
                                &ret_align, &regsize);
         if (ret_nregs < 0) {
 #ifdef TCC_TARGET_RISCV64
@@ -6964,7 +6940,7 @@ static void gfunc_return(struct neocc_type *func_type)
                first pointer arg location */
             type = *func_type;
             mk_pointer(&type);
-            vset(&type, VT_LOCAL | VT_LVAL, func_vc);
+            vset(&type, VT_LOCAL | VT_LVAL, function->struct_return);
             indir();
             vswap();
             /* copy structure value to pointer */
@@ -6982,8 +6958,8 @@ static void gfunc_return(struct neocc_type *func_type)
 		    size = ret_nregs * regsize;
 		if (ret_align > align)
 		    align = ret_align;
-                loc = (loc - size) & -align;
-                addr = loc;
+                function->stack_offset = (function->stack_offset - size) & -align;
+                addr = function->stack_offset;
                 type = *func_type;
                 vset(&type, VT_LOCAL | VT_LVAL, addr);
                 vswap();
@@ -7016,15 +6992,16 @@ static void gfunc_return(struct neocc_type *func_type)
 
 static void check_func_return(void)
 {
-    if ((func_vt.t & VT_BTYPE) == VT_VOID)
+    struct neocc_function *function = tcc_state->function;
+    if ((function->type.t & VT_BTYPE) == VT_VOID)
         return;
-    if ((!strcmp(funcname, "main") || func_old)
-        && (func_vt.t & VT_BTYPE) == VT_INT) {
+    if ((!strcmp(function->name, "main") || function->old_style)
+        && (function->type.t & VT_BTYPE) == VT_INT) {
         /* main returns 0 by default */
         vpushi(0);
-        gfunc_return(&func_vt);
+        gfunc_return(&function->type);
     } else {
-        tcc_warning("function might return no value: '%s'", funcname);
+        tcc_warning("function might return no value: '%s'", function->name);
     }
 }
 
@@ -7194,10 +7171,10 @@ static void block_cleanup(struct neocc_scope *o)
 /* ------------------------------------------------------------------------- */
 /* VLA */
 
-static void vla_restore(int loc)
+static void vla_restore(int offset)
 {
-    if (loc)
-        gen_vla_sp_restore(loc);
+    if (offset)
+        gen_vla_sp_restore(offset);
 }
 
 static void vla_leave(struct neocc_scope *o)
@@ -7331,6 +7308,7 @@ static void gexpr_decl(void)
 
 static void block(int flags)
 {
+    struct neocc_function *function = tcc_state->function;
     int a, b, c, d, e, t;
     struct neocc_scope *o;
     struct neocc_symbol *boundary;
@@ -7381,7 +7359,7 @@ again:
 
     } else if (t == '{') {
         if (debug_modes)
-            tcc_debug_stabn(tcc_state, N_LBRAC, ind - func_ind);
+            tcc_debug_stabn(tcc_state, N_LBRAC, ind - function->start);
         o = new_scope();
 
         /* handle local labels declarations */
@@ -7406,24 +7384,24 @@ again:
 
         prev_scope(o, flags & STMT_EXPR);
         if (debug_modes)
-            tcc_debug_stabn(tcc_state, N_RBRAC, ind - func_ind);
+            tcc_debug_stabn(tcc_state, N_RBRAC, ind - function->start);
         if (sym_scope_get())
             next();
         else if (!nocode_wanted)
             check_func_return();
 
     } else if (t == TOK_RETURN) {
-        b = (func_vt.t & VT_BTYPE) != VT_VOID;
+        b = (function->type.t & VT_BTYPE) != VT_VOID;
         if (tcc_state->pp->token != ';') {
             gexpr();
             if (b) {
-                gen_assign_cast(&func_vt);
+                gen_assign_cast(&function->type);
             } else {
                 if (tcc_state->expr->top->type.t != VT_VOID)
                     tcc_warning("void function returns a value");
                 tcc_state->expr->top--;
             }
-        } else if (b && func_old && (func_vt.t & VT_BTYPE) == VT_INT) {
+        } else if (b && function->old_style && (function->type.t & VT_BTYPE) == VT_INT) {
             vpushi(0);
         } else if (b) {
             tcc_warning("'return' with no value");
@@ -7431,11 +7409,11 @@ again:
         }
         leave_scope(tcc_state->scope->root);
         if (b)
-            gfunc_return(&func_vt);
+            gfunc_return(&function->type);
         skip(';');
         /* jump unless last stmt in top-level block */
         if (tcc_state->pp->token != '}' || sym_scope_get() != 1)
-            rsym = gjmp(rsym);
+            function->return_jumps = gjmp(function->return_jumps);
         if (debug_modes)
 	    tcc_tcov_block_end (tcc_state, -1);
         CODE_OFF();
@@ -8402,6 +8380,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
 static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, int r,
                                    int has_init, int v, int scope)
 {
+    struct neocc_function *function = tcc_state->function;
     int size, align, addr;
     struct neocc_token_string *init_str = NULL;
 
@@ -8517,16 +8496,16 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 #ifdef CONFIG_TCC_BCHECK
         if (bcheck && v) {
             /* add padding between stack variables for bound checking */
-            loc -= align;
+            function->stack_offset -= align;
         }
 #endif
-        loc = (loc - size) & -align;
-        addr = loc;
+        function->stack_offset = (function->stack_offset - size) & -align;
+        addr = function->stack_offset;
         p.local_offset = addr + size;
 #ifdef CONFIG_TCC_BCHECK
         if (bcheck && v) {
             /* add padding between stack variables for bound checking */
-            loc -= align;
+            function->stack_offset -= align;
         }
 #endif
         if (v) {
@@ -8639,8 +8618,8 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
             if (tcc_state->scope->current->prev && tcc_state->scope->current->prev->vla.num) {
                 tcc_state->scope->current->vla.locorig = tcc_state->scope->current->prev->vla.loc;
             } else {
-                gen_vla_sp_save(loc -= PTR_SIZE);
-                tcc_state->scope->current->vla.locorig = loc;
+                gen_vla_sp_save(function->stack_offset -= PTR_SIZE);
+                tcc_state->scope->current->vla.locorig = function->stack_offset;
             }
         }
 
@@ -8649,7 +8628,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 #if defined TCC_TARGET_PE && defined TCC_TARGET_X86_64
         /* on _WIN64, because of the function args scratch area, the
            result of alloca differs from RSP and is returned in RAX.  */
-        gen_vla_result(addr), addr = (loc -= PTR_SIZE);
+        gen_vla_result(addr), addr = (function->stack_offset -= PTR_SIZE);
 #endif
         gen_vla_sp_save(addr);
         tcc_state->scope->current->vla.loc = addr;
@@ -8676,6 +8655,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 /* generate vla code saved in post_type() */
 static void func_vla_arg_code(struct neocc_symbol *arg)
 {
+    struct neocc_function *function = tcc_state->function;
     int align;
     struct neocc_token_string *vla_array_tok = NULL;
 
@@ -8683,9 +8663,9 @@ static void func_vla_arg_code(struct neocc_symbol *arg)
         func_vla_arg_code(arg->type.ref);
 
     if ((arg->type.t & VT_VLA) && arg->type.ref->vla_array_str) {
-	loc -= type_size(&tcc_state->expr->int_type, &align);
-	loc &= -align;
-	arg->type.ref->c = loc;
+	function->stack_offset -= type_size(&tcc_state->expr->int_type, &align);
+	function->stack_offset &= -align;
+	arg->type.ref->c = function->stack_offset;
 
 	unget_tok(0);
 	vla_array_tok = tok_str_alloc();
@@ -8742,6 +8722,7 @@ static void sym_push_params(struct neocc_symbol *ref)
    'cur_text_section' */
 static void gen_function(struct neocc_symbol *sym)
 {
+    struct neocc_function *function = tcc_state->function;
     scope_push();
     nocode_wanted = 0;
 
@@ -8752,11 +8733,19 @@ static void gen_function(struct neocc_symbol *sym)
 	gen_fill_nops(newoff - ind);
     }
 
-    funcname = get_tok_str(sym->v, NULL);
-    func_ind = ind;
-    func_vt = sym->type.ref->type;
-    func_var = sym->type.ref->f.func_type == FUNC_ELLIPSIS;
-    func_old = sym->type.ref->f.func_type == FUNC_OLD;
+    {
+        struct neocc_function initial = {
+            .type = sym->type.ref->type,
+            .name = get_tok_str(sym->v, NULL),
+            .start = ind,
+            .variadic = sym->type.ref->f.func_type == FUNC_ELLIPSIS,
+            .old_style = sym->type.ref->f.func_type == FUNC_OLD,
+        };
+
+        if (!RP(vo_interact2(tcc_state->functions, NEOCC_AC2_FUNCTIONS_BEGIN,
+            (unsigned char *)&initial, sizeof(initial), &neocc_host_caller)))
+            tcc_error("cannot begin function context");
+    }
 
     /* NOTE: we patch the symbol size later */
     put_extern_sym(sym, cur_text_section, ind, 0);
@@ -8776,24 +8765,22 @@ static void gen_function(struct neocc_symbol *sym)
     sym_push_params(sym->type.ref);
 
     sym_scope_set(0);
-    rsym = 0;
-    nb_temp_local_vars = 0;
 
     gfunc_prolog(sym);
     tcc_debug_prolog_epilog(tcc_state, 0);
     func_vla_arg(sym);
     block(0);
-    gsym(rsym);
+    gsym(function->return_jumps);
     nocode_wanted = 0;
-    tcc_debug_end_scope(NULL, !func_var);
+    tcc_debug_end_scope(NULL, !function->variadic);
     tcc_debug_prolog_epilog(tcc_state, 1);
     gfunc_epilog();
 
     /* end of function */
-    tcc_debug_funcend(tcc_state, ind - func_ind);
+    tcc_debug_funcend(tcc_state, ind - function->start);
 
     /* patch symbol size */
-    elfsym(sym)->st_size = ind - func_ind;
+    elfsym(sym)->st_size = ind - function->start;
     cur_text_section->data_offset = ind;
 
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
@@ -8804,11 +8791,9 @@ static void gen_function(struct neocc_symbol *sym)
 
     /* It's better to crash than to generate wrong code */
     cur_text_section = NULL;
-    funcname = ""; /* for safety */
-    func_vt.t = VT_VOID; /* for safety */
-    func_var = 0; /* for safety */
+    function_reset(tcc_state);
+    function->type.t = VT_VOID; /* for safety */
     ind = 0; /* for safety */
-    func_ind = -1;
     nocode_wanted = DATA_ONLY_WANTED;
     check_vstack();
 
@@ -8970,7 +8955,7 @@ static int decl(int l)
                    declaration list */
                 sym = type.ref;
                 if (sym->f.func_type == FUNC_OLD && l == VT_CONST) {
-                    func_vt = type;
+                    tcc_state->function->type = type;
 		    sym_scope_add(1);
                     decl(VT_CMP);
 		    sym_scope_add(-1);
@@ -9054,7 +9039,7 @@ static int decl(int l)
                 has_init = 0;
 		if (l == VT_CMP) {
 		    /* find parameter in function parameter list */
-		    for (sym = func_vt.ref->next; sym; sym = sym->next)
+		    for (sym = tcc_state->function->type.ref->next; sym; sym = sym->next)
 			if ((sym->v & ~SYM_FIELD) == v)
 			    goto found;
 		    tcc_error("declaration for parameter '%s' but no such parameter",
