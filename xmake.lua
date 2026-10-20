@@ -243,3 +243,11 @@ for _, name in ipairs({"switches_test", "switches_fault_test"}) do
         set_rundir(".")
         add_tests("default")
 end
+
+target("initializers_test")
+    set_kind("binary")
+    add_deps("neoioic")
+    add_includedirs("include", "src", "third_party/openoicc/include")
+    add_files("tests/initializers.c", "src/objects/*.c", "src/host/host.c")
+    set_rundir(".")
+    add_tests("default")

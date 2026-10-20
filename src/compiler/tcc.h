@@ -435,6 +435,7 @@ typedef int nwchar_t;
 #include "neocc/scopes.h"
 #include "neocc/functions.h"
 #include "neocc/switches.h"
+#include "neocc/initializers.h"
 
 /* section definition */
 typedef struct Section {
@@ -583,6 +584,8 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *initializers;
+    struct neocc_initializers *initializer; /* VO borrow until close. */
     struct object *switches;
     struct neocc_switches *switch_state; /* VO borrow; valid until close. */
     struct object *functions;
@@ -1274,7 +1277,6 @@ ST_DATA int anon_sym, ind;
 ST_DATA char debug_modes;
 
 ST_DATA int nocode_wanted; /* true if no code generation wanted for an expression */
-ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
 
 ST_FUNC void tccgen_init(TCCState *s1);
 ST_FUNC int tccgen_compile(TCCState *s1);

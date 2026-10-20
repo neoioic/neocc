@@ -48,8 +48,6 @@ ST_DATA int nocode_wanted; /* no code generation wanted */
 #define CONST_WANTED_MASK 0x0FFF0000
 #define CONST_WANTED  (nocode_wanted & CONST_WANTED_MASK)
 
-ST_DATA int global_expr;  /* true if compound literals must be allocated globally (used during initializers parsing */
-static struct neocc_string initstr;
 
 #if PTR_SIZE == 4
 #define VT_SIZE_T (VT_INT | VT_UNSIGNED)
@@ -331,7 +329,6 @@ static void function_reset(TCCState *s)
 ST_FUNC void tccgen_init(TCCState *s1)
 {
     function_reset(s1);
-    cstr_new(&initstr);
 
     /* define some often used types */
     tcc_state->expr->int_type.t = VT_INT;
@@ -356,7 +353,6 @@ ST_FUNC int tccgen_compile(TCCState *s1)
     anon_sym = SYM_FIRST_ANOM;
     nocode_wanted = DATA_ONLY_WANTED; /* no code outside of functions */
     debug_modes = (s1->do_debug ? 1 : 0) | s1->test_coverage << 1;
-    global_expr = 0;
 
     tcc_debug_start(s1);
     tcc_tcov_start (s1);
@@ -388,7 +384,9 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     /* free preprocessor macros */
     free_defines(NULL);
-    cstr_free(&initstr);
+    if (!RP(vo_interact0(s1->initializers, NEOCC_AC0_INITIALIZERS_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset initializer workspace");
     dynarray_reset(&stk_data, &nb_stk_data);
     if (!RP(vo_interact0(s1->switches, NEOCC_AC0_SWITCHES_RESET,
                          &neocc_host_caller)))
@@ -3955,17 +3953,18 @@ ST_FUNC void inc(int post, int c)
 
 ST_FUNC struct neocc_string* parse_mult_str (const char *msg)
 {
+    struct neocc_string *string = &tcc_state->initializer->string;
     /* read the string */
     if (tcc_state->pp->token != TOK_STR)
         expect(msg);
-    cstr_reset(&initstr);
+    cstr_reset(string);
     while (tcc_state->pp->token == TOK_STR) {
         /* XXX: add \0 handling too ? */
-        cstr_cat(&initstr, tcc_state->pp->value.str.data, -1);
+        cstr_cat(string, tcc_state->pp->value.str.data, -1);
         next();
     }
-    cstr_ccat(&initstr, '\0');
-    return &initstr;
+    cstr_ccat(string, '\0');
+    return string;
 }
 
 /* If I is >= 1 and a power of two, returns log2(i)+1.
@@ -5799,7 +5798,7 @@ ST_FUNC void unary(void)
             /* check ISOC99 compound literal */
             if (tcc_state->pp->token == '{') {
                     /* data is allocated locally by default */
-                if (global_expr)
+                if (tcc_state->initializer->global_expression)
                     r = VT_CONST;
                 else
                     r = VT_LOCAL;
@@ -7718,10 +7717,10 @@ static void parse_init_elem(int expr_type)
     switch(expr_type) {
     case EXPR_CONST:
         /* compound literals must be allocated globally in this case */
-        saved_global_expr = global_expr;
-        global_expr = 1;
+        saved_global_expr = tcc_state->initializer->global_expression;
+        tcc_state->initializer->global_expression = 1;
         expr_const1();
-        global_expr = saved_global_expr;
+        tcc_state->initializer->global_expression = saved_global_expr;
         /* NOTE: symbols are accepted, as well as lvalue for anon symbols
 	   (compound literals).  */
         if (((tcc_state->expr->top->r & (VT_VALMASK | VT_LVAL)) != VT_CONST
@@ -8159,6 +8158,7 @@ static void init_putv(init_params *p, struct neocc_type *type, unsigned long c)
    size only evaluation is wanted (only for arrays). */
 static void decl_initializer(init_params *p, struct neocc_type *type, unsigned long c, int flags)
 {
+    struct neocc_string *string = &tcc_state->initializer->string;
     int len, n, no_oblock, i;
     int size1, align1;
     struct neocc_symbol *s, *f;
@@ -8212,26 +8212,26 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
 #endif
             ) || (tcc_state->pp->token == TOK_STR && (t1->t & VT_BTYPE) == VT_BYTE)) {
 	    len = 0;
-            cstr_reset(&initstr);
+            cstr_reset(string);
             if (size1 != (tcc_state->pp->token == TOK_STR ? 1 : sizeof(nwchar_t)))
               tcc_error("unhandled string literal merging");
             while (tcc_state->pp->token == TOK_STR || tcc_state->pp->token == TOK_LSTR) {
-                if (initstr.size)
-                  initstr.size -= size1;
+                if (string->size)
+                  string->size -= size1;
                 if (tcc_state->pp->token == TOK_STR)
                   len += tcc_state->pp->value.str.size;
                 else
                   len += tcc_state->pp->value.str.size / sizeof(nwchar_t);
                 len--;
-                cstr_cat(&initstr, tcc_state->pp->value.str.data, tcc_state->pp->value.str.size);
+                cstr_cat(string, tcc_state->pp->value.str.data, tcc_state->pp->value.str.size);
                 next();
             }
             if (tcc_state->pp->token != ')' && tcc_state->pp->token != '}' && tcc_state->pp->token != ',' && tcc_state->pp->token != ';'
                 && tcc_state->pp->token != TOK_EOF) {
                 /* Not a lone literal but part of a bigger expression.  */
                 unget_tok(size1 == 1 ? TOK_STR : TOK_LSTR);
-                tcc_state->pp->value.str.size = initstr.size;
-                tcc_state->pp->value.str.data = initstr.data;
+                tcc_state->pp->value.str.size = string->size;
+                tcc_state->pp->value.str.data = string->data;
                 goto do_init_array;
             }
 
@@ -8248,7 +8248,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
                 if (p->sec && size1 == 1) {
                     init_assert(p, c + nb);
                     if (!NODATA_WANTED)
-                      memcpy(p->sec->data + c, initstr.data, nb);
+                      memcpy(p->sec->data + c, string->data, nb);
                 } else {
                     for(i=0;i<n;i++) {
                         if (i >= nb) {
@@ -8262,9 +8262,9 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
                           }
                           ch = 0;
                         } else if (size1 == 1)
-                          ch = ((unsigned char *)initstr.data)[i];
+                          ch = ((unsigned char *)string->data)[i];
                         else
-                          ch = ((nwchar_t *)initstr.data)[i];
+                          ch = ((nwchar_t *)string->data)[i];
                         vpushi(ch);
                         init_putv(p, t1, c + i * size1);
                     }

@@ -19,6 +19,9 @@ static int resize_fail_at, resize_calls;
 static size_t live;
 static int switch_fail_at, switch_calls, switch_resize_fail, switch_error;
 static struct TCCState *switch_state;
+static struct TCCState *initializer_state;
+static int initializer_resize_fail, initializer_resize_seen;
+
 
 void *__wrap_malloc(size_t size)
 {
@@ -54,6 +57,13 @@ void *__wrap_realloc(void *old, size_t size)
 {
 	void *pointer;
 
+	if (initializer_state && initializer_resize_fail && old &&
+	    old == initializer_state->initializer->string.data) {
+		CHECK(initializer_state->initializer->string.size_allocated >= 8);
+		initializer_resize_fail = 0;
+		initializer_resize_seen++;
+		return NULL;
+	}
 	if (switch_state && switch_resize_fail &&
 	    switch_state->switch_state->current &&
 	    old == switch_state->switch_state->current->p) {
@@ -112,6 +122,15 @@ static void clean_preprocessor(struct TCCState *state)
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
 
+	CHECK(!state->initializer->global_expression);
+	CHECK(!state->initializer->string.data &&
+	      !state->initializer->string.size &&
+	      !state->initializer->string.size_allocated);
+	for (unsigned int i = 0; i < state->initializers->node_count; i++) {
+		struct object *node = state->initializers->nodes + i;
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(!state->switch_state->current);
 	for (unsigned int i = 0; i < state->switches->node_count; i++) {
 		struct object *node = state->switches->nodes + i;
@@ -233,8 +252,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject eight constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 10; failure++) {
+	/* Reject nine constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 11; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -428,6 +447,74 @@ int main(int argc, char **argv)
 			tcc_delete(state);
 			CHECK(live == initial_live);
 		}
+	}
+	/* Both string consumers grow an already populated initializer buffer.
+	 * Failure must retain its allocation until compiler reset, then release
+	 * it exactly once. Follow each failure with a fresh successful session.
+	 */
+	for (int consumer = 0; consumer < 2; consumer++) {
+		const char *input = consumer ?
+			"int first __attribute__((section(\".data\"))); "
+			"int second __attribute__((section(\".long_section_name\")));" :
+			"char first[]=\"seed\"; "
+			"char second[]=\"a much longer string initializer\";";
+
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, NULL, quiet_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		initializer_state = state;
+		initializer_resize_fail = 1;
+		initializer_resize_seen = 0;
+		CHECK(tcc_compile_string(state, input) < 0);
+		CHECK(initializer_resize_seen == 1 && !initializer_resize_fail);
+		initializer_state = NULL;
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, input) == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Replay dry-runs and nested static compound literals can diagnose with
+	 * a populated shared string, global mode and macro stack still active.
+	 */
+	{
+		const char *inputs[] = {
+			"struct a { char text[8]; int n; }; "
+			"struct a array[] = {{\"a\" \"b\", missing_initializer}};",
+			"struct a { char text[8]; int n; }; "
+			"struct a *p = &(struct a){\"string\", missing_initializer};",
+			"int f(void) { char s[]=\"local\"; "
+			"int a[][2]={{1,2},{3,missing_initializer}}; return a[0][0]; }"
+		};
+
+		for (unsigned int n = 0; n < sizeof(inputs) / sizeof(inputs[0]); n++) {
+			state = tcc_new();
+			CHECK(state);
+			tcc_set_lib_path(state, argv[1]);
+			tcc_set_error_func(state, NULL, quiet_error);
+			CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+			CHECK(tcc_compile_string(state, inputs[n]) < 0);
+			clean_preprocessor(state);
+			tcc_delete(state);
+			CHECK(live == initial_live);
+		}
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"char recovered[]=\"ok\"; int *p=(int[]){1,2};") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
 	}
 	/* Leave a populated expression stack through the diagnostic jump. */
 	{

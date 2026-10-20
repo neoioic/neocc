@@ -852,11 +852,13 @@ LIBTCCAPI TCCState *tcc_new(void)
     TCCState *s = tcc_mallocz(sizeof(TCCState));
     struct object **objects[] = { &s->sources, &s->tokens,
                                    &s->preprocessor, &s->symbols, &s->expressions,
-                                   &s->scopes, &s->functions, &s->switches };
+                                   &s->scopes, &s->functions, &s->switches,
+                                   &s->initializers };
     const unsigned short models[] = { NEOCC_MSN_SOURCE, NEOCC_MSN_TOKENS,
                                       NEOCC_MSN_PREPROCESSOR, NEOCC_MSN_SYMBOLS,
                                       NEOCC_MSN_EXPRESSIONS, NEOCC_MSN_SCOPES,
-                                      NEOCC_MSN_FUNCTIONS, NEOCC_MSN_SWITCHES };
+                                      NEOCC_MSN_FUNCTIONS, NEOCC_MSN_SWITCHES,
+                                      NEOCC_MSN_INITIALIZERS };
     size_t i;
 
     for (i = 0; i < sizeof(models) / sizeof(models[0]); i++) {
@@ -894,7 +896,11 @@ LIBTCCAPI TCCState *tcc_new(void)
             result = vo_interact1(s->switches,
                 NEOCC_AC1_SWITCHES_BORROW, (unsigned char *)&s->switch_state,
                 sizeof(s->switch_state), &quantity, &neocc_host_caller);
-        if (!RP(result) || quantity != sizeof(s->switch_state)) {
+        if (RP(result) && quantity == sizeof(s->switch_state))
+            result = vo_interact1(s->initializers,
+                NEOCC_AC1_INITIALIZERS_BORROW, (unsigned char *)&s->initializer,
+                sizeof(s->initializer), &quantity, &neocc_host_caller);
+        if (!RP(result) || quantity != sizeof(s->initializer)) {
             while (i)
                 neocc_close_object(*objects[--i]);
             tcc_free(s);
@@ -948,6 +954,7 @@ LIBTCCAPI TCCState *tcc_new(void)
 
 LIBTCCAPI void tcc_delete(TCCState *s1)
 {
+    neocc_close_object(s1->initializers);
     neocc_close_object(s1->switches);
     neocc_close_object(s1->functions);
     neocc_close_object(s1->scopes);

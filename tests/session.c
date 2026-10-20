@@ -32,6 +32,15 @@ static void clean_semantics(struct TCCState *state)
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
 
+	CHECK(!state->initializer->global_expression);
+	CHECK(!state->initializer->string.data &&
+	      !state->initializer->string.size &&
+	      !state->initializer->string.size_allocated);
+	for (unsigned int i = 0; i < state->initializers->node_count; i++) {
+		struct object *node = state->initializers->nodes + i;
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(!state->switch_state->current);
 	for (unsigned int i = 0; i < state->switches->node_count; i++) {
 		struct object *node = state->switches->nodes + i;
@@ -89,6 +98,8 @@ int main(int argc, char **argv)
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
 		CHECK(a->scope != b->scope && a->scopes != b->scopes);
+		CHECK(a->initializer != b->initializer &&
+		      a->initializers != b->initializers);
 		CHECK(a->function != b->function && a->functions != b->functions);
 		CHECK(a->switch_state != b->switch_state && a->switches != b->switches);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
