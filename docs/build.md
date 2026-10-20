@@ -41,11 +41,12 @@ Release 配置将 `-m debug` 改为 `-m release`；产物位于独立的 `releas
 
 ```sh
 xmake -P . -y openoicc
-build/mingw/x86_64/debug/openoicc.exe check src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c
-build/mingw/x86_64/debug/openoicc.exe generate --write src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c
+build/mingw/x86_64/debug/openoicc.exe check src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c src/objects/scopes.c
+build/mingw/x86_64/debug/openoicc.exe generate src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c src/objects/scopes.c
+build/mingw/x86_64/debug/openoicc.exe generate --write src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c src/objects/scopes.c
 xmake -P . -y
 xmake test -P . -v
-build/mingw/x86_64/debug/openoicc.exe check src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c
+build/mingw/x86_64/debug/openoicc.exe check src/objects/source.c src/objects/tokens.c src/objects/preprocessor.c src/objects/symbols.c src/objects/expressions.c src/objects/scopes.c
 ```
 
 最后一次应无变化。生成器、辅助头和运行时均来自本仓库固定快照；未使用旧 oicc。

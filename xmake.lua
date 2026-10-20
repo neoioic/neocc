@@ -191,6 +191,21 @@ target("expressions_test")
     set_rundir(".")
     add_tests("default")
 
+for _, name in ipairs({"scopes_test", "scopes_fault_test"}) do
+    target(name)
+        set_kind("binary")
+        add_deps("neoioic")
+        add_includedirs("include", "src", "third_party/openoicc/include")
+        add_files("tests/scopes.c", "src/objects/*.c", "src/host/host.c")
+        if name == "scopes_fault_test" then
+            add_defines("NEOCC_TEST_SCOPE_FAULTS")
+            add_ldflags("-Wl,--wrap=malloc", "-Wl,--wrap=calloc",
+                        "-Wl,--wrap=free", {force = true})
+        end
+        set_rundir(".")
+        add_tests("default")
+end
+
 for _, name in ipairs({"symbols_test", "symbols_fault_test"}) do
     target(name)
         set_kind("binary")

@@ -14,6 +14,8 @@
 #define MSN_SYMBOLS NEOCC_MSN_SYMBOLS
 #define NEOCC_MSN_EXPRESSIONS (MSN_ + 4)
 #define MSN_EXPRESSIONS NEOCC_MSN_EXPRESSIONS
+#define NEOCC_MSN_SCOPES (MSN_ + 5)
+#define MSN_SCOPES NEOCC_MSN_SCOPES
 #define NEOCC_OID_HOST (OID_OS | UINT64_C(0x004e0000))
 
 extern const struct vr neocc_host_caller;

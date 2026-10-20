@@ -432,6 +432,7 @@ typedef int nwchar_t;
 #include "neocc/symbols.h"
 
 #include "neocc/expressions.h"
+#include "neocc/scopes.h"
 
 /* section definition */
 typedef struct Section {
@@ -580,6 +581,8 @@ struct TCCState {
     struct object *sources; /* Owns input buffers and file handles. */
     struct object *tokens; /* Owns interned identifiers and macro streams. */
     struct object *symbols; /* Owns semantic symbol blocks and reuse chain. */
+    struct object *scopes;
+    struct neocc_scopes *scope; /* VO borrow; valid until close. */
     struct object *expressions;
     struct neocc_expressions *expr; /* VO borrow; valid until close. */
     struct object *preprocessor;

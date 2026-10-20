@@ -2,6 +2,7 @@
 #include "check.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
+#include "objects/scopes.h"
 
 static char diagnostic[4096];
 
@@ -23,11 +24,17 @@ static void clean_access(struct object *object)
 	}
 }
 
-static void clean_symbols(struct em_symbols *symbols)
+static void clean_semantics(struct TCCState *state)
 {
+	struct em_symbols *symbols = state->symbols->members;
+	struct em_scopes *scopes = state->scopes->members;
+
 	CHECK(!symbols->blocks && !symbols->free_first && !symbols->scope);
 	for (int i = 0; i < NEOCC_SYMBOL_STACK_COUNT; i++)
 		CHECK(!symbols->stacks[i]);
+	CHECK(!scopes->active && !scopes->available);
+	CHECK(!state->scope->current && !state->scope->root && !state->scope->loop);
+	CHECK(!state->scope->all_cleanups && !state->scope->pending_gotos);
 }
 
 static struct TCCState *session(const char *runtime)
@@ -56,6 +63,7 @@ int main(int argc, char **argv)
 		CHECK(a->sources != b->sources && a->sources->oid != b->sources->oid);
 		CHECK(a->pp != b->pp && a->preprocessor != b->preprocessor);
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
+		CHECK(a->scope != b->scope && a->scopes != b->scopes);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,
@@ -87,8 +95,8 @@ int main(int argc, char **argv)
 		clean_access(a->sources);
 		clean_access(b->sources);
 		CHECK(a->symbols != b->symbols);
-		clean_symbols(a->symbols->members);
-		clean_symbols(b->symbols->members);
+		clean_semantics(a);
+		clean_semantics(b);
 		CHECK(tcc_relocate(a) == 0);
 		function = (int (*)(void))tcc_get_symbol(a, "value");
 		CHECK(function && function() == 17);
@@ -129,7 +137,7 @@ int main(int argc, char **argv)
 			"int broken(void) { goto missing; }\n") < 0);
 		CHECK(strstr(diagnostic, "missing") &&
 			strstr(diagnostic, "used but not defined"));
-		clean_symbols(a->symbols->members);
+		clean_semantics(a);
 		clean_access(a->sources);
 		tcc_delete(a);
 		a = session(argv[1]);

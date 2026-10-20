@@ -2,6 +2,7 @@
 #include "check.h"
 #include "objects/source.h"
 #include "objects/symbols.h"
+#include "objects/scopes.h"
 
 void *__real_calloc(size_t, size_t);
 void *__real_malloc(size_t);
@@ -11,6 +12,7 @@ static int fail_at, calls;
 static int arena_fail_at, arena_calls;
 static int symbol_fail_at, symbol_calls, symbol_error;
 static int expression_error;
+static int scope_fail_at, scope_calls, scope_error;
 static int resize_fail_at, resize_calls;
 static size_t live;
 
@@ -18,6 +20,9 @@ void *__wrap_malloc(size_t size)
 {
 	void *pointer;
 
+	if (size == sizeof(struct neocc_scope_frame) &&
+	    ++scope_calls == scope_fail_at)
+		return NULL;
 	if (size >= 256 * 1024 && ++arena_calls == arena_fail_at)
 		return NULL;
 	if (size < 256 * 1024 && ++symbol_calls == symbol_fail_at)
@@ -90,6 +95,17 @@ static void *compiler_reallocator(void *old, unsigned long size)
 
 static void clean_preprocessor(struct TCCState *state)
 {
+	struct em_scopes *scopes = state->scopes->members;
+
+	CHECK(!scopes->active && !scopes->available);
+	CHECK(!state->scope->current && !state->scope->loop && !state->scope->root);
+	CHECK(!state->scope->all_cleanups && !state->scope->pending_gotos);
+	for (unsigned int i = 0; i < state->scopes->node_count; i++) {
+		struct object *node = state->scopes->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 	CHECK(state->expr->top == state->expr->values);
 	CHECK(!state->expr->int_type.ref && !state->expr->func_old_type.ref);
 	CHECK(!state->expr->char_type.ref && !state->expr->char_pointer_type.ref);
@@ -133,6 +149,8 @@ static void quiet_error(void *unused, const char *text)
 		symbol_error = 1;
 	if (strstr(text, "memory full (vstack)"))
 		expression_error = 1;
+	if (strstr(text, "cannot allocate scope frame"))
+		scope_error = 1;
 }
 
 int main(int argc, char **argv)
@@ -155,8 +173,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject five constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 7; failure++) {
+	/* Reject six constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 8; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -264,6 +282,36 @@ int main(int argc, char **argv)
 		CHECK(tcc_compile_string(state,
 			"#define TEXT(x) #x\nchar *text = TEXT(hello world);\n") < 0);
 		resize_fail_at = 0;
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Fail root/nested frames, including after cleanup and pending goto
+	 * records have been created. VO must unwind before the diagnostic jump.
+	 */
+	for (failure = 1; failure <= 5; failure++) {
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, NULL, quiet_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		scope_error = 0;
+		scope_fail_at = scope_calls + failure;
+		CHECK(tcc_compile_string(state,
+			"extern void release(int *); int scoped(int n) { "
+			"int a __attribute__((cleanup(release))) = 1; { "
+			"int b __attribute__((cleanup(release))) = 2; "
+			"goto done; { { int c = n; } } } done: return n; }") < 0);
+		scope_fail_at = 0;
+		CHECK(scope_error);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, "int recovered_scope(void) { return 3; }") == 0);
 		clean_preprocessor(state);
 		tcc_delete(state);
 		CHECK(live == initial_live);

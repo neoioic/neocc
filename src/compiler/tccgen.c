@@ -31,7 +31,6 @@
 */
 ST_DATA int rsym, anon_sym, ind, loc;
 
-static struct neocc_symbol *all_cleanups, *pending_gotos;
 ST_DATA char debug_modes;
 
 
@@ -81,7 +80,7 @@ static struct switch_t {
     int def_sym; /* default symbol */
     int nocode_wanted;
     int *bsym;
-    struct scope *scope;
+    struct neocc_scope *scope;
     struct switch_t *prev;
     struct neocc_expression_value sv;
 } *cur_switch; /* current switch */
@@ -94,14 +93,6 @@ static struct temp_local_variable {
 	short align;
 } arr_temp_local_vars[MAX_TEMP_LOCAL_VARIABLE_NUMBER];
 static int nb_temp_local_vars;
-
-static struct scope {
-    struct scope *prev;
-    struct { int loc, locorig, num; } vla;
-    struct { struct neocc_symbol *s; int n; } cl;
-    int *bsym, *csym;
-    struct neocc_symbol *lstk, *llstk;
-} *cur_scope, *loop_scope, *root_scope;
 
 typedef struct {
     Section *sec;
@@ -429,11 +420,11 @@ ST_FUNC void tccgen_finish(TCCState *s1)
         end_switch();
     label_discard(NEOCC_SYMBOL_STACK_GLOBAL_LABEL);
     label_discard(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
-    loop_scope = NULL;
-    all_cleanups = NULL;
-    pending_gotos = NULL;
     nb_temp_local_vars = 0;
     cur_text_section = NULL;
+    if (!RP(vo_interact0(s1->scopes, NEOCC_AC0_SCOPES_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset scope storage");
     if (!RP(vo_interact0(s1->expressions, NEOCC_AC0_EXPRESSIONS_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset expression storage");
@@ -7138,7 +7129,7 @@ static void save_lvalues(void)
 
 static void try_call_scope_cleanup(struct neocc_symbol *stop)
 {
-    struct neocc_symbol *cls = cur_scope->cl.s;
+    struct neocc_symbol *cls = tcc_state->scope->current->cl.s;
     for (; cls != stop; cls = cls->next) {
 	struct neocc_symbol *fs = cls->cleanup_func;
 	struct neocc_symbol *vs = cls->cleanup_sym;
@@ -7158,14 +7149,14 @@ static void try_call_cleanup_goto(struct neocc_symbol *cleanupstate)
     struct neocc_symbol *oc, *cc;
     int ocd, ccd;
 
-    if (!cur_scope->cl.s)
+    if (!tcc_state->scope->current->cl.s)
 	return;
 
     /* search NCA of both cleanup chains given parents and initial depth */
     ocd = cleanupstate ? cleanupstate->v & ~SYM_FIELD : 0;
-    for (ccd = cur_scope->cl.n, oc = cleanupstate; ocd > ccd; --ocd, oc = oc->next)
+    for (ccd = tcc_state->scope->current->cl.n, oc = cleanupstate; ocd > ccd; --ocd, oc = oc->next)
       ;
-    for (cc = cur_scope->cl.s; ccd > ocd; --ccd, cc = cc->next)
+    for (cc = tcc_state->scope->current->cl.s; ccd > ocd; --ccd, cc = cc->next)
       ;
     for (; cc != oc; cc = cc->next, oc = oc->next, --ccd)
       ;
@@ -7174,11 +7165,11 @@ static void try_call_cleanup_goto(struct neocc_symbol *cleanupstate)
 }
 
 /* call 'func' for each __attribute__((cleanup(func))) */
-static void block_cleanup(struct scope *o)
+static void block_cleanup(struct neocc_scope *o)
 {
     int jmp = 0;
     struct neocc_symbol *g, **pg;
-    for (pg = &pending_gotos; (g = *pg) && g->c > o->cl.n;) {
+    for (pg = &tcc_state->scope->pending_gotos; (g = *pg) && g->c > o->cl.n;) {
         if (g->cleanup_label->r & LABEL_FORWARD) {
             struct neocc_symbol *pcl = g->next;
             if (!jmp)
@@ -7209,9 +7200,9 @@ static void vla_restore(int loc)
         gen_vla_sp_restore(loc);
 }
 
-static void vla_leave(struct scope *o)
+static void vla_leave(struct neocc_scope *o)
 {
-    struct scope *c = cur_scope, *v = NULL;
+    struct neocc_scope *c = tcc_state->scope->current, *v = NULL;
     for (; c != o && c; c = c->prev)
       if (c->vla.num)
         v = c;
@@ -7222,21 +7213,37 @@ static void vla_leave(struct scope *o)
 /* ------------------------------------------------------------------------- */
 /* local scopes */
 
-static void new_scope(struct scope *o)
+static struct neocc_scope *scope_push(void)
 {
-    /* copy and link previous scope */
-    *o = *cur_scope;
-    o->prev = cur_scope;
-    cur_scope = o;
-    cur_scope->vla.num = 0;
+    struct neocc_scope *scope;
+    unsigned int quantity;
+    int result = vo_interact1(tcc_state->scopes, NEOCC_AC1_SCOPES_ENTER,
+        (unsigned char *)&scope, sizeof(scope), &quantity, &neocc_host_caller);
+
+    if (!RP(result) || quantity != sizeof(scope))
+        tcc_error("cannot allocate scope frame");
+    return scope;
+}
+
+static void scope_drop(struct neocc_scope *scope)
+{
+    if (!RP(vo_interact2(tcc_state->scopes, NEOCC_AC2_SCOPES_EXIT,
+        (unsigned char *)&scope, sizeof(scope), &neocc_host_caller)))
+        tcc_error("cannot leave scope frame");
+}
+
+static struct neocc_scope *new_scope(void)
+{
+    struct neocc_scope *o = scope_push();
 
     /* record local declaration stack position */
     o->lstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
     o->llstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
     sym_scope_add(1);
+    return o;
 }
 
-static void prev_scope(struct scope *o, int is_expr)
+static void prev_scope(struct neocc_scope *o, int is_expr)
 {
     vla_leave(o->prev);
 
@@ -7259,12 +7266,12 @@ static void prev_scope(struct scope *o, int is_expr)
 
     /* pop locally defined symbols */
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, o->lstk, is_expr);
-    cur_scope = o->prev;
+    scope_drop(o);
     sym_scope_add(-1);
 }
 
 /* leave a scope via break/continue(/goto) */
-static void leave_scope(struct scope *o)
+static void leave_scope(struct neocc_scope *o)
 {
     if (!o)
         return;
@@ -7274,15 +7281,16 @@ static void leave_scope(struct scope *o)
 
 /* short versiona for scopes with 'if/do/while/switch' which can
    declare only types (of struct/union/enum) */
-static void new_scope_s(struct scope *o)
+static struct neocc_symbol *new_scope_s(void)
 {
-    o->lstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    struct neocc_symbol *boundary = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
     sym_scope_add(1);
+    return boundary;
 }
 
-static void prev_scope_s(struct scope *o)
+static void prev_scope_s(struct neocc_symbol *boundary)
 {
-    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, o->lstk, 0);
+    sym_pop(NEOCC_SYMBOL_STACK_LOCAL, boundary, 0);
     sym_scope_add(-1);
 }
 
@@ -7291,18 +7299,18 @@ static void prev_scope_s(struct scope *o)
 
 static void lblock(int *bsym, int *csym)
 {
-    struct scope *lo = loop_scope, *co = cur_scope;
+    struct neocc_scope *lo = tcc_state->scope->loop, *co = tcc_state->scope->current;
     int *b = co->bsym, *c = co->csym;
     if (csym) {
         co->csym = csym;
-        loop_scope = co;
+        tcc_state->scope->loop = co;
     }
     co->bsym = bsym;
     block(0);
     co->bsym = b;
     if (csym) {
         co->csym = c;
-        loop_scope = lo;
+        tcc_state->scope->loop = lo;
     }
 }
 
@@ -7324,7 +7332,8 @@ static void gexpr_decl(void)
 static void block(int flags)
 {
     int a, b, c, d, e, t;
-    struct scope o;
+    struct neocc_scope *o;
+    struct neocc_symbol *boundary;
     struct neocc_symbol *s;
 
 again:
@@ -7339,7 +7348,7 @@ again:
         tcc_tcov_check_line (tcc_state, 0), tcc_tcov_block_begin (tcc_state);
 
     if (t == TOK_IF) {
-        new_scope_s(&o);
+        boundary = new_scope_s();
         skip('(');
         gexpr_decl();
         a = gvtst(1, 0);
@@ -7354,10 +7363,10 @@ again:
         } else {
             gsym(a);
         }
-        prev_scope_s(&o);
+        prev_scope_s(boundary);
 
     } else if (t == TOK_WHILE) {
-        new_scope_s(&o);
+        boundary = new_scope_s();
         d = gind();
         skip('(');
         gexpr();
@@ -7368,12 +7377,12 @@ again:
         gjmp_addr(d);
         gsym_addr(b, d);
         gsym(a);
-        prev_scope_s(&o);
+        prev_scope_s(boundary);
 
     } else if (t == '{') {
         if (debug_modes)
             tcc_debug_stabn(tcc_state, N_LBRAC, ind - func_ind);
-        new_scope(&o);
+        o = new_scope();
 
         /* handle local labels declarations */
         while (tcc_state->pp->token == TOK_LABEL) {
@@ -7395,7 +7404,7 @@ again:
             }
         }
 
-        prev_scope(&o, flags & STMT_EXPR);
+        prev_scope(o, flags & STMT_EXPR);
         if (debug_modes)
             tcc_debug_stabn(tcc_state, N_RBRAC, ind - func_ind);
         if (sym_scope_get())
@@ -7420,7 +7429,7 @@ again:
             tcc_warning("'return' with no value");
             b = 0;
         }
-        leave_scope(root_scope);
+        leave_scope(tcc_state->scope->root);
         if (b)
             gfunc_return(&func_vt);
         skip(';');
@@ -7433,25 +7442,25 @@ again:
 
     } else if (t == TOK_BREAK) {
         /* compute jump */
-        if (!cur_scope->bsym)
+        if (!tcc_state->scope->current->bsym)
             tcc_error("cannot break");
-        if (cur_switch && cur_scope->bsym == cur_switch->bsym)
+        if (cur_switch && tcc_state->scope->current->bsym == cur_switch->bsym)
             leave_scope(cur_switch->scope);
         else
-            leave_scope(loop_scope);
-        *cur_scope->bsym = gjmp(*cur_scope->bsym);
+            leave_scope(tcc_state->scope->loop);
+        *tcc_state->scope->current->bsym = gjmp(*tcc_state->scope->current->bsym);
         skip(';');
 
     } else if (t == TOK_CONTINUE) {
         /* compute jump */
-        if (!cur_scope->csym)
+        if (!tcc_state->scope->current->csym)
             tcc_error("cannot continue");
-        leave_scope(loop_scope);
-        *cur_scope->csym = gjmp(*cur_scope->csym);
+        leave_scope(tcc_state->scope->loop);
+        *tcc_state->scope->current->csym = gjmp(*tcc_state->scope->current->csym);
         skip(';');
 
     } else if (t == TOK_FOR) {
-        new_scope(&o);
+        o = new_scope();
 
         skip('(');
         if (tcc_state->pp->token != ';') {
@@ -7483,10 +7492,10 @@ again:
         gjmp_addr(d);
         gsym_addr(b, d);
         gsym(a);
-        prev_scope(&o, 0);
+        prev_scope(o, 0);
 
     } else if (t == TOK_DO) {
-        new_scope_s(&o);
+        boundary = new_scope_s();
         a = b = 0;
         d = gind();
         lblock(&a, &b);
@@ -7499,19 +7508,19 @@ again:
         skip(';');
 	gsym_addr(c, d);
         gsym(a);
-        prev_scope_s(&o);
+        prev_scope_s(boundary);
 
     } else if (t == TOK_SWITCH) {
         struct switch_t *sw;
 
         sw = tcc_mallocz(sizeof *sw);
         sw->bsym = &a;
-        sw->scope = cur_scope;
+        sw->scope = tcc_state->scope->current;
         sw->prev = cur_switch;
         sw->nocode_wanted = nocode_wanted;
         cur_switch = sw;
 
-        new_scope_s(&o);
+        boundary = new_scope_s();
         skip('(');
         gexpr_decl();
         if (!is_integer_btype(tcc_state->expr->top->type.t & VT_BTYPE))
@@ -7524,7 +7533,7 @@ again:
         a = gjmp(a); /* add implicit break */
         /* case lookup */
         gsym(b);
-        prev_scope_s(&o);
+        prev_scope_s(boundary);
         if (sw->nocode_wanted)
             goto skip_switch;
         case_sort(sw);
@@ -7573,7 +7582,7 @@ again:
         goto block_after_label;
 
     } else if (t == TOK_GOTO) {
-        vla_restore(cur_scope->vla.locorig);
+        vla_restore(tcc_state->scope->current->vla.locorig);
         if (tcc_state->pp->token == '*' && gnu_ext) {
             /* computed goto */
             next();
@@ -7593,11 +7602,11 @@ again:
 
 	    if (s->r & LABEL_FORWARD) {
 		/* start new goto chain for cleanups, linked via label->next */
-		if (cur_scope->cl.s && !nocode_wanted) {
-                    sym_push2(&pending_gotos, SYM_FIELD, 0, cur_scope->cl.n);
-                    pending_gotos->cleanup_label = s;
+		if (tcc_state->scope->current->cl.s && !nocode_wanted) {
+                    sym_push2(&tcc_state->scope->pending_gotos, SYM_FIELD, 0, tcc_state->scope->current->cl.n);
+                    tcc_state->scope->pending_gotos->cleanup_label = s;
                     s = sym_push2(&s->next, SYM_FIELD, 0, 0);
-                    pending_gotos->next = s;
+                    tcc_state->scope->pending_gotos->next = s;
                 }
 		s->jnext = gjmp(s->jnext);
 	    } else {
@@ -7635,7 +7644,7 @@ again:
                                LABEL_DEFINED);
             }
             s->jind = gind();
-            s->cleanupstate = cur_scope->cl.s;
+            s->cleanupstate = tcc_state->scope->current->cl.s;
 
     block_after_label:
             /* Accept attributes after labels (e.g. 'unused') */
@@ -7643,7 +7652,7 @@ again:
 
             if (debug_modes)
                 tcc_tcov_reset_ind(tcc_state);
-            vla_restore(cur_scope->vla.loc);
+            vla_restore(tcc_state->scope->current->vla.loc);
 
             if (tcc_state->pp->token != '}') {
                 if (0 == (flags & STMT_COMPOUND))
@@ -8531,12 +8540,12 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 #endif
             sym = sym_push(v, type, r, addr);
 	    if (ad->cleanup_func) {
-		struct neocc_symbol *cls = sym_push2(&all_cleanups,
-                    SYM_FIELD | ++cur_scope->cl.n, 0, 0);
+		struct neocc_symbol *cls = sym_push2(&tcc_state->scope->all_cleanups,
+                    SYM_FIELD | ++tcc_state->scope->current->cl.n, 0, 0);
 		cls->cleanup_sym = sym;
 		cls->cleanup_func = ad->cleanup_func;
-		cls->next = cur_scope->cl.s;
-		cur_scope->cl.s = cls;
+		cls->next = tcc_state->scope->current->cl.s;
+		tcc_state->scope->current->cl.s = cls;
 	    }
 
             sym->a = ad->a;
@@ -8626,12 +8635,12 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
             goto no_alloc;
 
         /* save before-VLA stack pointer if needed */
-        if (cur_scope->vla.num == 0) {
-            if (cur_scope->prev && cur_scope->prev->vla.num) {
-                cur_scope->vla.locorig = cur_scope->prev->vla.loc;
+        if (tcc_state->scope->current->vla.num == 0) {
+            if (tcc_state->scope->current->prev && tcc_state->scope->current->prev->vla.num) {
+                tcc_state->scope->current->vla.locorig = tcc_state->scope->current->prev->vla.loc;
             } else {
                 gen_vla_sp_save(loc -= PTR_SIZE);
-                cur_scope->vla.locorig = loc;
+                tcc_state->scope->current->vla.locorig = loc;
             }
         }
 
@@ -8643,8 +8652,8 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
         gen_vla_result(addr), addr = (loc -= PTR_SIZE);
 #endif
         gen_vla_sp_save(addr);
-        cur_scope->vla.loc = addr;
-        cur_scope->vla.num++;
+        tcc_state->scope->current->vla.loc = addr;
+        tcc_state->scope->current->vla.num++;
     } else if (has_init) {
         p.sec = sec;
         decl_initializer(&p, type, addr, DIF_FIRST);
@@ -8733,9 +8742,7 @@ static void sym_push_params(struct neocc_symbol *ref)
    'cur_text_section' */
 static void gen_function(struct neocc_symbol *sym)
 {
-    struct scope f = { 0 };
-
-    cur_scope = root_scope = &f;
+    scope_push();
     nocode_wanted = 0;
 
     ind = cur_text_section->data_offset;
@@ -8791,7 +8798,8 @@ static void gen_function(struct neocc_symbol *sym)
 
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     label_pop(NEOCC_SYMBOL_STACK_GLOBAL_LABEL, NULL, 0);
-    sym_list_pop(&all_cleanups, NULL, 0);
+    sym_list_pop(&tcc_state->scope->all_cleanups, NULL, 0);
+    scope_drop(tcc_state->scope->root);
     sym_scope_set(0);
 
     /* It's better to crash than to generate wrong code */
