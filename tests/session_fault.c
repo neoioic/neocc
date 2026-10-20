@@ -4,6 +4,7 @@
 #include "objects/symbols.h"
 #include "objects/scopes.h"
 #include "objects/functions.h"
+#include "objects/switches.h"
 
 void *__real_calloc(size_t, size_t);
 void *__real_malloc(size_t);
@@ -16,11 +17,17 @@ static int expression_error;
 static int scope_fail_at, scope_calls, scope_error;
 static int resize_fail_at, resize_calls;
 static size_t live;
+static int switch_fail_at, switch_calls, switch_resize_fail, switch_error;
+static struct TCCState *switch_state;
 
 void *__wrap_malloc(size_t size)
 {
 	void *pointer;
 
+	if (switch_state &&
+	    (size == sizeof(struct neocc_switch) || size == sizeof(struct neocc_case)) &&
+	    ++switch_calls == switch_fail_at)
+		return NULL;
 	if (size == sizeof(struct neocc_scope_frame) &&
 	    ++scope_calls == scope_fail_at)
 		return NULL;
@@ -47,6 +54,12 @@ void *__wrap_realloc(void *old, size_t size)
 {
 	void *pointer;
 
+	if (switch_state && switch_resize_fail &&
+	    switch_state->switch_state->current &&
+	    old == switch_state->switch_state->current->p) {
+		switch_resize_fail = 0;
+		return NULL;
+	}
 	if (++resize_calls == resize_fail_at)
 		return NULL;
 	pointer = __real_realloc(old, size);
@@ -98,6 +111,14 @@ static void clean_preprocessor(struct TCCState *state)
 {
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
+
+	CHECK(!state->switch_state->current);
+	for (unsigned int i = 0; i < state->switches->node_count; i++) {
+		struct object *node = state->switches->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 
 	CHECK(!state->function->type.ref && !state->function->type.t);
 	CHECK(!*state->function->name && state->function->start == -1);
@@ -161,6 +182,8 @@ static void clean_preprocessor(struct TCCState *state)
 static void quiet_error(void *unused, const char *text)
 {
 	(void)unused;
+	if (strstr(text, "cannot allocate switch"))
+		switch_error = 1;
 	if (strstr(text, "semantic symbol"))
 		symbol_error = 1;
 	if (strstr(text, "memory full (vstack)"))
@@ -210,8 +233,8 @@ int main(int argc, char **argv)
 	CHECK(tcc_compile_string(state, "int option_value = OPTION_VALUE;") == 0);
 	tcc_delete(state);
 	CHECK(live == initial_live);
-	/* Reject seven constructors and both aligned workspaces. */
-	for (failure = 1; failure <= 9; failure++) {
+	/* Reject eight constructors and both aligned workspaces. */
+	for (failure = 1; failure <= 10; failure++) {
 		fail_at = calls + failure;
 		CHECK(!tcc_new());
 		fail_at = 0;
@@ -352,6 +375,59 @@ int main(int argc, char **argv)
 		clean_preprocessor(state);
 		tcc_delete(state);
 		CHECK(live == initial_live);
+	}
+	/* Fail frames, case records and the first index growth inside VO. */
+	for (int n = 1; n <= 7; n++) {
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		tcc_set_error_func(state, NULL, quiet_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		switch_state = state;
+		switch_calls = switch_error = 0;
+		switch_fail_at = n <= 6 ? n : 0;
+		switch_resize_fail = n == 7;
+		CHECK(tcc_compile_string(state,
+			"int broken_switch(int n) { switch (n) { "
+			"case 1: case 2: switch (n + 1) { "
+			"case 3: case 4: return 1; } } return 0; }") < 0);
+		switch_state = NULL;
+		CHECK(switch_error);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, argv[1]);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state,
+			"int recovered_switch(int n) { switch(n) { "
+			"case 1: case 2: return 3; default: return 0; } }") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	/* Diagnostics at different parser stages must release the active chain. */
+	{
+		const char *inputs[] = {
+			"int f(int n) { switch(n) { case 1: switch(n) { case 2: return absent; } } }",
+			"int f(int n) { switch(n) { case 1: case 1: return 0; } }",
+			"int f(int n) { switch(n) { default: default: return 0; } }",
+			"int f(void) { switch(1.5) {} }",
+			"int f(int n) { switch(n) { case absent: return 0; } }"
+		};
+
+		for (unsigned int i = 0; i < sizeof(inputs) / sizeof(inputs[0]); i++) {
+			state = tcc_new();
+			CHECK(state);
+			tcc_set_lib_path(state, argv[1]);
+			tcc_set_error_func(state, NULL, quiet_error);
+			CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+			CHECK(tcc_compile_string(state, inputs[i]) < 0);
+			clean_preprocessor(state);
+			tcc_delete(state);
+			CHECK(live == initial_live);
+		}
 	}
 	/* Leave a populated expression stack through the diagnostic jump. */
 	{

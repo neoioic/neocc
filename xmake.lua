@@ -228,3 +228,18 @@ for _, name in ipairs({"symbols_test", "symbols_fault_test"}) do
         set_rundir(".")
         add_tests("default")
 end
+
+for _, name in ipairs({"switches_test", "switches_fault_test"}) do
+    target(name)
+        set_kind("binary")
+        add_deps("neoioic")
+        add_includedirs("include", "src", "third_party/openoicc/include")
+        add_files("tests/switches.c", "src/objects/*.c", "src/host/host.c")
+        if name == "switches_fault_test" then
+            add_defines("NEOCC_TEST_SWITCH_FAULTS")
+            add_ldflags("-Wl,--wrap=malloc", "-Wl,--wrap=calloc",
+                        "-Wl,--wrap=realloc", "-Wl,--wrap=free", {force = true})
+        end
+        set_rundir(".")
+        add_tests("default")
+end

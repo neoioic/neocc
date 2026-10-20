@@ -62,19 +62,6 @@ static struct neocc_string initstr;
 #define VT_PTRDIFF_T (VT_LONG | VT_LLONG)
 #endif
 
-static struct switch_t {
-    struct case_t {
-        int64_t v1, v2;
-        int ind, line;
-    } **p; int n; /* list of case ranges */
-    int def_sym; /* default symbol */
-    int nocode_wanted;
-    int *bsym;
-    struct neocc_scope *scope;
-    struct switch_t *prev;
-    struct neocc_expression_value sv;
-} *cur_switch; /* current switch */
-
 typedef struct {
     Section *sec;
     int local_offset;
@@ -403,8 +390,9 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     free_defines(NULL);
     cstr_free(&initstr);
     dynarray_reset(&stk_data, &nb_stk_data);
-    while (cur_switch)
-        end_switch();
+    if (!RP(vo_interact0(s1->switches, NEOCC_AC0_SWITCHES_RESET,
+                         &neocc_host_caller)))
+        tcc_error("cannot reset switch storage");
     label_discard(NEOCC_SYMBOL_STACK_GLOBAL_LABEL);
     label_discard(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
     cur_text_section = NULL;
@@ -2342,7 +2330,8 @@ static void gen_opl(int op)
         tcc_state->expr->top[-1] = tcc_state->expr->top[-2];
         tcc_state->expr->top[-2] = tmp;
         /* stack: L1 L2 H1 H2 */
-        if (!cur_switch || cur_switch->bsym) {
+        struct neocc_switch *sw = tcc_state->switch_state->current;
+        if (!sw || sw->bsym) {
             /* avoid differnt registers being saved in branches.
                This is not needed when comparing switch cases */
             save_regs(4);
@@ -7008,9 +6997,9 @@ static void check_func_return(void)
 /* ------------------------------------------------------------------------- */
 /* switch/case */
 
-static int case_cmp(uint64_t a, uint64_t b)
+static int case_cmp(uint64_t a, uint64_t b, int is_unsigned)
 {
-    if (cur_switch->sv.type.t & VT_UNSIGNED)
+    if (is_unsigned)
         return a < b ? -1 : a > b;
     else
         return (int64_t)a < (int64_t)b ? -1 : (int64_t)a > (int64_t)b;
@@ -7018,34 +7007,43 @@ static int case_cmp(uint64_t a, uint64_t b)
 
 static int case_cmp_qs(const void *pa, const void *pb)
 {
-    return case_cmp((*(struct case_t**)pa)->v1, (*(struct case_t**)pb)->v1);
+    return case_cmp((*(struct neocc_case**)pa)->v1, (*(struct neocc_case**)pb)->v1, 0);
 }
 
-static void case_sort(struct switch_t *sw)
+static int case_cmp_unsigned_qs(const void *pa, const void *pb)
 {
-    struct case_t **p;
+    return case_cmp((*(struct neocc_case**)pa)->v1, (*(struct neocc_case**)pb)->v1, 1);
+}
+
+static void case_sort(struct neocc_switch *sw)
+{
+    struct neocc_case **p;
     if (sw->n < 2)
         return;
-    qsort(sw->p, sw->n, sizeof *sw->p, case_cmp_qs);
+    qsort(sw->p, sw->n, sizeof *sw->p,
+          sw->sv.type.t & VT_UNSIGNED ? case_cmp_unsigned_qs : case_cmp_qs);
     p = sw->p;
     while (p < sw->p + sw->n - 1) {
-        if (case_cmp(p[0]->v2, p[1]->v1) >= 0) {
+        if (case_cmp(p[0]->v2, p[1]->v1, sw->sv.type.t & VT_UNSIGNED) >= 0) {
             int l1 = p[0]->line, l2 = p[1]->line;
             /* using special format "%i:..." to show specific line */
             tcc_error("%i:duplicate case value", l1 > l2 ? l1 : l2);
         } else if (p[0]->v2 + 1 == p[1]->v1 && p[0]->ind == p[1]->ind) {
             /* treat "case 1: case 2: case 3:" like "case 1 ... 3: */
             p[1]->v1 = p[0]->v1;
-            tcc_free(p[0]);
-            memmove(p, p + 1, (--sw->n - (p - sw->p)) * sizeof *p);
+            int index = p - sw->p;
+            if (!RP(vo_interact2(tcc_state->switches, NEOCC_AC2_SWITCHES_REMOVE,
+                                 (unsigned char *)&index, sizeof(index),
+                                 &neocc_host_caller)))
+                tcc_error("cannot merge switch cases");
         } else
             ++p;
     }
 }
 
-static int gcase(struct case_t **base, int len, int dsym)
+static int gcase(struct neocc_case **base, int len, int dsym)
 {
-    struct case_t *p;
+    struct neocc_case *p;
     int t, l2, e;
 
     t = tcc_state->expr->top->type.t & VT_BTYPE;
@@ -7080,10 +7078,10 @@ static int gcase(struct case_t **base, int len, int dsym)
 
 static void end_switch(void)
 {
-    struct switch_t *sw = cur_switch;
-    dynarray_reset(&sw->p, &sw->n);
-    cur_switch = sw->prev;
-    tcc_free(sw);
+    struct neocc_switch *sw = tcc_state->switch_state->current;
+    if (!RP(vo_interact2(tcc_state->switches, NEOCC_AC2_SWITCHES_EXIT,
+                         (unsigned char *)&sw, sizeof(sw), &neocc_host_caller)))
+        tcc_error("cannot leave switch context");
 }
 
 /* ------------------------------------------------------------------------- */
@@ -7422,8 +7420,9 @@ again:
         /* compute jump */
         if (!tcc_state->scope->current->bsym)
             tcc_error("cannot break");
-        if (cur_switch && tcc_state->scope->current->bsym == cur_switch->bsym)
-            leave_scope(cur_switch->scope);
+        struct neocc_switch *sw = tcc_state->switch_state->current;
+        if (sw && tcc_state->scope->current->bsym == sw->bsym)
+            leave_scope(sw->scope);
         else
             leave_scope(tcc_state->scope->loop);
         *tcc_state->scope->current->bsym = gjmp(*tcc_state->scope->current->bsym);
@@ -7489,14 +7488,16 @@ again:
         prev_scope_s(boundary);
 
     } else if (t == TOK_SWITCH) {
-        struct switch_t *sw;
+        struct neocc_switch *sw;
 
-        sw = tcc_mallocz(sizeof *sw);
+        unsigned int quantity;
+        int result = vo_interact1(tcc_state->switches, NEOCC_AC1_SWITCHES_ENTER,
+            (unsigned char *)&sw, sizeof(sw), &quantity, &neocc_host_caller);
+        if (!RP(result) || quantity != sizeof(sw))
+            tcc_error("cannot allocate switch context");
         sw->bsym = &a;
         sw->scope = tcc_state->scope->current;
-        sw->prev = cur_switch;
         sw->nocode_wanted = nocode_wanted;
-        cur_switch = sw;
 
         boundary = new_scope_s();
         skip('(');
@@ -7530,32 +7531,37 @@ again:
         end_switch();
 
     } else if (t == TOK_CASE) {
-        struct case_t *cr;
-        if (!cur_switch)
+        struct neocc_switch *sw = tcc_state->switch_state->current;
+        struct neocc_case *cr;
+        if (!sw)
             expect("switch");
-        cr = tcc_malloc(sizeof(struct case_t));
-        dynarray_add(&cur_switch->p, &cur_switch->n, cr);
-        t = cur_switch->sv.type.t;
+        unsigned int quantity;
+        int result = vo_interact1(tcc_state->switches, NEOCC_AC1_SWITCHES_CASE,
+            (unsigned char *)&cr, sizeof(cr), &quantity, &neocc_host_caller);
+        if (!RP(result) || quantity != sizeof(cr))
+            tcc_error("cannot allocate switch case");
+        t = sw->sv.type.t;
         cr->v1 = cr->v2 = value64(expr_const64(), t);
         if (tcc_state->pp->token == TOK_DOTS && gnu_ext) {
             next();
             cr->v2 = value64(expr_const64(), t);
-            if (case_cmp(cr->v2, cr->v1) < 0)
+            if (case_cmp(cr->v2, cr->v1, t & VT_UNSIGNED) < 0)
                 tcc_warning("empty case range");
         }
         /* case and default are unreachable from a switch under nocode_wanted */
-        if (!cur_switch->nocode_wanted)
+        if (!sw->nocode_wanted)
             cr->ind = gind();
         cr->line = tcc_state->pp->source->line_num;
         skip(':');
         goto block_after_label;
 
     } else if (t == TOK_DEFAULT) {
-        if (!cur_switch)
+        struct neocc_switch *sw = tcc_state->switch_state->current;
+        if (!sw)
             expect("switch");
-        if (cur_switch->def_sym)
+        if (sw->def_sym)
             tcc_error("too many 'default'");
-        cur_switch->def_sym = cur_switch->nocode_wanted ? -1 : gind();
+        sw->def_sym = sw->nocode_wanted ? -1 : gind();
         skip(':');
         goto block_after_label;
 

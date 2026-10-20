@@ -18,6 +18,8 @@
 #define MSN_SCOPES NEOCC_MSN_SCOPES
 #define NEOCC_MSN_FUNCTIONS (MSN_ + 6)
 #define MSN_FUNCTIONS NEOCC_MSN_FUNCTIONS
+#define NEOCC_MSN_SWITCHES (MSN_ + 7)
+#define MSN_SWITCHES NEOCC_MSN_SWITCHES
 #define NEOCC_OID_HOST (OID_OS | UINT64_C(0x004e0000))
 
 extern const struct vr neocc_host_caller;

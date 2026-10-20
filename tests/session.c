@@ -4,6 +4,7 @@
 #include "objects/symbols.h"
 #include "objects/scopes.h"
 #include "objects/functions.h"
+#include "objects/switches.h"
 
 static char diagnostic[4096];
 
@@ -30,6 +31,14 @@ static void clean_semantics(struct TCCState *state)
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
 	struct em_functions *functions = state->functions->members;
+
+	CHECK(!state->switch_state->current);
+	for (unsigned int i = 0; i < state->switches->node_count; i++) {
+		struct object *node = state->switches->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
 
 	CHECK(!symbols->blocks && !symbols->free_first && !symbols->scope);
 	for (int i = 0; i < NEOCC_SYMBOL_STACK_COUNT; i++)
@@ -81,6 +90,7 @@ int main(int argc, char **argv)
 		CHECK(a->expr != b->expr && a->expressions != b->expressions);
 		CHECK(a->scope != b->scope && a->scopes != b->scopes);
 		CHECK(a->function != b->function && a->functions != b->functions);
+		CHECK(a->switch_state != b->switch_state && a->switches != b->switches);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,

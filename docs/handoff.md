@@ -1,6 +1,6 @@
 # NeoCC 迁移交接
 
-截至 2026-10-20，最近完成当前函数上下文及临时栈槽对象迁移和对应回归，Debug/Release
+截至 2026-10-20，最近完成 switch/case 上下文与资源对象迁移和对应回归，Debug/Release
 全量验证结果见下文。后续迁移使用仓库内材料，不访问外部项目；Agent 不执行 Git 暂存、提交或推送，
 TinyCC 基线保持不变。详细设计、命令和验证边界见
 [架构](architecture.md)、[构建](build.md) 和 [测试](testing.md)。
@@ -20,7 +20,7 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
 
 ## 已实现
 
-- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十六组
+- 根 xmake 构建 NeoCC、独立编译的 neocc_compiler、NEOioic 静态库、运行库及十八组
   C 回归。活跃编译路径在 src/，删除 ONE_SOURCE 聚合分支，tinycc/ 仅作差分基线。
 - source 对象实际拥有输入缓冲栈、文件句柄及真实文件名，解析器借用当前缓冲。
   构造区由仓库 OpenOICC 预览并显式生成，常规构建不隐式再生。
@@ -69,11 +69,21 @@ TinyCC 基线保持不变。详细设计、命令和验证边界见
   short 大小/对齐及八项缓存算法；缓存满后继续分配，偏移计算检查 int 可表示范围，失败
   不改动状态。正常函数结束在调试/异常帧和符号大小输出后 reset；错误收尾在 debug/
   switch/标签清理后 reset scopes/functions/expressions，再 reset symbols。
-  新增函数对象回归；会话故障覆盖七个构造与两个独立工作区共九处分配失败，另在普通/
+  新增函数对象回归；会话故障覆盖八个构造与两个独立工作区共十处分配失败，另在普通/
   DWARF 配置下观察填充的函数状态、临时槽和返回链，触发真实诊断后检查清理及恢复。
   新增 functions 样例覆盖结构体返回、十个结构体实参、递归/间接/内联调用、变参浮点、
   旧式参数、函数指针返回、VLA 参数和 __func__，纳入运行/目标字节比较及阶段测试。
-- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十六组回归和第二/三阶段自举。
+- switches 对象拥有当前 switch 链、case 记录和索引数组，删除原文件级入口及解析器的
+  分配/释放路径；经 VO ENTER/CASE/REMOVE/EXIT/reset 管理所有权。沿用 TinyCC 的
+  排序、范围合并和分支生成，qsort 比较模式改由显式选择的纯比较函数提供。
+  malloc 保证 switch 值的宿主对齐；索引扩容失败释放尚未发布的 case 并保留旧状态。
+  RESET/末次关闭清理整条链，不解引用诊断跳转后已失效的解析器局部地址。
+  新增普通/故障对象回归覆盖 258 层、case 增长、未对齐消息、非法退出、共享打开、
+  部分关闭、构造/记录/索引分配失败；会话回归覆盖六处帧/case 分配与索引扩容失败，
+  以及嵌套语法诊断、重复 case/default、非整数 switch、case 表达式错误后的清理。
+  新增 switches 语义样例覆盖多 case 查找、范围、64 位无符号边界、嵌套、break/continue
+  和代码抑制，纳入运行、预处理/目标字节差分和阶段自举。
+- 不含 tinycc/、不带既有缓存的干净副本已验证构建、十八组回归和第二/三阶段自举。
   参考树只影响可选 tinycc_baseline 与差分语料，不是生产依赖。
 - 缓冲/文件名分配失败先正常返回 VO，再执行编译器错误跳转；主文件缓冲失败关闭
   已打开的句柄，早期预定义文件失败只清理已初始化的算法资源。
@@ -93,46 +103,50 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含十六组 C 回归、
-六组编译集成检查（含 `scope` 和新增 `functions` 语义样例、120 个 TinyCC 输入差分）、NeoCC 编译并运行
-NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/表达式对象/作用域对象/函数对象/目录测试。
+2026-10-20，Debug 和 Release 两条统一验证命令均完整通过。包含十八组 C 回归、
+六组编译集成检查（含 `scope`、`functions` 和新增 `switches` 语义样例、120 个 TinyCC 输入差分）、NeoCC 编译并运行
+NEOioic 健壮性/分派/菱形及源对象/token 对象/预处理对象/符号对象/表达式对象/作用域对象/函数对象/switch 对象/目录测试。
 未纳入当前平台的输入及原因保留在脚本和结果 JSON，不把共同失败当作 C 功能正确的证据。
 
-第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：22 个目标文件及
-两个可执行文件共 24 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
-source/tokens/preprocessor/symbols/expressions/scopes/functions 构造区无变化，并使用该阶段 NeoCC 重新编译运行
-七个对象测试、C11 语义样例、作用域和函数样例。统一入口还分别对 GCC 构建和第三阶段
+第二、第三阶段从源码重建 NeoCC、NEOioic、OpenOICC 和运行库：23 个目标文件及
+两个可执行文件共 25 对逐字节一致，运行库逐阶段比较。阶段 OpenOICC 两次再生后
+source/tokens/preprocessor/symbols/expressions/scopes/functions/switches 构造区无变化，并使用该阶段 NeoCC 重新编译运行
+八个对象测试、C11 语义样例、作用域、函数和 switch 样例。统一入口还分别对 GCC 构建和第三阶段
 构建的 OpenOICC 运行 39 项回归。
 结果记录在对应构建目录的 regression/results.json、bootstrap/results.json；
 生成器测试辅助 C 程序仍由 GCC 编译。两次验证分别写入 Debug/Release 的
 verification.json 成功记录；120 个差分输入及 21 个排除项见脚本和结果文件。
 这些 build/ 结果受忽略，不要求随源码交付，新环境需重新生成，不能当作后续修改的验证结果。
-新增 functions 构造区经仓库 OpenOICC 预览后显式写入；阶段工具重复再生无差异。
+新增 switches 构造区经仓库 OpenOICC 预览后显式写入；阶段工具重复再生无差异。
 来源清单与 UTF-8/LF 随迁移复核；Git 由开发者管理，提交状态应在接手时重新检查。
 
 ## 待迁移与限制
 
 1. 逐步显式传递预处理算法协作上下文，移除对全局 tcc_state 入口的依赖；
    token/值、源游标、宏展开工作区和宏定义栈已有独立所有者，不宣称预处理器全部迁移完成。
-2. 按 tccgen.c 边界迁移 switch、初始化器资源和翻译单元代码生成工作状态，保持直接代码生成。
+2. 按 tccgen.c 边界迁移初始化器资源和翻译单元代码生成工作状态，保持直接代码生成。
 3. 分别迁移目标代码生成、链接输出和装载资源，删除被替代的活跃路径。
 4. 增加 Linux/其他目标的配置、ABI、运行库和差分验证。
 5. 扩展 TLS/pthread、回溯/边界检查和复杂 DLL/ELF 场景，当前尚未覆盖。
 
-当前仍有 tcc_state、switch/初始化器资源、指令游标/代码抑制、目标后端专有全局状态及算法间隐式协作，
+当前仍有 tcc_state、初始化器资源、指令游标/代码抑制、目标后端专有全局状态及算法间隐式协作，
 尚未完成整个 TinyCC 的对象化重写；不宣称重入、并行或完整 C11 支持。禁止把所有状态
 塞进一个对象外壳代替职责迁移。内部基线函数/类型和部分诊断名称按职责迁移逐步更新。
 
-本阶段完成当前函数上下文与临时栈槽的所有权及操作迁移、活跃调用点替换和失败清理验证。
+本阶段完成 switch/case 上下文与资源的所有权及操作迁移、活跃调用点替换和失败清理验证。
 完成阶段验证后停下供开发者提交备份；后续从剩余语法/代码生成状态和算法协作继续。
 
 ## 下一阶段入口与注意事项
 
-优先阅读 `src/compiler/tccgen.c` 的 switch 链、初始化器字符串/临时数据栈，以及代码抑制、
+优先阅读 `src/compiler/tccgen.c` 的初始化器字符串/临时数据栈，以及代码抑制、
 指令游标、当前代码节等状态，连同 `tcc.h` 的共享声明及目标后端调用点，选择一个完整职责继续迁移。
 作用域帧与清理链入口已经归 scopes，不应重新放回局部栈或塞入 symbols。
 这不是要求下一阶段一次完成全部剩余语义状态；边界应由调用和生命周期决定。
 
+- switch 契约在 `include/neocc/switches.h`，对象在 `src/objects/switches.c`；算法借用
+  `TCCState.switch_state`。EXIT/REMOVE/reset 结束对应记录的借用；reset 先于 scopes、
+  expressions 和 symbols，不能解引用 longjmp 后遗留的 break 目标或解析器局部地址。
+  语义排序可以重排索引和修改 case 字段，但链、数量、容量及记录生命周期由对象管理。
 - 新增表达式工作区契约在 `include/neocc/expressions.h`，对象在 `src/objects/expressions.c`；
   算法借用 `TCCState.expr`，不可重新定义全局栈顶。表达式 reset 必须在符号池 reset 之前。
 - 作用域契约在 `include/neocc/scopes.h`，对象在 `src/objects/scopes.c`，算法借用

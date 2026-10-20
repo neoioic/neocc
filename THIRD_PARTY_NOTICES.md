@@ -5,7 +5,7 @@
 | NEOioic | `third_party/neoioic/`，MIT，见其 `LICENSE` 和源码声明 |
 | OpenOICC | `third_party/openoicc/`，MIT，见其 `LICENSE` 和源码声明；上游第三方说明只作来源背景，实际导入范围以 NeoCC 清单为准 |
 | TinyCC | 开发者已有的 `tinycc/` 基线，见 `tinycc/COPYING` 和各文件声明；核心声明 LGPL 2 或更新版本，附带 LGPL 2.1 文本，支持文件以自身声明为准 |
-| TinyCC 衍生实现与运行支持 | `src/main.c`、`src/compiler/`、`src/objects/source.c`、`src/objects/tokens.c`、`src/objects/preprocessor.c`、`src/objects/symbols.c`、`src/objects/expressions.c`、`src/objects/scopes.c`、`src/objects/functions.c`、对应 `include/neocc/` 契约、`runtime/`；保留对应原文件声明。来源范围及 SHA-256 见 `docs/tinycc_sources.json`，适用许可仍以 `tinycc/COPYING` 及各文件为准；运行库存在附加链接例外和公共领域等不同声明 |
+| TinyCC 衍生实现与运行支持 | `src/main.c`、`src/compiler/`、`src/objects/source.c`、`src/objects/tokens.c`、`src/objects/preprocessor.c`、`src/objects/symbols.c`、`src/objects/expressions.c`、`src/objects/scopes.c`、`src/objects/functions.c`、`src/objects/switches.c`、对应 `include/neocc/` 契约、`runtime/`；保留对应原文件声明。来源范围及 SHA-256 见 `docs/tinycc_sources.json`，适用许可仍以 `tinycc/COPYING` 及各文件为准；运行库存在附加链接例外和公共领域等不同声明 |
 
 保留材料与衍生内容所需版权和许可。根格式配置摘自 OpenOICC。NeoCC 采用 LGPL-2.1-or-later，项目版权为 Copyright (C) 2026 CLimber-Rong，见根 `LICENSE`。第三方材料保留原有版权、许可和适用例外，不把 TinyCC 衍生代码重新许可为 MIT。
 
