@@ -159,6 +159,13 @@ static void clean_preprocessor(struct TCCState *state)
 {
 	struct em_tokens *tokens = state->tokens->members;
 
+	CHECK(state->pp->include_stack_ptr == state->pp->include_stack);
+	CHECK(state->pp->ifdef_stack_ptr == state->pp->ifdef_stack);
+	CHECK(state->pp->pack_stack_ptr == state->pp->pack_stack);
+	CHECK(!*state->pp->pack_stack_ptr);
+	for (int i = 0; i < NEOCC_INCLUDE_STACK_CAPACITY; i++)
+		CHECK(!state->pp->include_stack[i]);
+
 	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	CHECK(!state->unit->anonymous_symbol && !state->unit->instruction);
 	CHECK(!state->unit->suppression && !state->unit->debug_modes &&

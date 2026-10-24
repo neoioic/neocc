@@ -704,7 +704,7 @@ static addr_t rt_printline (rt_context *rc, addr_t wanted_pc, bt_info *bi)
 {
     char func_name[128];
     addr_t func_addr, last_pc, pc;
-    const char *incl_files[INCLUDE_STACK_SIZE];
+    const char *incl_files[NEOCC_INCLUDE_STACK_CAPACITY];
     int incl_index, last_incl_index, len, last_line_num, i;
     const char *str, *p;
     Stab_Sym *sym;
@@ -763,7 +763,7 @@ static addr_t rt_printline (rt_context *rc, addr_t wanted_pc, bt_info *bi)
             break;
             /* include files */
         case N_BINCL:
-            if (incl_index < INCLUDE_STACK_SIZE)
+            if (incl_index < NEOCC_INCLUDE_STACK_CAPACITY)
                 incl_files[incl_index++] = str;
             break;
         case N_EINCL:

@@ -621,7 +621,7 @@ static void error1(int mode, const char *fmt, va_list ap)
             ;
     }
     if (f) {
-        for(pf = s1->include_stack; pf < s1->include_stack_ptr; pf++)
+        for(pf = s1->pp->include_stack; pf < s1->pp->include_stack_ptr; pf++)
             formatted &= neocc_string_printf(cs, "In file included from %s:%d:\n",
                 (*pf)->filename, (*pf)->line_num - 1) >= 0;
         if (0 == line)
@@ -726,7 +726,7 @@ static void neocc_source_push(TCCState *s1, const char *filename,
 	size_t length, int fd)
 {
 	struct neocc_source_request request = {
-		filename, length, fd, s1->ifdef_stack_ptr, s1->pp->token_flags
+		filename, length, fd, s1->pp->ifdef_stack_ptr, s1->pp->token_flags
 	};
 	struct neocc_source_result output;
 	unsigned int quantity = 0;
@@ -773,7 +773,7 @@ static int _tcc_open(TCCState *s1, const char *filename)
         fd = open(filename, O_RDONLY | O_BINARY);
     if ((s1->verbose == 2 && fd >= 0) || s1->verbose == 3)
         printf("%s %*s%s\n", fd < 0 ? "nf":"->",
-               (int)(s1->include_stack_ptr - s1->include_stack), "", filename);
+               (int)(s1->pp->include_stack_ptr - s1->pp->include_stack), "", filename);
     return fd;
 }
 
@@ -986,8 +986,6 @@ LIBTCCAPI TCCState *tcc_new(void)
     s->enable_new_dtags = 1;
 #endif
     s->ppfp = stdout;
-    /* might be used in error() before preprocess_start() */
-    s->include_stack_ptr = s->include_stack;
 
     tcc_set_lib_path(s, CONFIG_TCCDIR);
 #ifdef CONFIG_TCC_SWITCHES /* predefined options */

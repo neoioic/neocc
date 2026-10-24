@@ -83,6 +83,9 @@ static void preprocessor_clear(struct neocc_preprocessor *state)
 	neocc_string_clear(&state->predefs);
 	/* Token streams are borrowed from the tokens arena, reset afterwards. */
 	memset(state, 0, sizeof(*state));
+	state->include_stack_ptr = state->include_stack;
+	state->ifdef_stack_ptr = state->ifdef_stack;
+	state->pack_stack_ptr = state->pack_stack;
 	state->expansion.last_line_num = -1;
 	state->unget.last_line_num = -1;
 	/* TinyCC's byte classification, independent of locale. */

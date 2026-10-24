@@ -1025,7 +1025,7 @@ ST_FUNC void free_defines(struct neocc_symbol *b)
 static void maybe_run_test(TCCState *s)
 {
     const char *p;
-    if (s->include_stack_ptr != s->include_stack)
+    if (s->pp->include_stack_ptr != s->pp->include_stack)
         return;
     p = get_tok_str(tcc_state->pp->token, NULL);
     if (0 != memcmp(p, "test_", 5))
@@ -1127,7 +1127,7 @@ static int parse_include(TCCState *s1, int do_next, int test)
 #endif
             if ((s1->verbose | 1) == 3) /* -vv[v] */
                 printf("=> %*s%s\n",
-                   (int)(s1->include_stack_ptr - s1->include_stack), "", buf);
+                   (int)(s1->pp->include_stack_ptr - s1->pp->include_stack), "", buf);
             return 1;
         }
         if (tcc_open(s1, buf) >= 0)
@@ -1137,10 +1137,11 @@ static int parse_include(TCCState *s1, int do_next, int test)
     if (test) {
         tcc_close();
     } else {
-        if (s1->include_stack_ptr >= s1->include_stack + INCLUDE_STACK_SIZE)
+        if (s1->pp->include_stack_ptr >= s1->pp->include_stack +
+            NEOCC_INCLUDE_STACK_CAPACITY)
             tcc_error("#include recursion too deep");
         /* push previous file on stack */
-        *s1->include_stack_ptr++ = s1->pp->source->prev;
+        *s1->pp->include_stack_ptr++ = s1->pp->source->prev;
         s1->pp->source->include_next_index = i;
 #ifdef INC_DEBUG
         printf("%s: including %s\n", s1->pp->source->prev->filename, s1->pp->source->filename);
@@ -1444,19 +1445,20 @@ static int pragma_parse(TCCState *s1)
         skip('(');
         if (s1->pp->token == TOK_ASM_pop) {
             next();
-            if (s1->pack_stack_ptr <= s1->pack_stack) {
+            if (s1->pp->pack_stack_ptr <= s1->pp->pack_stack) {
             stk_error:
                 tcc_error("out of pack stack");
             }
-            s1->pack_stack_ptr--;
+            s1->pp->pack_stack_ptr--;
         } else {
             int val = 0;
             if (s1->pp->token != ')') {
                 if (s1->pp->token == TOK_ASM_push) {
                     next();
-                    if (s1->pack_stack_ptr >= s1->pack_stack + PACK_STACK_SIZE - 1)
+                    if (s1->pp->pack_stack_ptr >= s1->pp->pack_stack +
+                        NEOCC_PACK_STACK_CAPACITY - 1)
                         goto stk_error;
-                    val = *s1->pack_stack_ptr++;
+                    val = *s1->pp->pack_stack_ptr++;
                     if (s1->pp->token != ',')
                         goto pack_set;
                     next();
@@ -1469,7 +1471,7 @@ static int pragma_parse(TCCState *s1)
                 next();
             }
         pack_set:
-            *s1->pack_stack_ptr = val;
+            *s1->pp->pack_stack_ptr = val;
         }
         if (s1->pp->token != ')')
             goto pragma_err;
@@ -1594,22 +1596,23 @@ ST_FUNC void preprocess(int is_bof)
             c ^= 1;
         next_nomacro();
     do_if:
-        if (s1->ifdef_stack_ptr >= s1->ifdef_stack + IFDEF_STACK_SIZE)
+        if (s1->pp->ifdef_stack_ptr >= s1->pp->ifdef_stack +
+            NEOCC_IFDEF_STACK_CAPACITY)
             tcc_error("memory full (ifdef)");
-        *s1->ifdef_stack_ptr++ = c;
+        *s1->pp->ifdef_stack_ptr++ = c;
         goto test_skip;
     case TOK_ELSE:
         next_nomacro();
-        if (s1->ifdef_stack_ptr == s1->ifdef_stack)
+        if (s1->pp->ifdef_stack_ptr == s1->pp->ifdef_stack)
             tcc_error("#else without matching #if");
-        if (s1->ifdef_stack_ptr[-1] & 2)
+        if (s1->pp->ifdef_stack_ptr[-1] & 2)
             tcc_error("#else after #else");
-        c = (s1->ifdef_stack_ptr[-1] ^= 3);
+        c = (s1->pp->ifdef_stack_ptr[-1] ^= 3);
         goto test_else;
     case TOK_ELIF:
-        if (s1->ifdef_stack_ptr == s1->ifdef_stack)
+        if (s1->pp->ifdef_stack_ptr == s1->pp->ifdef_stack)
             tcc_error("#elif without matching #if");
-        c = s1->ifdef_stack_ptr[-1];
+        c = s1->pp->ifdef_stack_ptr[-1];
         if (c > 1)
             tcc_error("#elif after #else");
         /* last #if/#elif expression was true: we skip */
@@ -1618,10 +1621,10 @@ ST_FUNC void preprocess(int is_bof)
             c = 0;
         } else {
             c = expr_preprocess(s1);
-            s1->ifdef_stack_ptr[-1] = c;
+            s1->pp->ifdef_stack_ptr[-1] = c;
         }
     test_else:
-        if (s1->ifdef_stack_ptr == tcc_state->pp->source->ifdef_stack_ptr + 1)
+        if (s1->pp->ifdef_stack_ptr == tcc_state->pp->source->ifdef_stack_ptr + 1)
             tcc_state->pp->source->ifndef_macro = 0;
     test_skip:
         if (!(c & 1)) {
@@ -1633,13 +1636,13 @@ ST_FUNC void preprocess(int is_bof)
         break;
     case TOK_ENDIF:
         next_nomacro();
-        if (s1->ifdef_stack_ptr <= tcc_state->pp->source->ifdef_stack_ptr)
+        if (s1->pp->ifdef_stack_ptr <= tcc_state->pp->source->ifdef_stack_ptr)
             tcc_error("#endif without matching #if");
-        s1->ifdef_stack_ptr--;
+        s1->pp->ifdef_stack_ptr--;
         /* '#ifndef macro' was at the start of file. Now we check if
            an '#endif' is exactly at the end of file */
         if (tcc_state->pp->source->ifndef_macro &&
-            s1->ifdef_stack_ptr == tcc_state->pp->source->ifdef_stack_ptr) {
+            s1->pp->ifdef_stack_ptr == tcc_state->pp->source->ifdef_stack_ptr) {
             tcc_state->pp->source->ifndef_macro_saved = tcc_state->pp->source->ifndef_macro;
             /* need to set to zero to avoid false matches if another
                #ifndef at middle of file */
@@ -2316,9 +2319,9 @@ static void next_nomacro(void)
                 goto maybe_newline;
             } else if (!(tcc_state->pp->parse_flags & PARSE_FLAG_PREPROCESS)) {
                 tcc_state->pp->token = TOK_EOF;
-            } else if (s1->ifdef_stack_ptr != tcc_state->pp->source->ifdef_stack_ptr) {
+            } else if (s1->pp->ifdef_stack_ptr != tcc_state->pp->source->ifdef_stack_ptr) {
                 tcc_error("missing #endif");
-            } else if (s1->include_stack_ptr == s1->include_stack) {
+            } else if (s1->pp->include_stack_ptr == s1->pp->include_stack) {
                 /* no include left : end of file. */
                 tcc_state->pp->token = TOK_EOF;
             } else {
@@ -2339,7 +2342,7 @@ static void next_nomacro(void)
                 tcc_debug_eincl(tcc_state);
                 /* pop include stack */
                 tcc_close();
-                s1->include_stack_ptr--;
+                s1->pp->include_stack_ptr--;
                 p = tcc_state->pp->source->buf_ptr;
                 goto maybe_newline;
             }
@@ -3357,14 +3360,10 @@ ST_FUNC void preprocess_start(TCCState *s1, int filetype)
 {
     int is_asm = !!(filetype & (AFF_TYPE_ASM|AFF_TYPE_ASMPP));
 
-    s1->include_stack_ptr = s1->include_stack;
-    s1->ifdef_stack_ptr = s1->ifdef_stack;
-    s1->pp->source->ifdef_stack_ptr = s1->ifdef_stack_ptr;
+    s1->pp->source->ifdef_stack_ptr = s1->pp->ifdef_stack_ptr;
     s1->pp->expression = 0;
     s1->pp->counter = 0;
     s1->pp->debug_token = s1->pp->debug_symbol = 0;
-    s1->pack_stack[0] = 0;
-    s1->pack_stack_ptr = s1->pack_stack;
 
     set_idnum('$', s1->dollars_in_identifiers ? NEOCC_CHAR_ID : 0);
     set_idnum('.', is_asm ? NEOCC_CHAR_ID : 0);
@@ -3377,7 +3376,7 @@ ST_FUNC void preprocess_start(TCCState *s1, int filetype)
           cstr_cat(cstr, s1->cmdline_defs.data, s1->cmdline_defs.size);
         if (s1->cmdline_incl.size)
           cstr_cat(cstr, s1->cmdline_incl.data, s1->cmdline_incl.size);
-        *s1->include_stack_ptr++ = s1->pp->source;
+        *s1->pp->include_stack_ptr++ = s1->pp->source;
         tcc_open_bf(s1, "<command line>", cstr->size);
         memcpy(s1->pp->source->buffer, cstr->data, cstr->size);
         cstr_reset(cstr);
@@ -3608,12 +3607,12 @@ ST_FUNC int tcc_preprocess(TCCState *s1)
     pp_line(s1, s1->pp->source, level);
 
     for (;;) {
-        iptr = s1->include_stack_ptr;
+        iptr = s1->pp->include_stack_ptr;
         next();
         if (s1->pp->token == TOK_EOF)
             break;
 
-        level = s1->include_stack_ptr - iptr;
+        level = s1->pp->include_stack_ptr - iptr;
         if (level) {
             if (level > 0)
                 pp_line(s1, *iptr, 0);

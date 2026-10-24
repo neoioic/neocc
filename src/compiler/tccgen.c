@@ -4269,7 +4269,7 @@ static void struct_layout(struct neocc_type *type, AttributeDef *ad)
     int size, align, maxalign, offset, c, bit_pos, bit_size;
     int packed, a, bt, prevbt, prev_bit_size;
     int pcc = !tcc_state->ms_bitfields;
-    int pragma_pack = *tcc_state->pack_stack_ptr;
+    int pragma_pack = *tcc_state->pp->pack_stack_ptr;
     struct neocc_symbol *f;
 
     maxalign = 1;
@@ -4727,7 +4727,7 @@ do_decl:
                             tcc_error("width of '%s' exceeds its type",
                                   get_tok_str(v, NULL));
                         } else if (bit_size == bsize
-				    && !*tcc_state->pack_stack_ptr
+				    && !*tcc_state->pp->pack_stack_ptr
                                     && !ad.a.packed && !ad1.a.packed) {
                             /* no need for bit fields */
                             ;

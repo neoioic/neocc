@@ -4,11 +4,17 @@
 Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行测试动作。
 以下记录只覆盖所列组合和输入，不表示完整 C11、其他平台或全部 TinyCC 功能通过。
 
-2026-10-20，`python tests/verify.py --mode debug` 和 `--mode release` 均完整通过：
+2026-10-24，`python tests/verify.py --mode debug` 和 `--mode release` 均完整通过：
 各二十四组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 、`translation` 和 `inlines` 语义样例和 120 个 TinyCC 输入差分）、
 28 对阶段产物一致性及两种构建方式下各 39 项 OpenOICC 回归。21 个语料排除项见下文。
 两种模式均生成 `verification.json` 成功记录。
 本阶段全量入口未包含可选 `PP_DEBUG` 调试输出运行验证。
+
+P05.1 的 `preprocess.c` 样例新增条件分支和嵌套 pack push/pop 布局断言，沿用预处理
+及无调试/STABS/DWARF 目标字节差分；`control_error.c` 以递归头文件触发包含深度
+诊断并逐字比较完整包含链。没有新增 C 测试目标或集成测试组；阶段自举再生后的
+preprocessor 对象测试也执行新控制栈断言。缓存、pragma 库和依赖结果的迁移及新增
+失败回归属于 P05.2，本次不宣称这些资源已对象化。
 
 ## 根 C 回归
 
@@ -24,6 +30,8 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 - `session_test`：64 轮交替双会话编译、宏隔离、嵌套展开/拼接/字符串化、
   逐文件 `__COUNTER__` 重置、浮点常量/运算的交替编译和重定位后实际调用、带行号的诊断、
   未定义标签错误后的栈/token 链接清理、错误后新会话编译和句柄计数。
+  P05.1 增加同会话 pack 跨翻译单元重置、嵌套条件与缺失头文件、缺失/多余 endif、
+  重复 else、条件/pack 栈和递归包含越界；正常与故障会话均核对三类栈已重置。
 - `session_fault_test`：三处源缓冲失败，核对 `longjmp` 后资源、访问记录及后续编译。
 - `tokens_test`：未对齐消息、2000 个名称及索引扩容、驻留稳定性、对象隔离、对齐、
   跨对象指针拒绝、尺寸溢出、宏流增长/缩小/释放、共享打开和 reset/关闭后的重新编号。
@@ -32,6 +40,7 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 - `preprocessor_test`：未对齐消息、257 层宏流、恢复流位置与源行号、三种流释放策略、
   失败消息不修改栈、token/值与源游标隔离、工作区及常量载荷的宿主对齐、字符分类、
   reset 清零并保持借用地址、共享打开、部分关闭重试、末次关闭后的拒绝借用和再次打开。
+  P05.1 另检查包含/条件/pack 栈的打开初始化、隔离、共享打开保留和 reset 清除。
 - `expressions_test`：独立值栈/常用类型、宿主对齐、数组两端和哨兵、未对齐/短消息、
   共享打开、reset 保持地址并清除符号引用、部分关闭、关闭后拒绝借用及再次打开。
 - `symbols_test`：600 个普通符号记录的增长、对齐、内容保持、LIFO 复用、

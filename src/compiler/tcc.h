@@ -411,11 +411,8 @@ extern long double strtold (const char *__nptr, char **__endptr);
 
 /* -------------------------------------------- */
 
-#define INCLUDE_STACK_SIZE  32
-#define IFDEF_STACK_SIZE    64
 #define STRING_MAX_SIZE     NEOCC_PREPROCESSOR_STRING_MAX
 #define TOKSTR_MAX_SIZE     256
-#define PACK_STACK_SIZE     8
 
 #define TOK_MAX_SIZE        4 /* token max size in int unit when stored in string */
 
@@ -723,21 +720,12 @@ struct TCCState {
     char **target_deps;
     int nb_target_deps;
 
-    /* compilation */
-    struct neocc_source_buffer *include_stack[INCLUDE_STACK_SIZE];
-    struct neocc_source_buffer **include_stack_ptr;
-
-    int ifdef_stack[IFDEF_STACK_SIZE];
-    int *ifdef_stack_ptr;
-
     /* included files enclosed with #ifndef MACRO */
     int cached_includes_hash[CACHED_INCLUDES_HASH_SIZE];
     CachedInclude **cached_includes;
     int nb_cached_includes;
 
-    /* #pragma pack stack */
-    int pack_stack[PACK_STACK_SIZE];
-    int *pack_stack_ptr;
+    /* #pragma comment libraries (retained across translation units) */
     char **pragma_libs;
     int nb_pragma_libs;
 

@@ -32,6 +32,13 @@ static void clean_semantics(struct TCCState *state)
 {
 	struct em_tokens *tokens = state->tokens->members;
 
+	CHECK(state->pp->include_stack_ptr == state->pp->include_stack);
+	CHECK(state->pp->ifdef_stack_ptr == state->pp->ifdef_stack);
+	CHECK(state->pp->pack_stack_ptr == state->pp->pack_stack);
+	CHECK(!*state->pp->pack_stack_ptr);
+	for (int i = 0; i < NEOCC_INCLUDE_STACK_CAPACITY; i++)
+		CHECK(!state->pp->include_stack[i]);
+
 	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
@@ -105,6 +112,49 @@ static struct TCCState *session(const char *runtime)
 	return state;
 }
 
+static void control_errors(const char *runtime)
+{
+	static const char *const inputs[] = {
+		"#if 1\n#pragma pack(push, 1)\n#include \"absent_control.h\"\n",
+		"#if 1\n#pragma pack(push, 2)\n",
+		"#pragma pack(pop)\n",
+		"#if 1\n#else\n#else\n#endif\n",
+		"#endif\n",
+		"#include \"tests/cases/nested/control_recursive.h\"\n",
+	};
+	static const char *const messages[] = {
+		"absent_control.h", "missing #endif", "out of pack stack",
+		"#else after #else", "#endif without matching #if",
+		"#include recursion too deep",
+	};
+	struct TCCState *state;
+	char input[2048];
+
+	for (unsigned int i = 0; i < sizeof(inputs) / sizeof(inputs[0]); i++) {
+		state = session(runtime);
+		CHECK(tcc_compile_string(state, inputs[i]) < 0);
+		CHECK(strstr(diagnostic, messages[i]));
+		clean_semantics(state);
+		clean_access(state->sources);
+		tcc_delete(state);
+	}
+	for (int pack = 0; pack < 2; pack++) {
+		int depth = pack ? NEOCC_PACK_STACK_CAPACITY :
+			NEOCC_IFDEF_STACK_CAPACITY + 1;
+
+		input[0] = 0;
+		for (int i = 0; i < depth; i++)
+			strcat(input, pack ? "#pragma pack(push, 1)\n" : "#if 1\n");
+		state = session(runtime);
+		CHECK(tcc_compile_string(state, input) < 0);
+		CHECK(strstr(diagnostic, pack ? "out of pack stack" :
+			"memory full (ifdef)"));
+		clean_semantics(state);
+		clean_access(state->sources);
+		tcc_delete(state);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	struct TCCState *a, *b;
@@ -114,6 +164,7 @@ int main(int argc, char **argv)
 
 	CHECK(argc == 2);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &handles_before));
+	control_errors(argv[1]);
 	for (i = 0; i < 64; i++) {
 		a = session(argv[1]);
 		b = session(argv[1]);
@@ -127,6 +178,14 @@ int main(int argc, char **argv)
 		      a->initializers != b->initializers);
 		CHECK(a->function != b->function && a->functions != b->functions);
 		CHECK(a->switch_state != b->switch_state && a->switches != b->switches);
+		CHECK(tcc_compile_string(a,
+			"#pragma pack(push, 1)\n"
+			"struct packed { char a; int b; };\n"
+			"_Static_assert(sizeof(struct packed) == 5, \"pack\");\n") == 0);
+		clean_semantics(a);
+		CHECK(tcc_compile_string(a,
+			"struct natural { char a; int b; };\n"
+			"_Static_assert(sizeof(struct natural) == 8, \"reset\");\n") == 0);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,

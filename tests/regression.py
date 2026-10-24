@@ -95,6 +95,7 @@ class Regression(unittest.TestCase):
     def test_diagnostics_and_failure_exit(self):
         for command, expected in [
             (["-c", "tests/cases/error.c"], b"nested_error.h:29:"),
+            (["-c", "tests/cases/control_error.c"], b"#include recursion too deep"),
             (["-c", "tests/cases/temporaries_error.c"], b"missing_temporary"),
             (["-c", "tests/cases/translation_error.c"], b"missing_translation"),
             (["-c", "tests/cases/inlines_error.c"], b"missing_inline"),

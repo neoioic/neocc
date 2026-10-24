@@ -81,10 +81,22 @@ int main(void)
 	CHECK((uintptr_t)state % _Alignof(struct neocc_preprocessor) == 0);
 	CHECK((uintptr_t)&state->value % _Alignof(union neocc_value) == 0);
 	CHECK(!state->token && !state->value.i && !state->source);
+	CHECK(state->include_stack_ptr == state->include_stack);
+	CHECK(state->ifdef_stack_ptr == state->ifdef_stack);
+	CHECK(state->pack_stack_ptr == state->pack_stack);
+	CHECK(!*state->pack_stack_ptr);
+
 	state->token = 123;
 	state->value.ld = 0x1.000000000000001p0L;
 	state->source = &source;
 	state->debug_indent = 7;
+	*state->include_stack_ptr++ = &source;
+	*state->ifdef_stack_ptr++ = 1;
+	*++state->pack_stack_ptr = 2;
+	CHECK(second->include_stack_ptr == second->include_stack);
+	CHECK(second->ifdef_stack_ptr == second->ifdef_stack);
+	CHECK(second->pack_stack_ptr == second->pack_stack);
+	CHECK(!*second->pack_stack_ptr);
 	CHECK(!second->token && !second->value.i && !second->source);
 	CHECK(!second->debug_indent);
 	CHECK(!state->character[0]);
@@ -105,6 +117,11 @@ int main(void)
 	CHECK(state->token == 123 && state->source == &source);
 	CHECK(state->value.ld == 0x1.000000000000001p0L);
 	CHECK(state->debug_indent == 7);
+	CHECK(state->include_stack_ptr == state->include_stack + 1);
+	CHECK(state->include_stack[0] == &source);
+	CHECK(state->ifdef_stack_ptr == state->ifdef_stack + 1);
+	CHECK(state->pack_stack_ptr == state->pack_stack + 1);
+	CHECK(*state->pack_stack_ptr == 2);
 
 	CHECK(pop(object, &result, sizeof(result)) == RO_VAINLY);
 	CHECK(push(object, NULL, 0, 1) == RN_INVALIDARG);
@@ -152,6 +169,11 @@ int main(void)
 	CHECK(!state->counter && !state->character['$' + 1]);
 	CHECK(borrow(object) == state);
 	CHECK(!state->token && !state->value.i && !state->source);
+	CHECK(state->include_stack_ptr == state->include_stack);
+	CHECK(state->ifdef_stack_ptr == state->ifdef_stack);
+	CHECK(state->pack_stack_ptr == state->pack_stack);
+	CHECK(!*state->pack_stack_ptr);
+
 	CHECK(!state->debug_indent);
 
 	CHECK(neocc_string_reserve(&state->predefs, 10));

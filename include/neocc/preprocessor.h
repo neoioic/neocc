@@ -15,6 +15,10 @@
 #define NEOCC_CHAR_ID 2
 #define NEOCC_CHAR_NUMBER 4
 #define NEOCC_PREPROCESSOR_STRING_MAX 1024
+/* Existing TinyCC algorithm limits; these are not target ABI values. */
+#define NEOCC_INCLUDE_STACK_CAPACITY 32
+#define NEOCC_IFDEF_STACK_CAPACITY 64
+#define NEOCC_PACK_STACK_CAPACITY 8
 
 /* Constant payload and long-double words use the host representation,
  * preserving TinyCC's token-stream and direct code-generation layout.
@@ -85,6 +89,16 @@ struct neocc_preprocessor {
 	int token;
 	union neocc_value value;
 	struct neocc_source_buffer *source; /* Borrowed from source object. */
+	/* Include entries borrow source buffers; buffers borrow the conditional
+	 * cursor to check file boundaries. Pop sources before resetting this state.
+	 * All three stacks are initialized on open/reset, including early errors.
+	 */
+	struct neocc_source_buffer *include_stack[NEOCC_INCLUDE_STACK_CAPACITY];
+	struct neocc_source_buffer **include_stack_ptr;
+	int ifdef_stack[NEOCC_IFDEF_STACK_CAPACITY];
+	int *ifdef_stack_ptr;
+	int pack_stack[NEOCC_PACK_STACK_CAPACITY];
+	int *pack_stack_ptr;
 	int debug_indent;
 	int token_flags;
 	int parse_flags;
