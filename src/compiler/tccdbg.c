@@ -1579,7 +1579,7 @@ static void fix_debug_forw_hash(TCCState *s1, int global, int start)
                                              : DWARF_ABBREV_STRUCTURE_EMPTY_TYPE);
             dwarf_strp(dwarf_info_section,
                        (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
-                       ? "" : get_tok_str(t->v, NULL));
+                       ? "" : get_tok_str(s1, t->v, NULL));
             dwarf_uleb128(dwarf_info_section, 0);
             dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
             dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
@@ -1816,9 +1816,9 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
         t = t->type.ref;
         if (stabs_struct_find(s1, t, &debug_type)) {
             str = neocc_temp_new(s1);
-            cstr_printf (str, "%s:T%d=%c%d",
+            cstr_printf (s1, str, "%s:T%d=%c%d",
                          (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
-                         ? "" : get_tok_str(t->v, NULL),
+                         ? "" : get_tok_str(s1, t->v, NULL),
                          debug_type,
                          IS_UNION (t->type.t) ? 'u' : 's',
                          t->c);
@@ -1828,9 +1828,9 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
                 t = t->next;
 		if (STRUCT_NODEBUG(t))
 		    continue;
-                cstr_printf (str, "%s:",
+                cstr_printf (s1, str, "%s:",
                              (t->v & ~SYM_FIELD) >= SYM_FIRST_ANOM
-                             ? "" : get_tok_str(t->v, NULL)
+                             ? "" : get_tok_str(s1, t->v, NULL)
                              );
                 tcc_get_debug_info (s1, t, str);
                 if (t->type.t & VT_BITFIELD) {
@@ -1841,9 +1841,9 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
                     pos = t->c * 8;
                     size = type_size(&t->type, &align) * 8;
                 }
-                cstr_printf (str, ",%d,%d;", pos, size);
+                cstr_printf (s1, str, ",%d,%d;", pos, size);
             }
-            cstr_printf (str, ";");
+            cstr_printf (s1, str, ";");
             tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
             neocc_temp_free(s1, str);
         }
@@ -1852,19 +1852,19 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
         struct neocc_symbol *e = t = t->type.ref;
         if (stabs_struct_find(s1, t, &debug_type)) {
             str = neocc_temp_new(s1);
-            cstr_printf (str, "%s:T%d=e",
+            cstr_printf (s1, str, "%s:T%d=e",
                          (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
-                         ? "" : get_tok_str(t->v, NULL),
+                         ? "" : get_tok_str(s1, t->v, NULL),
                          debug_type);
             while (t->next) {
                 t = t->next;
-                cstr_printf (str, "%s:",
+                cstr_printf (s1, str, "%s:",
                              (t->v & ~SYM_FIELD) >= SYM_FIRST_ANOM
-                             ? "" : get_tok_str(t->v, NULL));
-                cstr_printf (str, e->type.t & VT_UNSIGNED ? "%u," : "%d,",
+                             ? "" : get_tok_str(s1, t->v, NULL));
+                cstr_printf (s1, str, e->type.t & VT_UNSIGNED ? "%u," : "%d,",
                              (int)t->enum_val);
             }
-            cstr_printf (str, ";");
+            cstr_printf (s1, str, ";");
             tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
             neocc_temp_free(s1, str);
 	}
@@ -1882,17 +1882,17 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
         return;
 
     if (n > 0)
-        cstr_printf (result, "%d=", ++debug_next_type);
+        cstr_printf (s1, result, "%d=", ++debug_next_type);
     t = s;
     for (;;) {
         type = remove_type_info (t->type.t);
         if (type == VT_PTR)
-            cstr_printf (result, "%d=*", ++debug_next_type);
+            cstr_printf (s1, result, "%d=*", ++debug_next_type);
         else if (type == (VT_PTR | VT_ARRAY))
-            cstr_printf (result, "%d=ar1;0;%d;",
+            cstr_printf (s1, result, "%d=ar1;0;%d;",
                          ++debug_next_type, t->type.ref->c - 1);
         else if (type == VT_FUNC) {
-            cstr_printf (result, "%d=f", ++debug_next_type);
+            cstr_printf (s1, result, "%d=f", ++debug_next_type);
             tcc_get_debug_info (s1, t->type.ref, result);
             return;
         }
@@ -1900,7 +1900,7 @@ static void tcc_get_debug_info(TCCState *s1, struct neocc_symbol *s, struct neoc
             break;
         t = t->type.ref;
     }
-    cstr_printf (result, "%d", debug_type);
+    cstr_printf (s1, result, "%d", debug_type);
 }
 
 static void stabs_struct_complete(TCCState *s1, struct neocc_type *t)
@@ -1953,7 +1953,7 @@ static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s)
 				  : DWARF_ABBREV_STRUCTURE_EMPTY_TYPE);
 	    dwarf_strp(dwarf_info_section,
                        (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
-                       ? "" : get_tok_str(t->v, NULL));
+                       ? "" : get_tok_str(s1, t->v, NULL));
 	    dwarf_uleb128(dwarf_info_section, t->c);
 	    dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
 	    dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
@@ -1971,7 +1971,7 @@ static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s)
 			    e->type.t & VT_BITFIELD ? DWARF_ABBREV_MEMBER_BF
 						    : DWARF_ABBREV_MEMBER);
 		dwarf_strp(dwarf_info_section,
-			   get_tok_str(e->v, NULL));
+			   get_tok_str(s1, e->v, NULL));
 		dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
 		dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 		pos_type[i++] = dwarf_info_section->data_offset;
@@ -2017,7 +2017,7 @@ static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s)
 	    dwarf_data1(dwarf_info_section, DWARF_ABBREV_ENUMERATION_TYPE);
 	    dwarf_strp(dwarf_info_section,
                        (t->v & ~SYM_STRUCT) >= SYM_FIRST_ANOM
-                       ? "" : get_tok_str(t->v, NULL));
+                       ? "" : get_tok_str(s1, t->v, NULL));
 	    dwarf_data1(dwarf_info_section,
 		        type & VT_UNSIGNED ? DW_ATE_unsigned : DW_ATE_signed );
 	    dwarf_data1(dwarf_info_section, 4);
@@ -2034,7 +2034,7 @@ static int tcc_get_dwarf_info(TCCState *s1, struct neocc_symbol *s)
 					   : DWARF_ABBREV_ENUMERATOR_SIGNED);
 	        dwarf_strp(dwarf_info_section,
                            (e->v & ~SYM_FIELD) >= SYM_FIRST_ANOM
-                           ? "" : get_tok_str(e->v, NULL));
+                           ? "" : get_tok_str(s1, e->v, NULL));
 		if (type & VT_UNSIGNED)
 	            dwarf_uleb128(dwarf_info_section, e->enum_val);
 		else
@@ -2289,14 +2289,14 @@ ST_FUNC void tcc_add_debug_info(TCCState *s1, struct neocc_symbol *s, struct neo
         if (!s->v || (s->r & VT_VALMASK) != VT_LOCAL)
             continue;
 	if (s1->dwarf) {
-	    tcc_debug_stabs(s1, get_tok_str(s->v, NULL),
+	    tcc_debug_stabs(s1, get_tok_str(s1, s->v, NULL),
 			    param ? N_PSYM : N_LSYM, s->c, NULL, 0,
 			    tcc_get_dwarf_info(s1, s));
 	}
 	else
         {
             cstr_reset (debug_str);
-            cstr_printf (debug_str, "%s:%s", get_tok_str(s->v, NULL),
+            cstr_printf (s1, debug_str, "%s:%s", get_tok_str(s1, s->v, NULL),
 			 param ? "p" : "");
             tcc_get_debug_info(s1, s, debug_str);
             tcc_debug_stabs(s1, debug_str->data, param ? N_PSYM : N_LSYM,
@@ -2339,7 +2339,7 @@ ST_FUNC void tcc_debug_funcstart(TCCState *s1, struct neocc_symbol *sym)
     else
     {
         debug_str = neocc_temp_new(s1);
-        cstr_printf(debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
+        cstr_printf(s1, debug_str, "%s:%c", s1->function->name, sym->type.t & VT_STATIC ? 'f' : 'F');
         tcc_get_debug_info(s1, sym->type.ref, debug_str);
         put_stabs_r(s1, debug_str->data, N_FUN, 0, f->line_num, 0, s1->unit->section, sym->c);
         neocc_temp_free(s1, debug_str);
@@ -2440,7 +2440,7 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh
 		    sym_bind == STB_GLOBAL
 		    ? DWARF_ABBREV_VARIABLE_EXTERNAL
 		    : DWARF_ABBREV_VARIABLE_STATIC);
-	dwarf_strp(dwarf_info_section, get_tok_str(sym->v, NULL));
+	dwarf_strp(dwarf_info_section, get_tok_str(s1, sym->v, NULL));
 	dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
 	dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	tcc_debug_check_forw(s1, sym, dwarf_info_section->data_offset);
@@ -2464,8 +2464,8 @@ ST_FUNC void tcc_debug_extern_sym(TCCState *s1, struct neocc_symbol *sym, int sh
         struct neocc_string *str;
 
         str = neocc_temp_new(s1);
-        cstr_printf (str, "%s:%c",
-                get_tok_str(sym->v, NULL),
+        cstr_printf (s1, str, "%s:%c",
+                get_tok_str(s1, sym->v, NULL),
                 sym_bind == STB_GLOBAL ? 'G' : s1->function->start != -1 ? 'V' : 'S'
                 );
         tcc_get_debug_info(s1, sym, str);
@@ -2490,7 +2490,7 @@ ST_FUNC void tcc_debug_typedef(TCCState *s1, struct neocc_symbol *sym)
         debug_type = tcc_get_dwarf_info(s1, sym);
 	if (debug_type != -1) {
 	    dwarf_data1(dwarf_info_section, DWARF_ABBREV_TYPEDEF);
-	    dwarf_strp(dwarf_info_section, get_tok_str(sym->v, NULL));
+	    dwarf_strp(dwarf_info_section, get_tok_str(s1, sym->v, NULL));
 	    dwarf_uleb128(dwarf_info_section, dwarf_line.cur_file);
 	    dwarf_uleb128(dwarf_info_section, s1->pp->source->line_num);
 	    tcc_debug_check_forw(s1, sym, dwarf_info_section->data_offset);
@@ -2501,7 +2501,7 @@ ST_FUNC void tcc_debug_typedef(TCCState *s1, struct neocc_symbol *sym)
     {
         struct neocc_string *str;
         str = neocc_temp_new(s1);
-        cstr_printf (str, "%s:t", get_tok_str(sym->v, NULL));
+        cstr_printf (s1, str, "%s:t", get_tok_str(s1, sym->v, NULL));
         tcc_get_debug_info(s1, sym, str);
         tcc_debug_stabs(s1, str->data, N_LSYM, 0, NULL, 0, 0);
         neocc_temp_free(s1, str);
@@ -2537,12 +2537,12 @@ ST_FUNC void tcc_tcov_block_begin(TCCState *s1)
 	cstr = neocc_temp_new(s1);
 	if (s1->pp->source->true_filename[0] == '/') {
 	    tcov_data.last_file_name = tcov_section->data_offset;
-	    cstr_printf (cstr, "%s", s1->pp->source->true_filename);
+	    cstr_printf (s1, cstr, "%s", s1->pp->source->true_filename);
 	}
 	else {
 	    getcwd (wd, sizeof(wd));
 	    tcov_data.last_file_name = tcov_section->data_offset + strlen(wd) + 1;
-	    cstr_printf (cstr, "%s/%s", wd, s1->pp->source->true_filename);
+	    cstr_printf (s1, cstr, "%s/%s", wd, s1->pp->source->true_filename);
 	}
 	ptr = section_ptr_add(tcov_section, cstr->size + 1);
 	strcpy((char *)ptr, cstr->data);

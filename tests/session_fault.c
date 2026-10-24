@@ -432,6 +432,83 @@ static void preprocessing_error(void *opaque, const char *text)
 	}
 }
 
+static void context_error(void *opaque, const char *text)
+{
+	struct TCCState *state = opaque;
+	struct object *objects[] = { state->tokens, state->preprocessor };
+
+	snprintf(preprocessing_diagnostic, sizeof(preprocessing_diagnostic), "%s", text);
+	for (unsigned int i = 0; i < countof(objects); i++) {
+		for (unsigned int j = 0; j < objects[i]->node_count; j++) {
+			struct object *node = objects[i]->nodes + j;
+
+			for (unsigned int k = 0; k < node->caller_count; k++)
+				CHECK(!node->callers[k].cr && !node->callers[k].mr);
+		}
+	}
+}
+
+static void preprocessing_context_failures(void)
+{
+	size_t initial_live = live;
+	static const char *const messages[] = {
+		"cannot resize token stream", "cannot intern token",
+		"cannot grow compiler string", "cannot grow compiler string",
+		"cannot enter macro stream", "cannot leave macro stream",
+	};
+
+	for (int absent = 0; absent < 2; absent++) {
+		for (unsigned int failure = 0; failure < countof(messages); failure++) {
+			struct TCCState *state = tcc_new(), *other = tcc_new();
+			struct neocc_source_buffer source = { 0 };
+			struct neocc_string string = { 0 };
+			union neocc_value value = { 0 };
+
+			CHECK(state && other);
+			tcc_set_error_func(state, state, context_error);
+			tcc_set_error_func(other, NULL, quiet_error);
+			state->pp->source = &source;
+			state->error_set_jmp_enabled = 1;
+			tcc_state = absent ? NULL : other;
+			preprocessing_diagnostic[0] = 0;
+			if (!setjmp(state->error_jmp_buf)) {
+				if (failure == 0) {
+					arena_fail_at = arena_calls + 1;
+					tok_str_alloc(state);
+				} else if (failure == 1) {
+					resize_fail_at = resize_calls + 1;
+					tok_alloc_const(state, "context_failure");
+				} else if (failure == 2) {
+					resize_fail_at = resize_calls + 1;
+					cstr_cat(state, &string, "failure", 0);
+				} else if (failure == 3) {
+					resize_fail_at = resize_calls + 1;
+					value.str.data = "failure";
+					value.str.size = 8;
+					get_tok_str(state, TOK_STR, &value);
+				} else if (failure == 4) {
+					begin_macro(state, NULL, 0);
+				} else {
+					end_macro(state);
+				}
+				CHECK(0);
+			}
+			CHECK(strstr(preprocessing_diagnostic, messages[failure]));
+			CHECK(state->nb_errors == 1 && !other->nb_errors);
+			CHECK(tcc_state == (absent ? NULL : other));
+			CHECK(!state->pp->macro_stack && !other->pp->macro_stack);
+			CHECK(!string.data && !string.size && !string.size_allocated);
+			arena_fail_at = resize_fail_at = 0;
+			state->error_set_jmp_enabled = 0;
+			state->pp->source = NULL;
+			tcc_state = NULL;
+			tcc_delete(state);
+			tcc_delete(other);
+			CHECK(live == initial_live);
+		}
+	}
+}
+
 static void preprocessing_failures(const char *runtime)
 {
 	size_t initial_live = live;
@@ -514,6 +591,7 @@ int main(int argc, char **argv)
 
 	CHECK(argc == 2);
 	tcc_set_realloc(compiler_reallocator);
+	preprocessing_context_failures();
 	preprocessing_failures(argv[1]);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &before));
 	/* Options and path lists own copies in the compiler allocator domain. */

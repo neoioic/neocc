@@ -115,6 +115,73 @@ static struct TCCState *session(const char *runtime)
 	return state;
 }
 
+/* Exercise the public preprocessing helpers without their caller's global
+ * entry. This does not make the remaining compiler algorithms reentrant. */
+static void preprocessing_context(const char *runtime)
+{
+	struct TCCState *a = session(runtime), *b = session(runtime);
+	struct neocc_source_buffer source = { 0 };
+	struct neocc_string text = { 0 };
+	struct neocc_token_string inner, *outer;
+	union neocc_value value = { 0 };
+	int first = neocc_token_next(a), other = neocc_token_next(b);
+
+	CHECK(neocc_string_reserve(&a->pp->spelling, STRING_MAX_SIZE));
+	CHECK(neocc_string_reserve(&b->pp->spelling, STRING_MAX_SIZE));
+	for (int absent = 0; absent < 2; absent++) {
+		tcc_state = absent ? NULL : b;
+		CHECK(tok_alloc_const(a, "context_token") == first);
+		CHECK(tok_alloc(a, "context_token", 13)->tok == first);
+		CHECK(neocc_token_next(a) == first + 1);
+		CHECK(neocc_token_next(b) == other);
+		CHECK(!strcmp(get_tok_str(a, first, NULL), "context_token"));
+		value.i = 123;
+		CHECK(!strcmp(get_tok_str(a, TOK_CINT, &value), "123"));
+		value.str.data = "a\n\"";
+		value.str.size = 4;
+		CHECK(!strcmp(get_tok_str(a, TOK_STR, &value), "\"a\\n\\\"\""));
+		CHECK(!b->pp->spelling.size);
+		cstr_reset(&text);
+		cstr_cat(a, &text, "context", -1);
+		cstr_ccat(a, &text, ':');
+		CHECK(cstr_printf(a, &text, "%d", 42) == 2);
+		CHECK(!strcmp(text.data, "context:42"));
+		cstr_reset(&text);
+		cstr_wccat(a, &text, 0x1234);
+		CHECK(text.size == sizeof(nwchar_t));
+
+		source.line_num = 10;
+		a->pp->source = &source;
+		outer = tok_str_alloc(a);
+		for (int i = 0; i < 64; i++)
+			tok_str_add(a, outer, i);
+		begin_macro(a, outer, 1);
+		a->pp->macro_ptr = outer->str + 5;
+		source.line_num = 20;
+		tok_str_new(&inner);
+		a->pp->token = TOK_CINT;
+		a->pp->value.i = 42;
+		tok_str_add_tok(a, &inner);
+		CHECK(inner.str[0] == TOK_LINENUM && inner.str[1] == 20);
+		CHECK(inner.str[2] == TOK_CINT && inner.str[3] == 42);
+		begin_macro(a, &inner, 0);
+		source.line_num = 30;
+		end_macro(a);
+		CHECK(source.line_num == 20 && a->pp->macro_stack == outer);
+		CHECK(a->pp->macro_ptr == outer->str + 5);
+		end_macro(a);
+		CHECK(source.line_num == 10 && !a->pp->macro_stack);
+		CHECK(!a->pp->macro_ptr && !b->pp->macro_stack);
+		tok_str_free_str(a, inner.str);
+		CHECK(tcc_state == (absent ? NULL : b));
+	}
+	tcc_state = NULL;
+	a->pp->source = NULL;
+	neocc_string_clear(&text);
+	tcc_delete(a);
+	tcc_delete(b);
+}
+
 static void control_errors(const char *runtime)
 {
 	static const char *const inputs[] = {
@@ -167,6 +234,7 @@ int main(int argc, char **argv)
 
 	CHECK(argc == 2);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &handles_before));
+	preprocessing_context(argv[1]);
 	control_errors(argv[1]);
 	for (i = 0; i < 64; i++) {
 		a = session(argv[1]);

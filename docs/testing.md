@@ -8,7 +8,8 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 各二十六组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 、`translation` 和 `inlines` 语义样例和 120 个 TinyCC 输入差分）、
 28 对阶段产物一致性及两种构建方式下各 39 项 OpenOICC 回归。21 个语料排除项见下文。
 两种模式均生成 `verification.json` 成功记录。
-本阶段全量入口未包含可选 `PP_DEBUG` 调试输出运行验证。
+P06.1 全量入口另由 GCC 分别构建启用 `PP_DEBUG` 的 NeoCC/TinyCC，以
+`preprocess.c` 比较完整宏展开跟踪输出；其余未启用的编译开关不据此计为通过。
 
 P05.1 的 `preprocess.c` 样例新增条件分支和嵌套 pack push/pop 布局断言，沿用预处理
 及无调试/STABS/DWARF 目标字节差分；`control_error.c` 以递归头文件触发包含深度
@@ -19,6 +20,13 @@ P05.2 的多文件 `preprocessor_resources` 样例覆盖 once 的路径别名、
 翻译单元重新加载头文件及 pragma 库实际链接；两种依赖选项（MD、MMD/MP）的输出与
 TinyCC 比较，保留顺序、重复收集后去重、系统头筛选及转义算法。新增样例也执行
 预处理/三种调试配置目标字节差分及阶段工具编译运行。
+
+P06.1 在既有 `session_test` 中将全局入口置空或指向另一会话，检查显式字符串追加、
+格式化、宽字符、token 驻留/拼写、流扩容及嵌套重放的行号/游标恢复均归属指定会话。
+`session_fault_test` 在相同两种入口条件下覆盖流分配、token 索引、字符串及拼写增长
+四种分配失败，以及非法宏流入栈/空栈退栈两种失败；检查正确诊断回调、错误计数、
+另一会话不受影响、访问记录撤销、全局入口保持原值及销毁后分配数回到基准。
+不新增根测试目标或集成测试组；完整词法与表达式诊断的去全局化仍待 P06.2。
 
 ## 根 C 回归
 

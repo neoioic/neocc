@@ -70,8 +70,8 @@ ST_FUNC void skip(int c)
 {
     if (tcc_state->pp->token != c) {
         char tmp[40];
-        pstrcpy(tmp, sizeof tmp, get_tok_str(c, &tcc_state->pp->value));
-        tcc_error("'%s' expected (got '%s')", tmp, get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+        pstrcpy(tmp, sizeof tmp, get_tok_str(tcc_state, c, &tcc_state->pp->value));
+        tcc_error("'%s' expected (got '%s')", tmp, get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
 	}
     next();
 }
@@ -95,7 +95,7 @@ static void *neocc_token_resize(TCCState *s1, void *pointer, size_t size)
 		&neocc_host_caller);
 
 	if (!RP(status) || quantity != sizeof(result))
-		tcc_error("cannot resize token stream");
+		_tcc_error(s1, "cannot resize token stream");
 	return result;
 }
 
@@ -109,7 +109,7 @@ static struct neocc_token_result neocc_token_query(TCCState *s1, int id)
 		&neocc_host_caller);
 
 	if (RN(status) || quantity != sizeof(result))
-		tcc_error("cannot query token");
+		_tcc_error(s1, "cannot query token");
 	return result;
 }
 
@@ -125,62 +125,63 @@ ST_FUNC int neocc_token_next(TCCState *s1)
 
 /* ------------------------------------------------------------------------- */
 /* struct neocc_string handling */
-static void cstr_realloc(struct neocc_string *cstr, int new_size)
+static void cstr_realloc(TCCState *s1, struct neocc_string *cstr, int new_size)
 {
     if (!neocc_string_reserve(cstr, new_size))
-        tcc_error("cannot grow compiler string");
+        _tcc_error(s1, "cannot grow compiler string");
 }
 
 /* add a byte */
-ST_INLN void cstr_ccat(struct neocc_string *cstr, int ch)
+ST_INLN void cstr_ccat(TCCState *s1, struct neocc_string *cstr, int ch)
 {
     int size;
     size = cstr->size + 1;
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(s1, cstr, size);
     cstr->data[size - 1] = ch;
     cstr->size = size;
 }
 
-ST_INLN char *unicode_to_utf8 (char *b, uint32_t Uc)
+ST_INLN char *unicode_to_utf8(TCCState *s1, char *b, uint32_t Uc)
 {
     if (Uc<0x80) *b++=Uc;
     else if (Uc<0x800) *b++=192+Uc/64, *b++=128+Uc%64;
     else if (Uc-0xd800u<0x800) goto error;
     else if (Uc<0x10000) *b++=224+Uc/4096, *b++=128+Uc/64%64, *b++=128+Uc%64;
     else if (Uc<0x110000) *b++=240+Uc/262144, *b++=128+Uc/4096%64, *b++=128+Uc/64%64, *b++=128+Uc%64;
-    else error: tcc_error("0x%x is not a valid universal character", Uc);
+    else error: _tcc_error(s1, "0x%x is not a valid universal character", Uc);
     return b;
 }
 
 /* add a unicode character expanded into utf8 */
-ST_INLN void cstr_u8cat(struct neocc_string *cstr, int ch)
+ST_INLN void cstr_u8cat(TCCState *s1, struct neocc_string *cstr, int ch)
 {
     char buf[4], *e;
-    e = unicode_to_utf8(buf, (uint32_t)ch);
-    cstr_cat(cstr, buf, e - buf);
+    e = unicode_to_utf8(s1, buf, (uint32_t)ch);
+    cstr_cat(s1, cstr, buf, e - buf);
 }
 
 /* add string of 'len', or of its len/len+1 when 'len' == -1/0 */
-ST_FUNC void cstr_cat(struct neocc_string *cstr, const char *str, int len)
+ST_FUNC void cstr_cat(TCCState *s1, struct neocc_string *cstr,
+                     const char *str, int len)
 {
     int size;
     if (len <= 0)
         len = strlen(str) + 1 + len;
     size = cstr->size + len;
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(s1, cstr, size);
     memmove(cstr->data + cstr->size, str, len);
     cstr->size = size;
 }
 
 /* add a wide char */
-ST_FUNC void cstr_wccat(struct neocc_string *cstr, int ch)
+ST_FUNC void cstr_wccat(TCCState *s1, struct neocc_string *cstr, int ch)
 {
     int size;
     size = cstr->size + sizeof(nwchar_t);
     if (size > cstr->size_allocated)
-        cstr_realloc(cstr, size);
+        cstr_realloc(s1, cstr, size);
     *(nwchar_t *)(cstr->data + size - sizeof(nwchar_t)) = ch;
     cstr->size = size;
 }
@@ -191,75 +192,77 @@ ST_FUNC void cstr_reset(struct neocc_string *cstr)
     cstr->size = 0;
 }
 
-ST_FUNC int cstr_vprintf(struct neocc_string *cstr, const char *fmt, va_list ap)
+ST_FUNC int cstr_vprintf(TCCState *s1, struct neocc_string *cstr,
+                        const char *fmt, va_list ap)
 {
     int length = neocc_string_vprintf(cstr, fmt, ap);
     if (length < 0)
-        tcc_error("cannot grow compiler string");
+        _tcc_error(s1, "cannot grow compiler string");
     return length;
 }
 
-ST_FUNC int cstr_printf(struct neocc_string *cstr, const char *fmt, ...)
+ST_FUNC int cstr_printf(TCCState *s1, struct neocc_string *cstr,
+                       const char *fmt, ...)
 {
     va_list ap; int len;
     va_start(ap, fmt);
-    len = cstr_vprintf(cstr, fmt, ap);
+    len = cstr_vprintf(s1, cstr, fmt, ap);
     va_end(ap);
     return len;
 }
 
 /* XXX: unicode ? */
-static void add_char(struct neocc_string *cstr, int c)
+static void add_char(TCCState *s1, struct neocc_string *cstr, int c)
 {
     if (c == '\'' || c == '\"' || c == '\\') {
         /* XXX: could be more precise if char or string */
-        cstr_ccat(cstr, '\\');
+        cstr_ccat(s1, cstr, '\\');
     }
     if (c >= 32 && c <= 126) {
-        cstr_ccat(cstr, c);
+        cstr_ccat(s1, cstr, c);
     } else {
-        cstr_ccat(cstr, '\\');
+        cstr_ccat(s1, cstr, '\\');
         if (c == '\n') {
-            cstr_ccat(cstr, 'n');
+            cstr_ccat(s1, cstr, 'n');
         } else {
-            cstr_ccat(cstr, '0' + ((c >> 6) & 7));
-            cstr_ccat(cstr, '0' + ((c >> 3) & 7));
-            cstr_ccat(cstr, '0' + (c & 7));
+            cstr_ccat(s1, cstr, '0' + ((c >> 6) & 7));
+            cstr_ccat(s1, cstr, '0' + ((c >> 3) & 7));
+            cstr_ccat(s1, cstr, '0' + (c & 7));
         }
     }
 }
 
 /* ------------------------------------------------------------------------- */
 /* Find or intern a token; its spelling and ID are owned by tokens. */
-ST_FUNC struct neocc_token *tok_alloc(const char *str, int len)
+ST_FUNC struct neocc_token *tok_alloc(TCCState *s1, const char *str, int len)
 {
 	struct neocc_token_intern request = { str, (size_t)len };
 	struct neocc_token_result result;
 	unsigned int quantity;
-	int status = vo_interact3(tcc_state->tokens, NEOCC_AC3_TOKENS_INTERN,
+	int status = vo_interact3(s1->tokens, NEOCC_AC3_TOKENS_INTERN,
 		(unsigned char *)&request, sizeof(request),
 		(unsigned char *)&result, sizeof(result), &quantity,
 		&neocc_host_caller);
 
 	if (!RP(status) || quantity != sizeof(result))
-		tcc_error("cannot intern token");
+		_tcc_error(s1, "cannot intern token");
 	return result.token;
 }
 
-ST_FUNC int tok_alloc_const(const char *str)
+ST_FUNC int tok_alloc_const(TCCState *s1, const char *str)
 {
-    return tok_alloc(str, strlen(str))->tok;
+    return tok_alloc(s1, str, strlen(str))->tok;
 }
 
 /* XXX: buffer overflow */
 /* XXX: float tokens */
-ST_FUNC const char *get_tok_str(int v, union neocc_value *cv)
+ST_FUNC const char *get_tok_str(TCCState *s1, int v, union neocc_value *cv)
 {
     char *p;
     int i, len;
 
-    cstr_reset(&tcc_state->pp->spelling);
-    p = tcc_state->pp->spelling.data;
+    cstr_reset(&s1->pp->spelling);
+    p = s1->pp->spelling.data;
 
     switch(v) {
     case TOK_CINT:
@@ -272,31 +275,31 @@ ST_FUNC const char *get_tok_str(int v, union neocc_value *cv)
         sprintf(p, "%llu", (unsigned long long)cv->i);
         break;
     case TOK_LCHAR:
-        cstr_ccat(&tcc_state->pp->spelling, 'L');
+        cstr_ccat(s1, &s1->pp->spelling, 'L');
     case TOK_CCHAR:
-        cstr_ccat(&tcc_state->pp->spelling, '\'');
-        add_char(&tcc_state->pp->spelling, cv->i);
-        cstr_ccat(&tcc_state->pp->spelling, '\'');
-        cstr_ccat(&tcc_state->pp->spelling, '\0');
+        cstr_ccat(s1, &s1->pp->spelling, '\'');
+        add_char(s1, &s1->pp->spelling, cv->i);
+        cstr_ccat(s1, &s1->pp->spelling, '\'');
+        cstr_ccat(s1, &s1->pp->spelling, '\0');
         break;
     case TOK_PPNUM:
     case TOK_PPSTR:
         return (char*)cv->str.data;
     case TOK_LSTR:
-        cstr_ccat(&tcc_state->pp->spelling, 'L');
+        cstr_ccat(s1, &s1->pp->spelling, 'L');
     case TOK_STR:
-        cstr_ccat(&tcc_state->pp->spelling, '\"');
+        cstr_ccat(s1, &s1->pp->spelling, '\"');
         if (v == TOK_STR) {
             len = cv->str.size - 1;
             for(i=0;i<len;i++)
-                add_char(&tcc_state->pp->spelling, ((unsigned char *)cv->str.data)[i]);
+                add_char(s1, &s1->pp->spelling, ((unsigned char *)cv->str.data)[i]);
         } else {
             len = (cv->str.size / sizeof(nwchar_t)) - 1;
             for(i=0;i<len;i++)
-                add_char(&tcc_state->pp->spelling, ((nwchar_t *)cv->str.data)[i]);
+                add_char(s1, &s1->pp->spelling, ((nwchar_t *)cv->str.data)[i]);
         }
-        cstr_ccat(&tcc_state->pp->spelling, '\"');
-        cstr_ccat(&tcc_state->pp->spelling, '\0');
+        cstr_ccat(s1, &s1->pp->spelling, '\"');
+        cstr_ccat(s1, &s1->pp->spelling, '\0');
         break;
 
     case TOK_CFLOAT:
@@ -335,7 +338,7 @@ ST_FUNC const char *get_tok_str(int v, union neocc_value *cv)
                     *p++ = q[0];
                     *p++ = q[1];
                     *p = '\0';
-                    return tcc_state->pp->spelling.data;
+                    return s1->pp->spelling.data;
                 }
                 q += 3;
             }
@@ -346,8 +349,8 @@ ST_FUNC const char *get_tok_str(int v, union neocc_value *cv)
     addv:
             *p++ = v;
             *p = '\0';
-        } else if (v < neocc_token_next(tcc_state)) {
-            return neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->str;
+        } else if (v < neocc_token_next(s1)) {
+            return neocc_token_at(s1, (v - TOK_IDENT) + TOK_IDENT)->str;
         } else if (v >= SYM_FIRST_ANOM) {
             /* special name for anonymous symbol */
             sprintf(p, "L.%u", v - SYM_FIRST_ANOM);
@@ -357,7 +360,7 @@ ST_FUNC const char *get_tok_str(int v, union neocc_value *cv)
         }
         break;
     }
-    return tcc_state->pp->spelling.data;
+    return s1->pp->spelling.data;
 }
 
 /* return the current character, handling end of block if necessary
@@ -552,7 +555,7 @@ static uint8_t *parse_pp_string(uint8_t *p, int sep, struct neocc_string *str)
                 tcc_error("missing terminating %c character", sep);
             } else if (c == '\\') {
                 if (str)
-                    cstr_ccat(str, c);
+                    cstr_ccat(tcc_state, str, c);
                 c = *++p;
                 /* add char after '\\' unconditionally */
                 if (c == '\\') {
@@ -584,12 +587,12 @@ static uint8_t *parse_pp_string(uint8_t *p, int sep, struct neocc_string *str)
             if (c == CH_EOF)
                 goto unterminated_string;
             if (str)
-                cstr_ccat(str, '\r');
+                cstr_ccat(tcc_state, str, '\r');
             goto redo;
         } else {
         add_char:
             if (str)
-                cstr_ccat(str, c);
+                cstr_ccat(tcc_state, str, c);
         }
     }
     p++;
@@ -730,25 +733,25 @@ ST_INLN void tok_str_new(struct neocc_token_string *s)
     s->last_line_num = -1;
 }
 
-ST_FUNC struct neocc_token_string *tok_str_alloc(void)
+ST_FUNC struct neocc_token_string *tok_str_alloc(TCCState *s1)
 {
-    struct neocc_token_string *str = neocc_token_resize(tcc_state, 0, sizeof *str);
+    struct neocc_token_string *str = neocc_token_resize(s1, 0, sizeof *str);
     tok_str_new(str);
     return str;
 }
 
-ST_FUNC void tok_str_free_str(int *str)
+ST_FUNC void tok_str_free_str(TCCState *s1, int *str)
 {
-    neocc_token_resize(tcc_state, str, 0);
+    neocc_token_resize(s1, str, 0);
 }
 
-ST_FUNC void tok_str_free(struct neocc_token_string *str)
+ST_FUNC void tok_str_free(TCCState *s1, struct neocc_token_string *str)
 {
-    tok_str_free_str(str->str);
-    neocc_token_resize(tcc_state, str, 0);
+    tok_str_free_str(s1, str->str);
+    neocc_token_resize(s1, str, 0);
 }
 
-ST_FUNC int *tok_str_realloc(struct neocc_token_string *s, int new_size)
+ST_FUNC int *tok_str_realloc(TCCState *s1, struct neocc_token_string *s, int new_size)
 {
     int *str, size;
 
@@ -758,52 +761,53 @@ ST_FUNC int *tok_str_realloc(struct neocc_token_string *s, int new_size)
     while (size < new_size)
         size = size * 2;
     if (size > s->allocated_len) {
-        str = neocc_token_resize(tcc_state, s->str, size * sizeof(int));
+        str = neocc_token_resize(s1, s->str, size * sizeof(int));
         s->allocated_len = size;
         s->str = str;
     }
     return s->str;
 }
 
-ST_FUNC void tok_str_add(struct neocc_token_string *s, int t)
+ST_FUNC void tok_str_add(TCCState *s1, struct neocc_token_string *s, int t)
 {
     int len, *str;
 
     len = s->len;
     str = s->str;
     if (len >= s->allocated_len)
-        str = tok_str_realloc(s, len + 1);
+        str = tok_str_realloc(s1, s, len + 1);
     str[len++] = t;
     s->len = len;
 }
 
-ST_FUNC void begin_macro(struct neocc_token_string *str, int alloc)
+ST_FUNC void begin_macro(TCCState *s1, struct neocc_token_string *str, int alloc)
 {
-	struct neocc_macro_push request = { str, alloc, tcc_state->pp->source->line_num };
-	int result = vo_interact2(tcc_state->preprocessor,
+	struct neocc_macro_push request = { str, alloc, s1->pp->source->line_num };
+	int result = vo_interact2(s1->preprocessor,
 		NEOCC_AC2_PREPROCESSOR_PUSH, (unsigned char *)&request,
 		sizeof(request), &neocc_host_caller);
 
 	if (!RP(result))
-		tcc_error("cannot enter macro stream");
+		_tcc_error(s1, "cannot enter macro stream");
 }
 
-ST_FUNC void end_macro(void)
+ST_FUNC void end_macro(TCCState *s1)
 {
 	struct neocc_macro_pop output;
 	unsigned int quantity;
-	int result = vo_interact1(tcc_state->preprocessor,
+	int result = vo_interact1(s1->preprocessor,
 		NEOCC_AC1_PREPROCESSOR_POP, (unsigned char *)&output,
 		sizeof(output), &quantity, &neocc_host_caller);
 
 	if (!RP(result) || quantity != sizeof(output))
-		tcc_error("cannot leave macro stream");
-	tcc_state->pp->source->line_num = output.saved_line;
+		_tcc_error(s1, "cannot leave macro stream");
+	s1->pp->source->line_num = output.saved_line;
 	if (output.release)
-		tok_str_free(output.release);
+		tok_str_free(s1, output.release);
 }
 
-static void tok_str_add2(struct neocc_token_string *s, int t, union neocc_value *cv)
+static void tok_str_add2(TCCState *s1, struct neocc_token_string *s,
+                        int t, union neocc_value *cv)
 {
     int len, *str;
 
@@ -812,7 +816,7 @@ static void tok_str_add2(struct neocc_token_string *s, int t, union neocc_value 
 
     /* allocate space for worst case */
     if (len + TOK_MAX_SIZE >= s->allocated_len)
-        str = tok_str_realloc(s, len + TOK_MAX_SIZE + 1);
+        str = tok_str_realloc(s1, s, len + TOK_MAX_SIZE + 1);
     str[len++] = t;
     switch(t) {
     case TOK_CINT:
@@ -836,7 +840,7 @@ static void tok_str_add2(struct neocc_token_string *s, int t, union neocc_value 
             size_t nb_words =
                 1 + (cv->str.size + sizeof(int) - 1) / sizeof(int);
             if (len + nb_words >= s->allocated_len)
-                str = tok_str_realloc(s, len + nb_words + 1);
+                str = tok_str_realloc(s1, s, len + nb_words + 1);
             str[len] = cv->str.size;
             memcpy(&str[len + 1], cv->str.data, cv->str.size);
             len += nb_words;
@@ -866,26 +870,27 @@ static void tok_str_add2(struct neocc_token_string *s, int t, union neocc_value 
 }
 
 /* add the current parse token in token string 's' */
-ST_FUNC void tok_str_add_tok(struct neocc_token_string *s)
+ST_FUNC void tok_str_add_tok(TCCState *s1, struct neocc_token_string *s)
 {
     union neocc_value cval;
 
     /* save line number info */
-    if (tcc_state->pp->source->line_num != s->last_line_num) {
-        s->last_line_num = tcc_state->pp->source->line_num;
+    if (s1->pp->source->line_num != s->last_line_num) {
+        s->last_line_num = s1->pp->source->line_num;
         cval.i = s->last_line_num;
-        tok_str_add2(s, TOK_LINENUM, &cval);
+        tok_str_add2(s1, s, TOK_LINENUM, &cval);
     }
-    tok_str_add2(s, tcc_state->pp->token, &tcc_state->pp->value);
+    tok_str_add2(s1, s, s1->pp->token, &s1->pp->value);
 }
 
 /* like tok_str_add2(), add a space if needed */
-static void tok_str_add2_spc(struct neocc_token_string *s, int t, union neocc_value *cv)
+static void tok_str_add2_spc(TCCState *s1, struct neocc_token_string *s,
+                            int t, union neocc_value *cv)
 {
     if (s->need_spc == 3)
-        tok_str_add(s, ' ');
+        tok_str_add(s1, s, ' ');
     s->need_spc = 2;
-    tok_str_add2(s, t, cv);
+    tok_str_add2(s1, s, t, cv);
 }
 
 /* get a token from an integer array and increment pointer. */
@@ -967,9 +972,9 @@ static int macro_is_equal(const int *a, const int *b)
     while (*a && *b) {
         cstr_reset(&tcc_state->pp->parsed);
         TOK_GET(&t, &a, &cv);
-        cstr_cat(&tcc_state->pp->parsed, get_tok_str(t, &cv), 0);
+        cstr_cat(tcc_state, &tcc_state->pp->parsed, get_tok_str(tcc_state, t, &cv), 0);
         TOK_GET(&t, &b, &cv);
-        if (strcmp(tcc_state->pp->parsed.data, get_tok_str(t, &cv)))
+        if (strcmp(tcc_state->pp->parsed.data, get_tok_str(tcc_state, t, &cv)))
             return 0;
     }
     return !(*a || *b);
@@ -987,7 +992,7 @@ ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *f
     neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_define = s;
 
     if (o && !macro_is_equal(o->d, s->d))
-	tcc_warning("%s redefined", get_tok_str(v, NULL));
+	tcc_warning("%s redefined", get_tok_str(tcc_state, v, NULL));
 }
 
 /* undefined a define symbol. Its name is just set to zero */
@@ -1012,7 +1017,7 @@ ST_FUNC void free_defines(struct neocc_symbol *b)
     struct neocc_symbol *top;
 
     while ((top = sym_stack_top(NEOCC_SYMBOL_STACK_DEFINE)) != b) {
-        tok_str_free_str(top->d);
+        tok_str_free_str(tcc_state, top->d);
         define_undef(top);
         sym_stack_drop(NEOCC_SYMBOL_STACK_DEFINE, top);
     }
@@ -1024,7 +1029,7 @@ static void maybe_run_test(TCCState *s)
     const char *p;
     if (s->pp->include_stack_ptr != s->pp->include_stack)
         return;
-    p = get_tok_str(tcc_state->pp->token, NULL);
+    p = get_tok_str(s, tcc_state->pp->token, NULL);
     if (0 != memcmp(p, "test_", 5))
         return;
     if (0 != --s->run_test)
@@ -1040,7 +1045,7 @@ ST_FUNC void skip_to_eol(int warn)
     if (warn)
         tcc_warning("extra tokens after directive");
     while (tcc_state->pp->macro_stack)
-        end_macro();
+        end_macro(tcc_state);
     tcc_state->pp->source->buf_ptr = parse_line_comment(tcc_state->pp->source->buf_ptr - 1);
     next_nomacro();
 }
@@ -1077,7 +1082,7 @@ static int parse_include(TCCState *s1, int do_next, int test)
                 break;
             if (s1->pp->token == TOK_LINEFEED)
                 tcc_error("'#include' expects \"FILENAME\" or <FILENAME>");
-            pstrcat(name, sizeof name, get_tok_str(s1->pp->token, &s1->pp->value));
+            pstrcat(name, sizeof name, get_tok_str(s1, s1->pp->token, &s1->pp->value));
 	}
         c = p[0];
         /* remove '<>|""' */
@@ -1167,7 +1172,7 @@ static int expr_preprocess(TCCState *s1)
     int t0 = s1->pp->token;
     struct neocc_token_string *str;
     
-    str = tok_str_alloc();
+    str = tok_str_alloc(s1);
     s1->pp->expression = 1;
     while (1) {
         next(); /* do macro subst */
@@ -1217,21 +1222,21 @@ static int expr_preprocess(TCCState *s1)
             s1->pp->token = TOK_CLLONG; /* type intmax_t */
             s1->pp->value.i = c;
         }
-        tok_str_add_tok(str);
+        tok_str_add_tok(s1, str);
     }
     if (0 == str->len)
-        tcc_error("#%s with no expression", get_tok_str(t0, 0));
-    tok_str_add(str, TOK_EOF); /* simulate end of file */
+        tcc_error("#%s with no expression", get_tok_str(s1, t0, 0));
+    tok_str_add(s1, str, TOK_EOF); /* simulate end of file */
     s1->pp->expression = t0; /* redirect pre-processor expression error messages */
     t = s1->pp->token;
     /* now evaluate C constant expression */
-    begin_macro(str, 1);
+    begin_macro(s1, str, 1);
     next();
     c = expr_const();
     if (s1->pp->token != TOK_EOF)
         tcc_error("...");
     s1->pp->expression = 0;
-    end_macro();
+    end_macro(s1);
     s1->pp->token = t; /* restore LF or EOF */
     return c != 0;
 }
@@ -1244,11 +1249,11 @@ ST_FUNC int pp_error(struct neocc_string *cs)
     /* A failure while expanding the diagnostic must not recurse here. */
     tcc_state->pp->expression = 0;
     success = neocc_string_printf(cs, "bad preprocessor expression: #%s",
-        get_tok_str(expression, 0)) >= 0;
+        get_tok_str(tcc_state, expression, 0)) >= 0;
     tcc_state->pp->macro_ptr = tcc_state->pp->macro_stack->str;
     while (success && (next(), tcc_state->pp->token != TOK_EOF))
         success = neocc_string_printf(cs, " %s",
-            get_tok_str(tcc_state->pp->token, &tcc_state->pp->value)) >= 0;
+            get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value)) >= 0;
     return success;
 }
 
@@ -1262,7 +1267,7 @@ ST_FUNC void parse_define(void)
 
     v = tcc_state->pp->token;
     if (v < TOK_IDENT || v == TOK_DEFINED)
-        tcc_error("invalid macro name '%s'", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+        tcc_error("invalid macro name '%s'", get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
     first = NULL;
     t = MACRO_OBJ;
     /* We have to parse the whole define as if not in asm mode, in particular
@@ -1326,13 +1331,13 @@ ST_FUNC void parse_define(void)
                 tcc_state->pp->token = TOK_PPJOIN;
                 t |= MACRO_JOIN;
             }
-            tok_str_add2_spc(&str, tcc_state->pp->token, &tcc_state->pp->value);
+            tok_str_add2_spc(tcc_state, &str, tcc_state->pp->token, &tcc_state->pp->value);
             t0 = tcc_state->pp->token;
         }
         next_nomacro();
     }
     tcc_state->pp->parse_flags = saved_parse_flags;
-    tok_str_add(&str, 0);
+    tok_str_add(tcc_state, &str, 0);
     if (t0 == TOK_PPJOIN)
 bad_twosharp:
         tcc_error("'##' cannot appear at either end of macro");
@@ -1366,7 +1371,7 @@ static int pragma_parse(TCCState *s1)
             goto pragma_err;
         if (next(), s1->pp->token != TOK_STR)
             goto pragma_err;
-        v = tok_alloc(s1->pp->value.str.data, s1->pp->value.str.size - 1)->tok;
+        v = tok_alloc(s1, s1->pp->value.str.data, s1->pp->value.str.size - 1)->tok;
         if (next(), s1->pp->token != ')')
             goto pragma_err;
         if (t == TOK_push_macro) {
@@ -1451,7 +1456,7 @@ static int pragma_parse(TCCState *s1)
         if (s1->pp->token != TOK_STR)
             goto pragma_err;
         text = neocc_temp_new(s1);
-        cstr_cat(text, s1->pp->value.str.data, 0);
+        cstr_cat(s1, text, s1->pp->value.str.data, 0);
         next();
         if (s1->pp->token != ')')
             goto pragma_err;
@@ -1466,7 +1471,7 @@ static int pragma_parse(TCCState *s1)
         neocc_temp_free(s1, text);
 
     } else {
-        tcc_warning_c(warn_all)("#pragma %s ignored", get_tok_str(s1->pp->token, &s1->pp->value));
+        tcc_warning_c(warn_all)("#pragma %s ignored", get_tok_str(s1, s1->pp->token, &s1->pp->value));
         return 0;
     }
     next();
@@ -1553,7 +1558,7 @@ ST_FUNC void preprocess(int is_bof)
         if (is_bof) {
             if (c) {
 #ifdef INC_DEBUG
-                printf("#ifndef %s\n", get_tok_str(tcc_state->pp->token, NULL));
+                printf("#ifndef %s\n", get_tok_str(tcc_state, tcc_state->pp->token, NULL));
 #endif
                 tcc_state->pp->source->ifndef_macro = tcc_state->pp->token;
             }
@@ -1685,7 +1690,7 @@ ST_FUNC void preprocess(int is_bof)
         if (tcc_state->pp->token == '!' && is_bof)
             /* '#!' is ignored at beginning to allow C scripts. */
             goto ignore;
-        tcc_warning("ignoring unknown preprocessing directive #%s", get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+        tcc_warning("ignoring unknown preprocessing directive #%s", get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
     ignore:
         skip_to_eol(0);
         goto the_end;
@@ -1754,7 +1759,7 @@ static void parse_escape_string(struct neocc_string *outstr, const uint8_t *buf,
                     c = n;
 		    goto add_char_nonext;
 		}
-                cstr_u8cat(outstr, n);
+                cstr_u8cat(tcc_state, outstr, n);
                 continue;
             case 'a':
                 c = '\a';
@@ -1853,27 +1858,27 @@ static void parse_escape_string(struct neocc_string *outstr, const uint8_t *buf,
         p++;
     add_char_nonext:
         if (!is_long)
-            cstr_ccat(outstr, c);
+            cstr_ccat(tcc_state, outstr, c);
         else {
 #ifdef TCC_TARGET_PE
             /* store as UTF-16 */
             if (c < 0x10000) {
-                cstr_wccat(outstr, c);
+                cstr_wccat(tcc_state, outstr, c);
             } else {
                 c -= 0x10000;
-                cstr_wccat(outstr, (c >> 10) + 0xD800);
-                cstr_wccat(outstr, (c & 0x3FF) + 0xDC00);
+                cstr_wccat(tcc_state, outstr, (c >> 10) + 0xD800);
+                cstr_wccat(tcc_state, outstr, (c & 0x3FF) + 0xDC00);
             }
 #else
-            cstr_wccat(outstr, c);
+            cstr_wccat(tcc_state, outstr, c);
 #endif
         }
     }
     /* add a trailing '\0' */
     if (!is_long)
-        cstr_ccat(outstr, '\0');
+        cstr_ccat(tcc_state, outstr, '\0');
     else
-        cstr_wccat(outstr, '\0');
+        cstr_wccat(tcc_state, outstr, '\0');
 }
 
 static void parse_string(const char *s, int len)
@@ -2299,7 +2304,7 @@ static void next_nomacro(void)
                    start of file */
                 if (tcc_state->pp->token_flags & TOK_FLAG_ENDIF) {
 #ifdef INC_DEBUG
-                    printf("#endif %s\n", get_tok_str(tcc_state->pp->source->ifndef_macro_saved, NULL));
+                    printf("#endif %s\n", get_tok_str(tcc_state, tcc_state->pp->source->ifndef_macro_saved, NULL));
 #endif
                     search_cached_include(s1, tcc_state->pp->source->true_filename, 1)
                         ->ifndef_macro = tcc_state->pp->source->ifndef_macro_saved;
@@ -2384,19 +2389,19 @@ maybe_newline:
             ;
         len = p - p1;
         if (c != '\\') {
-            ts = tok_alloc((char *)p1, len);
+            ts = tok_alloc(tcc_state, (char *)p1, len);
         } else {
             /* slower case */
             cstr_reset(&tcc_state->pp->parsed);
-            cstr_cat(&tcc_state->pp->parsed, (char *) p1, len);
+            cstr_cat(tcc_state, &tcc_state->pp->parsed, (char *) p1, len);
             p--;
             PEEKC(c, p);
             while (tcc_state->pp->character[c - CH_EOF] & (NEOCC_CHAR_ID|NEOCC_CHAR_NUMBER))
             {
-                cstr_ccat(&tcc_state->pp->parsed, c);
+                cstr_ccat(tcc_state, &tcc_state->pp->parsed, c);
                 PEEKC(c, p);
             }
-            ts = tok_alloc(tcc_state->pp->parsed.data, tcc_state->pp->parsed.size);
+            ts = tok_alloc(tcc_state, tcc_state->pp->parsed.data, tcc_state->pp->parsed.size);
         }
         tcc_state->pp->token = ts->tok;
         break;
@@ -2422,7 +2427,7 @@ maybe_newline:
     parse_num:
         cstr_reset(&tcc_state->pp->parsed);
         for(;;) {
-            cstr_ccat(&tcc_state->pp->parsed, t);
+            cstr_ccat(tcc_state, &tcc_state->pp->parsed, t);
             if (!((tcc_state->pp->character[c - CH_EOF] & (NEOCC_CHAR_ID|NEOCC_CHAR_NUMBER))
                   || c == '.'
                   || ((c == '+' || c == '-')
@@ -2437,7 +2442,7 @@ maybe_newline:
             PEEKC(c, p);
         }
         /* We add a trailing '\0' to ease parsing */
-        cstr_ccat(&tcc_state->pp->parsed, '\0');
+        cstr_ccat(tcc_state, &tcc_state->pp->parsed, '\0');
         tcc_state->pp->value.str.size = tcc_state->pp->parsed.size;
         tcc_state->pp->value.str.data = tcc_state->pp->parsed.data;
         tcc_state->pp->token = TOK_PPNUM;
@@ -2472,11 +2477,11 @@ maybe_newline:
     str_const:
         cstr_reset(&tcc_state->pp->parsed);
         if (is_long)
-            cstr_ccat(&tcc_state->pp->parsed, 'L');
-        cstr_ccat(&tcc_state->pp->parsed, c);
+            cstr_ccat(tcc_state, &tcc_state->pp->parsed, 'L');
+        cstr_ccat(tcc_state, &tcc_state->pp->parsed, c);
         p = parse_pp_string(p, c, &tcc_state->pp->parsed);
-        cstr_ccat(&tcc_state->pp->parsed, c);
-        cstr_ccat(&tcc_state->pp->parsed, '\0');
+        cstr_ccat(tcc_state, &tcc_state->pp->parsed, c);
+        cstr_ccat(tcc_state, &tcc_state->pp->parsed, '\0');
         tcc_state->pp->value.str.size = tcc_state->pp->parsed.size;
         tcc_state->pp->value.str.data = tcc_state->pp->parsed.data;
         tcc_state->pp->token = TOK_PPSTR;
@@ -2638,7 +2643,7 @@ maybe_newline:
 keep_tok_flags:
     tcc_state->pp->source->buf_ptr = p;
 #if defined(PARSE_DEBUG)
-    printf("token = %d %s\n", tcc_state->pp->token, get_tok_str(tcc_state->pp->token, &tcc_state->pp->value));
+    printf("token = %d %s\n", tcc_state->pp->token, get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
 #endif
 }
 
@@ -2659,7 +2664,7 @@ static void pp_print(const char *msg, int v, const int *str)
     if (msg[0] == '#') {
         define_print(tcc_state, v);
     } else {
-        tok_print(str, v ? "%s %s" : "%s", msg, get_tok_str(v, 0));
+        tok_print(str, v ? "%s %s" : "%s", msg, get_tok_str(tcc_state, v, 0));
     }
 }
 #define PP_PRINT(x) pp_print x
@@ -2688,7 +2693,7 @@ static int *macro_arg_subst(struct neocc_symbol **nested_list, const int *macro_
     for (s = args, n = 0; s; s = s->prev, ++n);
     while (n--) {
         for (s = args, t = 0; t < n; s = s->prev, ++t);
-        tok_print(s->d, "%*s - arg: %s:", tcc_state->pp->debug_indent, "", get_tok_str(s->v, 0));
+        tok_print(s->d, "%*s - arg: %s:", tcc_state->pp->debug_indent, "", get_tok_str(tcc_state, s->v, 0));
     }
 #endif
 
@@ -2704,31 +2709,31 @@ static int *macro_arg_subst(struct neocc_symbol **nested_list, const int *macro_
             s = sym_find2(args, t);
             if (s) {
                 cstr_reset(&tcc_state->pp->parsed);
-                cstr_ccat(&tcc_state->pp->parsed, '\"');
+                cstr_ccat(tcc_state, &tcc_state->pp->parsed, '\"');
                 st = s->d;
                 while (*st != TOK_EOF) {
                     const char *s;
                     TOK_GET(&t, &st, &cval);
-                    s = get_tok_str(t, &cval);
+                    s = get_tok_str(tcc_state, t, &cval);
                     while (*s) {
                         if (t == TOK_PPSTR && *s != '\'')
-                            add_char(&tcc_state->pp->parsed, *s);
+                            add_char(tcc_state, &tcc_state->pp->parsed, *s);
                         else
-                            cstr_ccat(&tcc_state->pp->parsed, *s);
+                            cstr_ccat(tcc_state, &tcc_state->pp->parsed, *s);
                         ++s;
                     }
                 }
-                cstr_ccat(&tcc_state->pp->parsed, '\"');
-                cstr_ccat(&tcc_state->pp->parsed, '\0');
+                cstr_ccat(tcc_state, &tcc_state->pp->parsed, '\"');
+                cstr_ccat(tcc_state, &tcc_state->pp->parsed, '\0');
                 //printf("\nstringize: <%s>\n", (char *)tcc_state->pp->parsed.data);
                 /* add string */
                 cval.str.size = tcc_state->pp->parsed.size;
                 cval.str.data = tcc_state->pp->parsed.data;
-                tok_str_add2(&str, TOK_PPSTR, &cval);
+                tok_str_add2(tcc_state, &str, TOK_PPSTR, &cval);
 #ifdef TCC_TARGET_ARM
             } else if ((tcc_state->pp->parse_flags & PARSE_FLAG_ASM_FILE) && t == TOK_PPNUM) {
                 /* for example: mov r1,#0 */
-                --macro_str, tok_str_add(&str, '#');
+                --macro_str, tok_str_add(tcc_state, &str, '#');
 #endif
             } else {
                 expect("macro parameter after '#'");
@@ -2759,7 +2764,7 @@ static int *macro_arg_subst(struct neocc_symbol **nested_list, const int *macro_
                         }
                     } else {
                         if (*st == TOK_EOF)
-                            tok_str_add(&str, TOK_PLCHLDR);
+                            tok_str_add(tcc_state, &str, TOK_PLCHLDR);
                     }
                 } else {
             add_var:
@@ -2771,25 +2776,25 @@ static int *macro_arg_subst(struct neocc_symbol **nested_list, const int *macro_
 			struct neocc_token_string str2;
 			tok_str_new(&str2);
 			macro_subst(&str2, nested_list, st);
-			tok_str_add(&str2, TOK_EOF);
+			tok_str_add(tcc_state, &str2, TOK_EOF);
 			s->e = str2.str;
 		    }
 		    st = s->e;
                 }
                 while (*st != TOK_EOF) {
                     TOK_GET(&t2, &st, &cval);
-                    tok_str_add2(&str, t2, &cval);
+                    tok_str_add2(tcc_state, &str, t2, &cval);
                 }
             } else {
-                tok_str_add(&str, t);
+                tok_str_add(tcc_state, &str, t);
             }
         } else {
-            tok_str_add2(&str, t, &cval);
+            tok_str_add2(tcc_state, &str, t, &cval);
         }
         if (t != ' ')
             t0 = t1, t1 = t;
     }
-    tok_str_add(&str, 0);
+    tok_str_add(tcc_state, &str, 0);
     PP_PRINT(("areslt:", 0, str.str));
     return str.str;
 }
@@ -2821,22 +2826,22 @@ static inline int *macro_twosharps(const int *ptr0)
             if (t2 == TOK_PLCHLDR)
                 continue;
             if (t1 != TOK_PLCHLDR) {
-                cstr_cat(&tcc_state->pp->parsed, get_tok_str(t1, &cv1), -1);
+                cstr_cat(tcc_state, &tcc_state->pp->parsed, get_tok_str(tcc_state, t1, &cv1), -1);
                 t1 = TOK_PLCHLDR;
             }
-            cstr_cat(&tcc_state->pp->parsed, get_tok_str(t2, &cv2), -1);
+            cstr_cat(tcc_state, &tcc_state->pp->parsed, get_tok_str(tcc_state, t2, &cv2), -1);
         }
         if (tcc_state->pp->parsed.size) {
-            cstr_ccat(&tcc_state->pp->parsed, 0);
+            cstr_ccat(tcc_state, &tcc_state->pp->parsed, 0);
             tcc_open_bf(tcc_state, ":paste:", tcc_state->pp->parsed.size);
             memcpy(tcc_state->pp->source->buffer, tcc_state->pp->parsed.data, tcc_state->pp->parsed.size);
             tcc_state->pp->token_flags = 0; /* don't interpret '#' */
             for (n = 0;;n = l) {
                 next_nomacro();
-                tok_str_add2(&macro_str1, tcc_state->pp->token, &tcc_state->pp->value);
+                tok_str_add2(tcc_state, &macro_str1, tcc_state->pp->token, &tcc_state->pp->value);
                 if (*tcc_state->pp->source->buf_ptr == 0)
                     break;
-                tok_str_add(&macro_str1, ' ');
+                tok_str_add(tcc_state, &macro_str1, ' ');
                 l = tcc_state->pp->source->buf_ptr - tcc_state->pp->source->buffer;
                 tcc_warning("pasting \"%.*s\" and \"%s\" does not give a valid"
                     " preprocessing token", l - n, tcc_state->pp->source->buffer + n, tcc_state->pp->source->buf_ptr);
@@ -2845,9 +2850,9 @@ static inline int *macro_twosharps(const int *ptr0)
             cstr_reset(&tcc_state->pp->parsed);
         }
         if (t1 != TOK_PLCHLDR)
-            tok_str_add2(&macro_str1, t1, &cv1);
+            tok_str_add2(tcc_state, &macro_str1, t1, &cv1);
     }
-    tok_str_add(&macro_str1, 0);
+    tok_str_add(tcc_state, &macro_str1, 0);
     PP_PRINT(("pasted:", 0, macro_str1.str));
     return macro_str1.str;
 }
@@ -2883,7 +2888,7 @@ static int peek_file (struct neocc_token_string *ws_str)
             return c;
         }
         if (ws_str)
-            tok_str_add(ws_str, c);
+            tok_str_add(tcc_state, ws_str, c);
     }
 }
 
@@ -2906,7 +2911,7 @@ static int next_argstream(struct neocc_symbol **nested_list, struct neocc_token_
                 return tcc_state->pp->token;
             }
         }
-        end_macro();
+        end_macro(tcc_state);
         /* also, end of scope for nested defined symbol */
         sa = *nested_list;
         if (sa)
@@ -2959,14 +2964,14 @@ static int macro_subst_tok(
                  * whitespace is intentionally not merged to preserve
                  * newlines. */
                 tcc_state->pp->parse_flags = saved_parse_flags;
-                tok_str_add2_spc(tok_str, v, 0);
+                tok_str_add2_spc(tcc_state, tok_str, v, 0);
                 if (tcc_state->pp->parse_flags & PARSE_FLAG_SPACES)
                     for (i = 0; i < str.len; i++)
-                        tok_str_add(tok_str, str.str[i]);
-                tok_str_free_str(str.str);
+                        tok_str_add(tcc_state, tok_str, str.str[i]);
+                tok_str_free_str(tcc_state, str.str);
                 return 0;
             } else {
-                tok_str_free_str(str.str);
+                tok_str_free_str(tcc_state, str.str);
             }
 
             /* argument macro */
@@ -2983,7 +2988,7 @@ static int macro_subst_tok(
                     if (t == ')') /* handle '()' case */
                         break;
                     tcc_error("macro '%s' used with too many args",
-                        get_tok_str(v, 0));
+                        get_tok_str(tcc_state, v, 0));
                 }
             empty_arg:
                 tok_str_new(&str);
@@ -2993,7 +2998,7 @@ static int macro_subst_tok(
                         || (t != ')' && (t != ',' || sa->type.t))) {
                     if (t == TOK_EOF)
                         tcc_error("EOF in invocation of macro '%s'",
-                            get_tok_str(v, 0));
+                            get_tok_str(tcc_state, v, 0));
                     if (t == '(')
                         parlevel++;
                     if (t == ')')
@@ -3001,10 +3006,10 @@ static int macro_subst_tok(
                     if (t == ' ')
                         str.need_spc |= 1;
                     else
-                        tok_str_add2_spc(&str, t, &tcc_state->pp->value);
+                        tok_str_add2_spc(tcc_state, &str, t, &tcc_state->pp->value);
                     t = next_argstream(nested_list, NULL);
                 }
-                tok_str_add(&str, TOK_EOF);
+                tok_str_add(tcc_state, &str, TOK_EOF);
                 sa1 = sym_push2(&args, sa->v & ~SYM_FIELD, sa->type.t, 0);
                 sa1->d = str.str;
                 sa = sa->next;
@@ -3016,7 +3021,7 @@ static int macro_subst_tok(
                     if (sa->type.t && gnu_ext)
                         goto empty_arg;
                     tcc_error("macro '%s' used with too few args",
-                        get_tok_str(v, 0));
+                        get_tok_str(tcc_state, v, 0));
                 }
                 i = 1;
             }
@@ -3027,8 +3032,8 @@ static int macro_subst_tok(
             sa = args;
             while (sa) {
                 sa1 = sa->prev;
-                tok_str_free_str(sa->d);
-                tok_str_free_str(sa->e);
+                tok_str_free_str(tcc_state, sa->d);
+                tok_str_free_str(tcc_state, sa->e);
                 sym_free(sa);
                 sa = sa1;
             }
@@ -3047,9 +3052,9 @@ static int macro_subst_tok(
             *nested_list = sa->prev, sym_free(sa);
 
         if (jstr != mstr)
-            tok_str_free_str(jstr);
+            tok_str_free_str(tcc_state, jstr);
         if (mstr != s->d)
-            tok_str_free_str(mstr);
+            tok_str_free_str(tcc_state, mstr);
         return ret;
 
     } else {
@@ -3088,7 +3093,7 @@ static int macro_subst_tok(
         add_cstr1:
             cval.str.size = strlen(cstrval) + 1;
             cval.str.data = cstrval;
-            tok_str_add2_spc(tok_str, t, &cval);
+            tok_str_add2_spc(tcc_state, tok_str, t, &cval);
         }
         return 0;
     }
@@ -3127,22 +3132,22 @@ static int macro_subst(
                 t |= SYM_FIELD;
                 goto no_subst;
             }
-            str = tok_str_alloc();
+            str = tok_str_alloc(tcc_state);
             str->str = (int*)macro_str; /* setup stream for possible arguments */
-            begin_macro(str, 2);
+            begin_macro(tcc_state, str, 2);
             nosubst = macro_subst_tok(tok_str, nested_list, s);
             if (tcc_state->pp->macro_stack != str) {
                 /* already finished by reading function macro arguments */
                 break;
             }
             macro_str = tcc_state->pp->macro_ptr;
-            end_macro ();
+            end_macro (tcc_state);
         } else if (t == ' ') {
             if (tcc_state->pp->parse_flags & PARSE_FLAG_SPACES)
                 tok_str->need_spc |= 1;
         } else {
     no_subst:
-            tok_str_add2_spc(tok_str, t, &cval);
+            tok_str_add2_spc(tcc_state, tok_str, t, &cval);
             if (nosubst && t != '(')
                 nosubst = 0;
             /* GCC supports 'defined' as result of a macro substitution */
@@ -3152,7 +3157,7 @@ static int macro_subst(
     }
 
 #ifdef PP_DEBUG
-    tok_str_add(tok_str, 0), --tok_str->len;
+    tok_str_add(tcc_state, tok_str, 0), --tok_str->len;
     PP_PRINT(("-result:", 0, tok_str->str + tlen));
 #endif
     return nosubst;
@@ -3174,7 +3179,7 @@ redo:
             goto convert;
         } else if (t == 0) {
             /* end of macro or unget token string */
-            end_macro();
+            end_macro(tcc_state);
             continue;
         } else if (t == TOK_EOF) {
             /* do nothing */
@@ -3198,8 +3203,8 @@ redo:
         if (s) {
             struct neocc_symbol *nested_list = NULL;
             macro_subst_tok(&tcc_state->pp->expansion, &nested_list, s);
-            tok_str_add(&tcc_state->pp->expansion, 0);
-            begin_macro(&tcc_state->pp->expansion, 0);
+            tok_str_add(tcc_state, &tcc_state->pp->expansion, 0);
+            begin_macro(tcc_state, &tcc_state->pp->expansion, 0);
             goto redo;
         }
         return;
@@ -3223,11 +3228,11 @@ ST_INLN void unget_tok(int last_tok)
     struct neocc_token_string *str = &tcc_state->pp->unget;
     int alloc = 0;
     if (str->len) /* use static buffer except if already in use */
-        str = tok_str_alloc(), alloc = 1;
+        str = tok_str_alloc(tcc_state), alloc = 1;
     if (tcc_state->pp->token != TOK_EOF)
-        tok_str_add2(str, tcc_state->pp->token, &tcc_state->pp->value);
-    tok_str_add(str, 0);
-    begin_macro(str, alloc);
+        tok_str_add2(tcc_state, str, tcc_state->pp->token, &tcc_state->pp->value);
+    tok_str_add(tcc_state, str, 0);
+    begin_macro(tcc_state, str, alloc);
     tcc_state->pp->token = last_tok;
 }
 
@@ -3265,7 +3270,7 @@ static const char * const target_os_defs =
 
 static void putdef(struct neocc_string *cs, const char *p)
 {
-    cstr_printf(cs, "#define %s%s\n", p, &" 1"[!!strchr(p, ' ')*2]);
+    cstr_printf(tcc_state, cs, "#define %s%s\n", p, &" 1"[!!strchr(p, ' ')*2]);
 }
 
 static void putdefs(struct neocc_string *cs, const char *p)
@@ -3276,7 +3281,7 @@ static void putdefs(struct neocc_string *cs, const char *p)
 
 static void tcc_predefs(TCCState *s1, struct neocc_string *cs, int is_asm)
 {
-    cstr_printf(cs, "#define __TINYC__ 9%.2s\n", &TCC_VERSION[4]);
+    cstr_printf(s1, cs, "#define __TINYC__ 9%.2s\n", &TCC_VERSION[4]);
     putdefs(cs, target_machine_defs);
     putdefs(cs, target_os_defs);
 
@@ -3306,13 +3311,13 @@ static void tcc_predefs(TCCState *s1, struct neocc_string *cs, int is_asm)
       putdef(cs, "_REENTRANT");
     if (s1->leading_underscore)
       putdef(cs, "__leading_underscore");
-    cstr_printf(cs, "#define __SIZEOF_POINTER__ %d\n", PTR_SIZE);
-    cstr_printf(cs, "#define __SIZEOF_LONG__ %d\n", LONG_SIZE);
+    cstr_printf(s1, cs, "#define __SIZEOF_POINTER__ %d\n", PTR_SIZE);
+    cstr_printf(s1, cs, "#define __SIZEOF_LONG__ %d\n", LONG_SIZE);
     if (!is_asm) {
       putdef(cs, "__STDC__");
-      cstr_printf(cs, "#define __STDC_HOSTED__ %d\n", s1->nostdlib ? 0 : 1);
-      cstr_printf(cs, "#define __STDC_VERSION__ %dL\n", s1->cversion);
-      cstr_cat(cs,
+      cstr_printf(s1, cs, "#define __STDC_HOSTED__ %d\n", s1->nostdlib ? 0 : 1);
+      cstr_printf(s1, cs, "#define __STDC_VERSION__ %dL\n", s1->cversion);
+      cstr_cat(s1, cs,
         /* load more predefs and __builtins */
 #if CONFIG_TCC_PREDEFS
         #include "tccdefs_.h" /* include as strings */
@@ -3321,7 +3326,7 @@ static void tcc_predefs(TCCState *s1, struct neocc_string *cs, int is_asm)
 #endif
         , -1);
     }
-    cstr_printf(cs, "#define __BASE_FILE__ \"%s\"\n", s1->pp->source->filename);
+    cstr_printf(s1, cs, "#define __BASE_FILE__ \"%s\"\n", s1->pp->source->filename);
 }
 
 ST_FUNC void preprocess_start(TCCState *s1, int filetype)
@@ -3341,9 +3346,9 @@ ST_FUNC void preprocess_start(TCCState *s1, int filetype)
         cstr_reset(cstr);
         tcc_predefs(s1, cstr, is_asm);
         if (s1->cmdline_defs.size)
-          cstr_cat(cstr, s1->cmdline_defs.data, s1->cmdline_defs.size);
+          cstr_cat(s1, cstr, s1->cmdline_defs.data, s1->cmdline_defs.size);
         if (s1->cmdline_incl.size)
-          cstr_cat(cstr, s1->cmdline_incl.data, s1->cmdline_incl.size);
+          cstr_cat(s1, cstr, s1->cmdline_incl.data, s1->cmdline_incl.size);
         *s1->pp->include_stack_ptr++ = s1->pp->source;
         tcc_open_bf(s1, "<command line>", cstr->size);
         memcpy(s1->pp->source->buffer, cstr->data, cstr->size);
@@ -3373,9 +3378,9 @@ ST_FUNC void tccpp_new(TCCState *s)
     int c;
     const char *p, *r;
 
-    cstr_realloc(&tcc_state->pp->spelling, STRING_MAX_SIZE);
-    tok_str_realloc(&tcc_state->pp->unget, TOKSTR_MAX_SIZE);
-    tok_str_realloc(&tcc_state->pp->expansion, TOKSTR_MAX_SIZE);
+    cstr_realloc(s, &tcc_state->pp->spelling, STRING_MAX_SIZE);
+    tok_str_realloc(s, &tcc_state->pp->unget, TOKSTR_MAX_SIZE);
+    tok_str_realloc(s, &tcc_state->pp->expansion, TOKSTR_MAX_SIZE);
 
     p = tcc_keywords;
     while (*p) {
@@ -3385,7 +3390,7 @@ ST_FUNC void tccpp_new(TCCState *s)
             if (c == '\0')
                 break;
         }
-        tok_alloc(p, r - p - 1);
+        tok_alloc(s, p, r - p - 1);
         p = r;
     }
 
@@ -3439,7 +3444,7 @@ static void tok_print(const int *str, const char *msg, ...)
 	    break;
         if (pp_need_space(t0, t))
             s = 0;
-	fprintf(fp, &" %s"[s], t == TOK_PLCHLDR ? "<>" : get_tok_str(t, &cval));
+	fprintf(fp, &" %s"[s], t == TOK_PLCHLDR ? "<>" : get_tok_str(tcc_state, t, &cval));
         s = 1, t0 = t;
     }
     fprintf(fp, "\n");
@@ -3476,13 +3481,13 @@ static void define_print(TCCState *s1, int v)
         return;
 
     fp = s1->ppfp;
-    fprintf(fp, "#define %s", get_tok_str(v, NULL));
+    fprintf(fp, "#define %s", get_tok_str(s1, v, NULL));
     if (s->type.t & MACRO_FUNC) {
         struct neocc_symbol *a = s->next;
         fprintf(fp,"(");
         if (a)
             for (;;) {
-                fprintf(fp,"%s", get_tok_str(a->v, NULL));
+                fprintf(fp,"%s", get_tok_str(s1, a->v, NULL));
                 if (!(a = a->next))
                     break;
                 fprintf(fp,",");
@@ -3508,7 +3513,7 @@ static void pp_debug_defines(TCCState *s1)
 
     fp = s1->ppfp;
     v = s1->pp->debug_symbol;
-    vs = get_tok_str(v, NULL);
+    vs = get_tok_str(s1, v, NULL);
     if (t == TOK_DEFINE) {
         define_print(s1, v);
     } else if (t == TOK_UNDEF) {
@@ -3604,7 +3609,7 @@ ST_FUNC int tcc_preprocess(TCCState *s1)
         }
 
         white[spcs] = 0, fputs(white, s1->ppfp), spcs = 0;
-        fputs(p = get_tok_str(s1->pp->token, &s1->pp->value), s1->ppfp);
+        fputs(p = get_tok_str(s1, s1->pp->token, &s1->pp->value), s1->ppfp);
         token_seen = pp_check_he0xE(s1->pp->token, p);
     }
     return 0;

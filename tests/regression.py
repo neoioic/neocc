@@ -110,6 +110,29 @@ class Regression(unittest.TestCase):
             self.assertIn(b"cache_once.h", contents[1])
             self.assertIn(b"preprocessor_resources_other.c", contents[1])
 
+        # Compile the optional tracing branch and compare the complete trace.
+        # Linking tccpp first selects it instead of the archive's normal object.
+        native = [args.cc, "-std=c11", "-DPP_DEBUG", "-Isrc/compiler",
+                  "-DTCC_TARGET_X86_64", "-DTCC_TARGET_PE"]
+        traced = []
+        for baseline in (True, False):
+            program = OUT / ("baseline-pp-debug.exe" if baseline else
+                             "neocc-pp-debug.exe")
+            if baseline:
+                sources = ["-Itinycc", "tinycc/tcc.c"]
+            else:
+                sources = ["-Iinclude", "-Isrc", "-Isrc/compiler",
+                           "-Ithird_party/neoioic/include",
+                           "-Ithird_party/openoicc/include", "src/main.c",
+                           "src/compiler/tccpp.c", BUILD / "libneocc_compiler.a",
+                           BUILD / "libneoioic.a"]
+            self.success([*native, *sources, "-o", program])
+            traced.append(output(self.success([*flags(program), "-E",
+                                              "tests/cases/preprocess.c"])))
+        self.assertEqual(traced[0], traced[1])
+        self.assertIn(b"expand:", traced[1])
+        REPORT["passed_cases"].append("PP_DEBUG preprocessing trace")
+
     def test_diagnostics_and_failure_exit(self):
         for command, expected in [
             (["-c", "tests/cases/error.c"], b"nested_error.h:29:"),

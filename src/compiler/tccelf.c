@@ -1699,22 +1699,22 @@ ST_FUNC void tcc_add_btstub(TCCState *s1)
     }
 
     cstr = neocc_temp_new(s1);
-    cstr_printf(cstr,
+    cstr_printf(s1, cstr,
         "extern void __bt_init(),__bt_exit(),__bt_init_dll();"
         "static void *__rt_info[];"
         "__attribute__((constructor)) static void __bt_init_rt(){");
 #ifdef TCC_TARGET_PE
     if (s1->output_type == TCC_OUTPUT_DLL)
 #ifdef CONFIG_TCC_BCHECK
-        cstr_printf(cstr, "__bt_init_dll(%d);", s1->do_bounds_check);
+        cstr_printf(s1, cstr, "__bt_init_dll(%d);", s1->do_bounds_check);
 #else
-        cstr_printf(cstr, "__bt_init_dll(0);");
+        cstr_printf(s1, cstr, "__bt_init_dll(0);");
 #endif
 #endif
-    cstr_printf(cstr, "__bt_init(__rt_info,%d);}",
+    cstr_printf(s1, cstr, "__bt_init(__rt_info,%d);}",
         s1->output_type != TCC_OUTPUT_DLL);
     /* In case dlcose is called by application */
-    cstr_printf(cstr,
+    cstr_printf(s1, cstr,
         "__attribute__((destructor)) static void __bt_exit_rt(){"
         "__bt_exit(__rt_info);}");
     tcc_compile_string_no_debug(s1, cstr->data);
@@ -1736,10 +1736,10 @@ static void tcc_tcov_add_file(TCCState *s1, const char *filename)
 
     cstr = neocc_temp_new(s1);
     if (filename[0] == '/')
-        cstr_printf (cstr, "%s.tcov", filename);
+        cstr_printf (s1, cstr, "%s.tcov", filename);
     else {
         getcwd (wd, sizeof(wd));
-        cstr_printf (cstr, "%s/%s.tcov", wd, filename);
+        cstr_printf (s1, cstr, "%s/%s.tcov", wd, filename);
     }
     ptr = section_ptr_add(tcov_section, cstr->size + 1);
     strcpy((char *)ptr, cstr->data);
@@ -1750,7 +1750,7 @@ static void tcc_tcov_add_file(TCCState *s1, const char *filename)
     neocc_temp_free(s1, cstr);
 
     cstr = neocc_temp_new(s1);
-    cstr_printf(cstr,
+    cstr_printf(s1, cstr,
         "extern char *__tcov_data[];"
         "extern void __store_test_coverage ();"
         "__attribute__((destructor)) static void __tcov_exit() {"

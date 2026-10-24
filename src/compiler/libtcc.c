@@ -526,9 +526,9 @@ static void dynarray_split(TCCState *s1, char ***argv, int *argc, const char *p,
                     break;
                 }
             }
-            cstr_ccat(str, c);
+            cstr_ccat(s1, str, c);
         } while (c = (unsigned char)*p, c != '\0');
-        cstr_ccat(str, '\0');
+        cstr_ccat(s1, str, '\0');
         //printf("<%s>\n", str->data);
         dynarray_add(argv, argc, tcc_strdup(str->data));
         neocc_temp_free(s1, str);
@@ -547,24 +547,24 @@ static void tcc_split_path(TCCState *s, void *p_ary, int *p_nb_ary, const char *
             if (c == '{' && p[1] && p[2] == '}') {
                 c = p[1], p += 2;
                 if (c == 'B')
-                    cstr_cat(str, s->tcc_lib_path, -1);
+                    cstr_cat(s, str, s->tcc_lib_path, -1);
                 if (c == 'R')
-                    cstr_cat(str, CONFIG_SYSROOT, -1);
+                    cstr_cat(s, str, CONFIG_SYSROOT, -1);
                 if (c == 'f' && s->pp->source) {
                     /* substitute current file's dir */
                     const char *f = s->pp->source->true_filename;
                     const char *b = tcc_basename(f);
                     if (b > f)
-                        cstr_cat(str, f, b - f - 1);
+                        cstr_cat(s, str, f, b - f - 1);
                     else
-                        cstr_cat(str, ".", 1);
+                        cstr_cat(s, str, ".", 1);
                 }
             } else {
-                cstr_ccat(str, c);
+                cstr_ccat(s, str, c);
             }
         }
         if (str->size) {
-            cstr_ccat(str, '\0');
+            cstr_ccat(s, str, '\0');
             dynarray_add(p_ary, p_nb_ary, tcc_strdup(str->data));
         }
         neocc_temp_free(s, str);
@@ -583,10 +583,9 @@ static void tcc_split_path(TCCState *s, void *p_ary, int *p_nb_ary, const char *
 /* error1() modes */
 enum { ERROR_WARN, ERROR_NOABORT, ERROR_ERROR };
 
-static void error1(int mode, const char *fmt, va_list ap)
+static void error1(TCCState *s1, int mode, const char *fmt, va_list ap)
 {
     struct neocc_source_buffer **pf, *f;
-    TCCState *s1 = tcc_state;
     struct neocc_string *cs = NULL;
     const char *message = "tcc: error: cannot format diagnostic";
     unsigned int quantity = 0;
@@ -679,17 +678,17 @@ PUB_FUNC int _tcc_error_noabort(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    error1(ERROR_NOABORT, fmt, ap);
+    error1(tcc_state, ERROR_NOABORT, fmt, ap);
     va_end(ap);
     return -1;
 }
 
 #undef _tcc_error
-PUB_FUNC void _tcc_error(const char *fmt, ...)
+PUB_FUNC void _tcc_error(TCCState *s1, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    error1(ERROR_ERROR, fmt, ap);
+    error1(s1, ERROR_ERROR, fmt, ap);
     exit(1);
 }
 
@@ -718,7 +717,7 @@ PUB_FUNC void _tcc_warning(const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    error1(ERROR_WARN, fmt, ap);
+    error1(tcc_state, ERROR_WARN, fmt, ap);
     va_end(ap);
 }
 
@@ -867,13 +866,13 @@ LIBTCCAPI void tcc_define_symbol(TCCState *s1, const char *sym, const char *valu
         eq = strchr(sym, 0);
     if (NULL == value)
         value = *eq ? eq + 1 : "1";
-    cstr_printf(&s1->cmdline_defs, "#define %.*s %s\n", (int)(eq-sym), sym, value);
+    cstr_printf(s1, &s1->cmdline_defs, "#define %.*s %s\n", (int)(eq-sym), sym, value);
 }
 
 /* undefine a preprocessor symbol */
 LIBTCCAPI void tcc_undefine_symbol(TCCState *s1, const char *sym)
 {
-    cstr_printf(&s1->cmdline_defs, "#undef %s\n", sym);
+    cstr_printf(s1, &s1->cmdline_defs, "#undef %s\n", sym);
 }
 
 
@@ -2120,7 +2119,7 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv)
             tcc_add_sysinclude_path(s, optarg);
             break;
         case TCC_OPTION_include:
-            cstr_printf(&s->cmdline_incl, "#include \"%s\"\n", optarg);
+            cstr_printf(s, &s->cmdline_incl, "#include \"%s\"\n", optarg);
             break;
         case TCC_OPTION_nostdinc:
             s->nostdinc = 1;

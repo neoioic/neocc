@@ -1065,7 +1065,9 @@ ST_FUNC void libc_free(void *ptr);
 #undef strdup
 #define strdup(s) use_tcc_strdup(s)
 PUB_FUNC int _tcc_error_noabort(const char *fmt, ...) PRINTF_LIKE(1,2);
-PUB_FUNC NORETURN void _tcc_error(const char *fmt, ...) PRINTF_LIKE(1,2);
+/* Fatal helper failures diagnose the supplied owner after leaving VO. */
+PUB_FUNC NORETURN void _tcc_error(TCCState *s1, const char *fmt, ...)
+    PRINTF_LIKE(2,3);
 PUB_FUNC void _tcc_warning(const char *fmt, ...) PRINTF_LIKE(1,2);
 #define tcc_internal_error(msg) \
     tcc_error("internal compiler error in %s:%d: %s", __FUNCTION__,__LINE__,msg)
@@ -1073,13 +1075,16 @@ PUB_FUNC void _tcc_warning(const char *fmt, ...) PRINTF_LIKE(1,2);
 /* other utilities */
 ST_FUNC void dynarray_add(void *ptab, int *nb_ptr, void *data);
 ST_FUNC void dynarray_reset(void *pp, int *n);
-ST_INLN void cstr_ccat(struct neocc_string *cstr, int ch);
-ST_FUNC void cstr_cat(struct neocc_string *cstr, const char *str, int len);
-ST_FUNC void cstr_wccat(struct neocc_string *cstr, int ch);
+ST_INLN void cstr_ccat(TCCState *s1, struct neocc_string *cstr, int ch);
+ST_FUNC void cstr_cat(TCCState *s1, struct neocc_string *cstr,
+                     const char *str, int len);
+ST_FUNC void cstr_wccat(TCCState *s1, struct neocc_string *cstr, int ch);
 ST_FUNC struct neocc_string *neocc_temp_new(TCCState *s1);
 ST_FUNC void neocc_temp_free(TCCState *s1, struct neocc_string *string);
-ST_FUNC int cstr_printf(struct neocc_string *cs, const char *fmt, ...) PRINTF_LIKE(2,3);
-ST_FUNC int cstr_vprintf(struct neocc_string *cstr, const char *fmt, va_list ap);
+ST_FUNC int cstr_printf(TCCState *s1, struct neocc_string *cs,
+                       const char *fmt, ...) PRINTF_LIKE(3,4);
+ST_FUNC int cstr_vprintf(TCCState *s1, struct neocc_string *cstr,
+                        const char *fmt, va_list ap);
 ST_FUNC void cstr_reset(struct neocc_string *cstr);
 ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
@@ -1172,20 +1177,24 @@ enum line_macro_output_format {
     LINE_MACRO_OUTPUT_FORMAT_P10 = 11
 };
 
-ST_FUNC struct neocc_token *tok_alloc(const char *str, int len);
+/* These helpers use only the supplied session for resource ownership.
+ * Spelling borrows session scratch/interned storage or the supplied value's
+ * text; streams must be allocated, appended and released in the same session.
+ * The lexer/macro algorithms outside these helpers still use tcc_state. */
+ST_FUNC struct neocc_token *tok_alloc(TCCState *s1, const char *str, int len);
 ST_FUNC struct neocc_token *neocc_token_at(TCCState *s1, int id);
 ST_FUNC int neocc_token_next(TCCState *s1);
-ST_FUNC int tok_alloc_const(const char *str);
-ST_FUNC const char *get_tok_str(int v, union neocc_value *cv);
-ST_FUNC void begin_macro(struct neocc_token_string *str, int alloc);
-ST_FUNC void end_macro(void);
+ST_FUNC int tok_alloc_const(TCCState *s1, const char *str);
+ST_FUNC const char *get_tok_str(TCCState *s1, int v, union neocc_value *cv);
+ST_FUNC void begin_macro(TCCState *s1, struct neocc_token_string *str, int alloc);
+ST_FUNC void end_macro(TCCState *s1);
 ST_FUNC int set_idnum(int c, int val);
 ST_INLN void tok_str_new(struct neocc_token_string *s);
-ST_FUNC struct neocc_token_string *tok_str_alloc(void);
-ST_FUNC void tok_str_free(struct neocc_token_string *s);
-ST_FUNC void tok_str_free_str(int *str);
-ST_FUNC void tok_str_add(struct neocc_token_string *s, int t);
-ST_FUNC void tok_str_add_tok(struct neocc_token_string *s);
+ST_FUNC struct neocc_token_string *tok_str_alloc(TCCState *s1);
+ST_FUNC void tok_str_free(TCCState *s1, struct neocc_token_string *s);
+ST_FUNC void tok_str_free_str(TCCState *s1, int *str);
+ST_FUNC void tok_str_add(TCCState *s1, struct neocc_token_string *s, int t);
+ST_FUNC void tok_str_add_tok(TCCState *s1, struct neocc_token_string *s);
 ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *first_arg);
 ST_FUNC void define_undef(struct neocc_symbol *s);
 ST_INLN struct neocc_symbol *define_find(int v);
@@ -1777,7 +1786,6 @@ static inline void post_sem(TCCSem *p) {
 #define symtab_section      TCC_STATE_VAR(symtab_section)
 #define gnu_ext             TCC_STATE_VAR(gnu_ext)
 #define tcc_error_noabort   TCC_SET_STATE(_tcc_error_noabort)
-#define tcc_error           TCC_SET_STATE(_tcc_error)
 #define tcc_warning         TCC_SET_STATE(_tcc_warning)
 
 #define total_idents        TCC_STATE_VAR(total_idents)
@@ -1797,13 +1805,16 @@ PUB_FUNC void tcc_exit_state(TCCState *s1);
 
 #undef TCC_STATE_VAR
 #undef TCC_SET_STATE
+#undef tcc_error
 
 #ifdef USING_GLOBALS
+# define tcc_error(...) _tcc_error(tcc_state, __VA_ARGS__)
 # define TCC_STATE_VAR(sym) tcc_state->sym
 # define TCC_SET_STATE(fn) fn
 # undef USING_GLOBALS
 # undef _tcc_error
 #else
+# define tcc_error(...) TCC_SET_STATE(_tcc_error)(s1, __VA_ARGS__)
 # define TCC_STATE_VAR(sym) s1->sym
 # define TCC_SET_STATE(fn) (tcc_enter_state(s1),fn)
 # define _tcc_error use_tcc_error_noabort

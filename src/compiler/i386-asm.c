@@ -409,7 +409,7 @@ static void parse_operand(TCCState *s1, Operand *op)
 #endif
         } else {
         reg_error:
-            tcc_error("unknown register %%%s", get_tok_str(s1->pp->token, &s1->pp->value));
+            tcc_error("unknown register %%%s", get_tok_str(s1, s1->pp->token, &s1->pp->value));
         }
         next();
     no_skip: ;
@@ -851,7 +851,7 @@ again:
             return;
         } else if (opcode <= TOK_ASM_alllast) {
             tcc_error("bad operand with opcode '%s'",
-                  get_tok_str(opcode, NULL));
+                  get_tok_str(s1, opcode, NULL));
         } else {
 	    /* Special case for cmovcc, we accept size suffixes but ignore
 	       them, but we don't want them to blow up our tables.  */
@@ -859,7 +859,7 @@ again:
 	    if (ts->len >= 6
 		&& strchr("wlq", ts->str[ts->len-1])
 		&& !memcmp(ts->str, "cmov", 4)) {
-		opcode = tok_alloc(ts->str, ts->len-1)->tok;
+		opcode = tok_alloc(s1, ts->str, ts->len-1)->tok;
 		goto again;
 	    }
             tcc_error("unknown opcode '%s'", ts->str);
@@ -1237,7 +1237,7 @@ ST_FUNC int asm_parse_regvar (int t)
     s = neocc_token_at(tcc_state, (t - TOK_IDENT) + TOK_IDENT)->str;
     if (s[0] == '%')
         ++s;
-    t = tok_alloc_const(s);
+    t = tok_alloc_const(tcc_state, s);
     unget_tok(t);
     /* Internally the % prefix is required. */
     unget_tok('%');
@@ -1496,7 +1496,7 @@ ST_FUNC void asm_compute_constraints(ASMOperand *operands,
         op = &operands[j];
         printf("%%%d [%s]: \"%s\" r=0x%04x reg=%d\n",
                j,
-               op->id ? get_tok_str(op->id, NULL) : "",
+               op->id ? get_tok_str(tcc_state, op->id, NULL) : "",
                op->constraint,
                op->vt->r,
                op->reg);
@@ -1515,40 +1515,40 @@ ST_FUNC void subst_asm_operand(struct neocc_string *add_str,
     if ((r & VT_VALMASK) == VT_CONST) {
         if (!(r & VT_LVAL) && modifier != 'c' && modifier != 'n' &&
 	    modifier != 'P')
-            cstr_ccat(add_str, '$');
+            cstr_ccat(tcc_state, add_str, '$');
         if (r & VT_SYM) {
-	    const char *name = get_tok_str(sv->sym->v, NULL);
+	    const char *name = get_tok_str(tcc_state, sv->sym->v, NULL);
 	    if (sv->sym->v >= SYM_FIRST_ANOM) {
 		/* In case of anonymous symbols ("L.42", used
 		   for static data labels) we can't find them
 		   in the C symbol table when later looking up
 		   this name.  So enter them now into the asm label
 		   list when we still know the symbol.  */
-		get_asm_sym(tok_alloc_const(name), sv->sym);
+		get_asm_sym(tok_alloc_const(tcc_state, name), sv->sym);
 	    }
             if (tcc_state->leading_underscore)
-              cstr_ccat(add_str, '_');
-            cstr_cat(add_str, name, -1);
+              cstr_ccat(tcc_state, add_str, '_');
+            cstr_cat(tcc_state, add_str, name, -1);
             if ((uint32_t)sv->c.i == 0)
                 goto no_offset;
-	    cstr_ccat(add_str, '+');
+	    cstr_ccat(tcc_state, add_str, '+');
         }
         val = sv->c.i;
         if (modifier == 'n')
             val = -val;
-        cstr_printf(add_str, "%d", val);
+        cstr_printf(tcc_state, add_str, "%d", val);
     no_offset:;
 #ifdef TCC_TARGET_X86_64
         if (r & VT_LVAL)
-            cstr_cat(add_str, "(%rip)", -1);
+            cstr_cat(tcc_state, add_str, "(%rip)", -1);
 #endif
     } else if ((r & VT_VALMASK) == VT_LOCAL) {
-        cstr_printf(add_str, "%d(%%%s)", (int)sv->c.i, get_tok_str(TOK_ASM_xax + 5, NULL));
+        cstr_printf(tcc_state, add_str, "%d(%%%s)", (int)sv->c.i, get_tok_str(tcc_state, TOK_ASM_xax + 5, NULL));
     } else if (r & VT_LVAL) {
         reg = r & VT_VALMASK;
         if (reg >= VT_CONST)
             tcc_internal_error("");
-        cstr_printf(add_str, "(%%%s)", get_tok_str(TOK_ASM_xax + reg, NULL));
+        cstr_printf(tcc_state, add_str, "(%%%s)", get_tok_str(tcc_state, TOK_ASM_xax + reg, NULL));
     } else {
         /* register case */
         reg = r & VT_VALMASK;
@@ -1590,7 +1590,7 @@ ST_FUNC void subst_asm_operand(struct neocc_string *add_str,
         }
 
         if (reg >= 8) {
-            cstr_printf(add_str, "%%r%d%c", reg, (size == 1) ? 'b' : ((size == 2) ? 'w' : ((size == 4) ? 'd' : ' ')));
+            cstr_printf(tcc_state, add_str, "%%r%d%c", reg, (size == 1) ? 'b' : ((size == 2) ? 'w' : ((size == 4) ? 'd' : ' ')));
             return;
         }
         switch(size) {
@@ -1612,7 +1612,7 @@ ST_FUNC void subst_asm_operand(struct neocc_string *add_str,
             break;
 #endif
         }
-        cstr_printf(add_str, "%%%s", get_tok_str(reg, NULL));
+        cstr_printf(tcc_state, add_str, "%%%s", get_tok_str(tcc_state, reg, NULL));
     }
 }
 
@@ -1732,7 +1732,7 @@ ST_FUNC void asm_clobber(uint8_t *clobber_regs, const char *str)
         !strcmp(str, "cc") ||
 	!strcmp(str, "flags"))
         return;
-    reg = tok_alloc_const(str);
+    reg = tok_alloc_const(tcc_state, str);
     if (reg >= TOK_ASM_eax && reg <= TOK_ASM_edi) {
         reg -= TOK_ASM_eax;
     } else if (reg >= TOK_ASM_ax && reg <= TOK_ASM_di) {

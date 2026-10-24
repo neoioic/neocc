@@ -282,7 +282,7 @@ static void gen_gotpcrel(int r, struct neocc_symbol *sym, int c)
 {
 #ifdef TCC_TARGET_PE
     tcc_error("internal error: no GOT on PE: %s %x %x | %02x %02x %02x\n",
-        get_tok_str(sym->v, NULL), c, r,
+        get_tok_str(tcc_state, sym->v, NULL), c, r,
         tcc_state->unit->section->data[tcc_state->unit->instruction-3],
         tcc_state->unit->section->data[tcc_state->unit->instruction-2],
         tcc_state->unit->section->data[tcc_state->unit->instruction-1]

@@ -49,7 +49,7 @@ static int asm_get_prefix_name(TCCState *s1, const char *prefix, unsigned int n)
 {
     char buf[64];
     snprintf(buf, sizeof(buf), "%s%u", prefix, n);
-    return tok_alloc_const(buf);
+    return tok_alloc_const(s1, buf);
 }
 
 ST_FUNC int asm_get_local_label_name(TCCState *s1, unsigned int n)
@@ -69,15 +69,15 @@ static int asm2cname(int v, int *addeddot)
     *addeddot = 0;
     if (!tcc_state->leading_underscore)
       return v;
-    name = get_tok_str(v, NULL);
+    name = get_tok_str(tcc_state, v, NULL);
     if (!name)
       return v;
     if (name[0] == '_') {
-        v = tok_alloc_const(name + 1);
+        v = tok_alloc_const(tcc_state, name + 1);
     } else if (!strchr(name, '.')) {
         char newname[256];
         snprintf(newname, sizeof newname, ".%s", name);
-        v = tok_alloc_const(newname);
+        v = tok_alloc_const(tcc_state, newname);
         *addeddot = 1;
     }
     return v;
@@ -131,7 +131,7 @@ static struct neocc_symbol* asm_section_sym(TCCState *s1, Section *sec)
 {
     char buf[100]; int label; struct neocc_symbol *sym;
     snprintf(buf, sizeof buf, "L.%s", sec->name);
-    label = tok_alloc_const(buf);
+    label = tok_alloc_const(s1, buf);
     sym = asm_label_find(label);
     return sym ? sym : asm_new_label1(s1, label, 1, sec->sh_num, 0);
 }
@@ -231,7 +231,7 @@ static void asm_expr_unary(TCCState *s1, ExprValue *pe)
             }
             next();
         } else {
-            tcc_error("bad expression syntax [%s]", get_tok_str(s1->pp->token, &s1->pp->value));
+            tcc_error("bad expression syntax [%s]", get_tok_str(s1, s1->pp->token, &s1->pp->value));
         }
         break;
     }
@@ -438,7 +438,7 @@ static struct neocc_symbol* asm_new_label1(TCCState *s1, int label, int is_local
                 goto new_label;
             if (!(sym->type.t & VT_EXTERN))
                 tcc_error("assembler label '%s' already defined",
-                          get_tok_str(label, NULL));
+                          get_tok_str(s1, label, NULL));
         }
     } else {
     new_label:
@@ -683,20 +683,20 @@ static void asm_parse_directive(TCCState *s1, int global)
             struct neocc_token_string *init_str;
             next();
             repeat = asm_int_expr(s1);
-            init_str = tok_str_alloc();
+            init_str = tok_str_alloc(s1);
             while (next(), s1->pp->token != TOK_ASMDIR_endr) {
                 if (s1->pp->token == CH_EOF)
                     tcc_error("we at end of file, .endr not found");
-                tok_str_add_tok(init_str);
+                tok_str_add_tok(s1, init_str);
             }
-            tok_str_add(init_str, TOK_EOF);
-            begin_macro(init_str, 1);
+            tok_str_add(s1, init_str, TOK_EOF);
+            begin_macro(s1, init_str, 1);
             while (repeat-- > 0) {
                 tcc_assemble_internal(s1, (s1->pp->parse_flags & PARSE_FLAG_PREPROCESS),
 				      global);
                 s1->pp->macro_ptr = init_str->str;
             }
-            end_macro();
+            end_macro(s1);
             next();
             break;
         }
@@ -790,9 +790,9 @@ static void asm_parse_directive(TCCState *s1, int global)
 		next();
             }
             if (n)
-                sprintf(sname, "%s%d", get_tok_str(tok1, NULL), n);
+                sprintf(sname, "%s%d", get_tok_str(s1, tok1, NULL), n);
             else
-                sprintf(sname, "%s", get_tok_str(tok1, NULL));
+                sprintf(sname, "%s", get_tok_str(s1, tok1, NULL));
             use_section(s1, sname);
 	}
 	break;
@@ -807,7 +807,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                 s1->pp->value.str.data[s1->pp->value.str.size - 2] = 0;
                 p = s1->pp->value.str.data + 1;
             } else if (s1->pp->token >= TOK_IDENT) {
-                p = get_tok_str(s1->pp->token, &s1->pp->value);
+                p = get_tok_str(s1, s1->pp->token, &s1->pp->value);
             } else {
                 skip_to_eol(0);
                 break;
@@ -825,7 +825,7 @@ static void asm_parse_directive(TCCState *s1, int global)
             if (s1->pp->token == TOK_STR)
                 pstrcat(ident, sizeof(ident), s1->pp->value.str.data);
             else
-                pstrcat(ident, sizeof(ident), get_tok_str(s1->pp->token, &s1->pp->value));
+                pstrcat(ident, sizeof(ident), get_tok_str(s1, s1->pp->token, &s1->pp->value));
             tcc_warning_c(warn_unsupported)("ignoring .ident %s", ident);
             next();
         }
@@ -840,9 +840,9 @@ static void asm_parse_directive(TCCState *s1, int global)
 		expect("identifier");
             sym = asm_label_find(s1->pp->token);
             if (!sym)
-                tcc_error("label not found: %s", get_tok_str(s1->pp->token, NULL));
+                tcc_error("label not found: %s", get_tok_str(s1, s1->pp->token, NULL));
             /* XXX .size name,label2-label1 */
-            tcc_warning_c(warn_unsupported)("ignoring .size %s,*", get_tok_str(s1->pp->token, NULL));
+            tcc_warning_c(warn_unsupported)("ignoring .size %s,*", get_tok_str(s1, s1->pp->token, NULL));
             next();
             skip(',');
             n = asm_int_expr(s1);
@@ -869,7 +869,7 @@ static void asm_parse_directive(TCCState *s1, int global)
             } else {
                 if (s1->pp->token == '@' || s1->pp->token == '%')
                     next();
-                newtype = get_tok_str(s1->pp->token, NULL);
+                newtype = get_tok_str(s1, s1->pp->token, NULL);
             }
 
             if (!strcmp(newtype, "function") || !strcmp(newtype, "STT_FUNC")) {
@@ -886,7 +886,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                 goto set_st_type;
             } else
                 tcc_warning_c(warn_unsupported)("change type of '%s' from 0x%x to '%s' ignored",
-                    get_tok_str(sym->v, NULL), sym->type.t, newtype);
+                    get_tok_str(s1, sym->v, NULL), sym->type.t, newtype);
 
             next();
         }
@@ -906,7 +906,7 @@ static void asm_parse_directive(TCCState *s1, int global)
                 if (s1->pp->token == TOK_STR)
                     pstrcat(sname, sizeof(sname), s1->pp->value.str.data);
                 else
-                    pstrcat(sname, sizeof(sname), get_tok_str(s1->pp->token, NULL));
+                    pstrcat(sname, sizeof(sname), get_tok_str(s1, s1->pp->token, NULL));
                 next();
             }
             if (s1->pp->token == ',') {
@@ -999,10 +999,10 @@ static void asm_parse_directive(TCCState *s1, int global)
                 break;
             case TOK_ASM_arch:
                 /* TODO: unimplemented, requires extra parsing */
-                tcc_error("unimp .option '.%s'", get_tok_str(s1->pp->token, NULL));
+                tcc_error("unimp .option '.%s'", get_tok_str(s1, s1->pp->token, NULL));
                 break;
             default:
-                tcc_error("unknown .option '.%s'", get_tok_str(s1->pp->token, NULL));
+                tcc_error("unknown .option '.%s'", get_tok_str(s1, s1->pp->token, NULL));
                 break;
         }
         break;
@@ -1025,7 +1025,7 @@ static void asm_parse_directive(TCCState *s1, int global)
 	    next();
 	    asm_expr(s1, &e);
 	    skip(',');
-	    reloc_name = get_tok_str(s1->pp->token, NULL);
+	    reloc_name = get_tok_str(s1, s1->pp->token, NULL);
 #if defined(TCC_TARGET_ARM64)
 	    if (!strcmp(reloc_name, "R_AARCH64_CALL26"))
 	        reloc_type = R_AARCH64_CALL26;
@@ -1058,7 +1058,7 @@ static void asm_parse_directive(TCCState *s1, int global)
 	}
 	break;
     default:
-        tcc_error("unknown assembler directive '.%s'", get_tok_str(s1->pp->token, NULL));
+        tcc_error("unknown assembler directive '.%s'", get_tok_str(s1, s1->pp->token, NULL));
         break;
     }
 }
@@ -1193,7 +1193,7 @@ ST_FUNC int find_constraint(ASMOperand *operands, int nb_operands,
         name++;
         p = strchr(name, ']');
         if (p) {
-            ts = tok_alloc(name, p - name);
+            ts = tok_alloc(tcc_state, name, p - name);
             for(index = 0; index < nb_operands; index++) {
                 if (operands[index].id == ts->tok)
                     goto found;
@@ -1246,7 +1246,7 @@ static void subst_asm_operands(ASMOperand *operands, int nb_operands,
                 tcc_error("invalid operand reference after %%");
             op = &operands[index];
             if (modifier == 'l') {
-                cstr_cat(out_str, get_tok_str(op->is_label, NULL), -1);
+                cstr_cat(tcc_state, out_str, get_tok_str(tcc_state, op->is_label, NULL), -1);
             } else {
 		if (op->vt == NULL)
 		    goto error;
@@ -1260,7 +1260,7 @@ static void subst_asm_operands(ASMOperand *operands, int nb_operands,
             }
         } else {
         add_char:
-            cstr_ccat(out_str, c);
+            cstr_ccat(tcc_state, out_str, c);
             if (c == '\0')
                 break;
         }
@@ -1345,7 +1345,7 @@ ST_FUNC void asm_instr(void)
 
     astr1 = parse_asm_str();
     astr = neocc_temp_new(tcc_state);
-    cstr_cat(astr, astr1->data, astr1->size);
+    cstr_cat(tcc_state, astr, astr1->data, astr1->size);
 
     nb_operands = 0;
     nb_outputs = 0;
@@ -1440,7 +1440,7 @@ ST_FUNC void asm_instr(void)
 #endif
     if (must_subst) {
         cstr_reset(astr1);
-        cstr_cat(astr1, astr->data, astr->size);
+        cstr_cat(tcc_state, astr1, astr->data, astr->size);
         cstr_reset(astr);
         subst_asm_operands(operands, nb_operands + nb_labels, astr, astr1->data);
     }
