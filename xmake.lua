@@ -183,6 +183,21 @@ target("preprocessor_test")
     set_rundir(".")
     add_tests("default")
 
+for _, name in ipairs({"preprocessor_resources_test", "preprocessor_resources_fault_test"}) do
+    target(name)
+        set_kind("binary")
+        add_deps("neoioic")
+        add_includedirs("include", "src", "third_party/openoicc/include")
+        add_files("tests/preprocessor_resources.c", "src/objects/*.c", "src/host/host.c")
+        if name == "preprocessor_resources_fault_test" then
+            add_defines("NEOCC_TEST_FAULT")
+            add_ldflags("-Wl,--wrap=malloc", "-Wl,--wrap=calloc",
+                        "-Wl,--wrap=realloc", "-Wl,--wrap=free", {force = true})
+        end
+        set_rundir(".")
+        add_tests("default")
+end
+
 target("expressions_test")
     set_kind("binary")
     add_deps("neoioic")

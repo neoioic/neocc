@@ -51,6 +51,8 @@ class Regression(unittest.TestCase):
             "temporaries": ["tests/cases/temporaries.c"],
             "translation": ["tests/cases/translation.c"],
             "inlines": ["tests/cases/inlines.c", "tests/cases/inlines_other.c"],
+            "preprocessor_resources": ["tests/cases/preprocessor_resources.c",
+                                       "tests/cases/preprocessor_resources_other.c"],
             "link": ["tests/cases/link_a.c", "tests/cases/link_b.c"],
         }.items():
             with self.subTest(case=case):
@@ -73,7 +75,9 @@ class Regression(unittest.TestCase):
                        "tests/cases/switches.c", "tests/cases/initializers.c",
                        "tests/cases/temporaries.c", "tests/cases/translation.c",
                        "tests/cases/translation_asm.S", "tests/cases/inlines.c",
-                       "tests/cases/inlines_other.c"]:
+                       "tests/cases/inlines_other.c",
+                       "tests/cases/preprocessor_resources.c",
+                       "tests/cases/preprocessor_resources_other.c"]:
             with self.subTest(source=source):
                 preprocessed = []
                 for compiler in (BASELINE, NEOCC):
@@ -91,6 +95,20 @@ class Regression(unittest.TestCase):
                             objects.append(obj.read_bytes())
                         self.assertEqual(objects[0], objects[1])
                 REPORT["passed_cases"].append(source + " preprocessing/object")
+
+        # Same target spelling makes dependency output directly comparable.
+        for options in (["-MD"], ["-MMD", "-MP"]):
+            contents = []
+            for compiler in (BASELINE, NEOCC):
+                depfile = OUT / "preprocessing-results.d"
+                self.success([*flags(compiler), *options, "-MF", depfile,
+                              "tests/cases/preprocessor_resources.c",
+                              "tests/cases/preprocessor_resources_other.c",
+                              "-o", OUT / "preprocessing-results.exe"])
+                contents.append(depfile.read_bytes())
+            self.assertEqual(contents[0], contents[1])
+            self.assertIn(b"cache_once.h", contents[1])
+            self.assertIn(b"preprocessor_resources_other.c", contents[1])
 
     def test_diagnostics_and_failure_exit(self):
         for command, expected in [
@@ -130,6 +148,10 @@ class Regression(unittest.TestCase):
             "symbols": ["tests/symbols.c", "src/objects/source.c",
                         "src/objects/tokens.c", "src/objects/preprocessor.c",
                         "src/objects/symbols.c", "src/objects/expressions.c", "src/objects/scopes.c", "src/objects/functions.c", "src/objects/switches.c", "src/objects/initializers.c", "src/objects/temporaries.c", "src/objects/translation.c", "src/host/host.c", *runtime_sources],
+            "preprocessor_resources": ["tests/preprocessor_resources.c",
+                                       *[str(p.relative_to(ROOT)) for p in
+                                         sorted((ROOT / "src/objects").glob("*.c"))],
+                                       "src/host/host.c", *runtime_sources],
             "expressions": ["tests/expressions.c",
                             *[str(p.relative_to(ROOT)) for p in
                               sorted((ROOT / "src/objects").glob("*.c"))],

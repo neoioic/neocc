@@ -601,7 +601,15 @@ ST_FUNC int gen_makedeps(TCCState *s1, const char *target, const char *filename)
     FILE *depout;
     char buf[1024];
     char **escaped_targets;
-    int i, k, num_targets;
+    size_t i, k, num_targets;
+    const struct neocc_preprocessor_results *results = neocc_preprocessor_results(s1);
+    const struct neocc_preprocessor_list *dependencies;
+
+    if (!results)
+        return tcc_error_noabort("cannot borrow preprocessor results");
+    dependencies = &results->dependencies;
+    if (dependencies->count > ULONG_MAX / sizeof(*escaped_targets))
+        return tcc_error_noabort("too many dependencies");
 
     if (!filename) {
         /* compute filename automatically: dir/file.o -> dir/file.d */
@@ -620,13 +628,13 @@ ST_FUNC int gen_makedeps(TCCState *s1, const char *target, const char *filename)
     if (s1->verbose)
         printf("<- %s\n", filename);
 
-    escaped_targets = tcc_malloc(s1->nb_target_deps * sizeof(*escaped_targets));
+    escaped_targets = tcc_malloc(dependencies->count * sizeof(*escaped_targets));
     num_targets = 0;
-    for (i = 0; i<s1->nb_target_deps; ++i) {
+    for (i = 0; i<dependencies->count; ++i) {
         for (k = 0; k < i; ++k)
-            if (0 == strcmp(s1->target_deps[i], s1->target_deps[k]))
+            if (0 == strcmp(dependencies->items[i], dependencies->items[k]))
                 goto next;
-        escaped_targets[num_targets++] = escape_target_dep(s1->target_deps[i]);
+        escaped_targets[num_targets++] = escape_target_dep(dependencies->items[i]);
     next:;
     }
 

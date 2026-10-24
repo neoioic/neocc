@@ -5,20 +5,24 @@ Debug/Release 均使用 C11；测试检查不依赖 `assert`，Release 仍执行
 以下记录只覆盖所列组合和输入，不表示完整 C11、其他平台或全部 TinyCC 功能通过。
 
 2026-10-24，`python tests/verify.py --mode debug` 和 `--mode release` 均完整通过：
-各二十四组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 、`translation` 和 `inlines` 语义样例和 120 个 TinyCC 输入差分）、
+各二十六组根 C 回归、六组编译集成检查（含 `scope`、`functions`、`switches`、`initializers`、`temporaries` 、`translation` 和 `inlines` 语义样例和 120 个 TinyCC 输入差分）、
 28 对阶段产物一致性及两种构建方式下各 39 项 OpenOICC 回归。21 个语料排除项见下文。
 两种模式均生成 `verification.json` 成功记录。
 本阶段全量入口未包含可选 `PP_DEBUG` 调试输出运行验证。
 
 P05.1 的 `preprocess.c` 样例新增条件分支和嵌套 pack push/pop 布局断言，沿用预处理
 及无调试/STABS/DWARF 目标字节差分；`control_error.c` 以递归头文件触发包含深度
-诊断并逐字比较完整包含链。没有新增 C 测试目标或集成测试组；阶段自举再生后的
-preprocessor 对象测试也执行新控制栈断言。缓存、pragma 库和依赖结果的迁移及新增
-失败回归属于 P05.2，本次不宣称这些资源已对象化。
+诊断并逐字比较完整包含链。P05.1 当时未新增 C 测试目标或集成测试组；阶段自举再生后的
+preprocessor 对象测试也执行新控制栈断言。P05.2 继续覆盖以下缓存和结果资源检查。
+
+P05.2 的多文件 `preprocessor_resources` 样例覆盖 once 的路径别名、保护宏重入、第二
+翻译单元重新加载头文件及 pragma 库实际链接；两种依赖选项（MD、MMD/MP）的输出与
+TinyCC 比较，保留顺序、重复收集后去重、系统头筛选及转义算法。新增样例也执行
+预处理/三种调试配置目标字节差分及阶段工具编译运行。
 
 ## 根 C 回归
 
-`xmake test -P . -v` 执行二十四组：
+`xmake test -P . -v` 执行二十六组：
 
 - `runtime_dispatch_test`：七个接力接口的结果、访问撤销和席位耗尽。
 - `runtime_robustness_test`：原 NEOioic 的队列随机操作、模式、引用、共享祖先、
@@ -41,6 +45,12 @@ preprocessor 对象测试也执行新控制栈断言。缓存、pragma 库和依
   失败消息不修改栈、token/值与源游标隔离、工作区及常量载荷的宿主对齐、字符分类、
   reset 清零并保持借用地址、共享打开、部分关闭重试、末次关闭后的拒绝借用和再次打开。
   P05.1 另检查包含/条件/pack 栈的打开初始化、隔离、共享打开保留和 reset 清除。
+- `preprocessor_resources_test` / `preprocessor_resources_fault_test`：513 条同 basename
+  冲突链、路径/once 匹配、稳定记录、未对齐/短消息、非法追加、列表增长与复制所有权、
+  重复项/顺序、对象隔离、RESET 清缓存保留结果、共享/部分关闭与重开；记录/字符串
+  分配及列表首次/后续扩容失败保持旧资源，末次关闭的分配数量回到进程启动基准。
+  路径规范化调用宿主 CRT 分配，别名比较由普通测试和差分测试运行，不纳入 GNU 包装
+  的分配计数；故障测试覆盖对象自身拥有的记录、复制字符串和数组。
 - `expressions_test`：独立值栈/常用类型、宿主对齐、数组两端和哨兵、未对齐/短消息、
   共享打开、reset 保持地址并清除符号引用、部分关闭、关闭后拒绝借用及再次打开。
 - `symbols_test`：600 个普通符号记录的增长、对齐、内容保持、LIFO 复用、
@@ -70,6 +80,11 @@ preprocessor 对象测试也执行新控制栈断言。缓存、pragma 库和依
   每层记录/边界分配失败保留原栈，格式化扩容失败保留内容、长度和缓冲。
 - `directory_test`：Windows 空目录、缺失目录、文件作为目录、含空格名称、回调失败
   的 1000 次枚举与句柄清理。
+
+P05.2 的会话故障另覆盖缓存记录、pragma 库复制/数组扩容、主输入依赖复制/首次及后续
+数组扩容、已入栈头文件的依赖扩容失败，以及已存结果后的诊断和 pragma 右括号错误。
+检查失败时 VO 记录已撤销、缓存/控制栈已清理、旧结果保留、会话销毁后分配与句柄数
+回到基准，并在新会话恢复编译。共九类场景；错误计数累积语义未改变。
 
 宿主故障注入依赖 GNU ld `--wrap`；不是 NeoCC 生产开关。
 `session_fault_test` 另注入十一个对象的构造失败及预处理/表达式两个工作区分配失败、宏流和标识符两个 arena 的分配失败，检查输入清理、token
@@ -164,7 +179,7 @@ CLI、宿主、源对象、所有当前后端/编译模块和 NEOioic，链接�
 ## 不含 TinyCC 参考树的验证
 
 `tests/independent.py --mode debug`（或 `release`）每次建立全新的仓库内源码副本，
-不复制 `tinycc/`、现有产物或缓存。在副本中用 GCC/xmake 构建，执行二十四组根回归，
+不复制 `tinycc/`、现有产物或缓存。在副本中用 GCC/xmake 构建，执行二十六组根回归，
 再以 NeoCC 完成第二/三阶段编译、运行库重建、28 对输出比较、十一个对象的构造再生及延迟内联资源回归。
 两种模式的独立性结果位于 `build/independent/debug.json` 和 `release.json`。
 完整验证入口包含该检查；独立性副本不运行需要参考语料的 TinyCC 差分。

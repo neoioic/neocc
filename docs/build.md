@@ -58,7 +58,7 @@ python tests/verify.py --mode debug
 python tests/verify.py --mode release
 ```
 
-该入口依次构建、执行二十四组根回归、纯 C 差分、自举、不含参考树的干净构建/运行/自举、
+该入口依次构建、执行二十六组根回归、纯 C 差分、自举、不含参考树的干净构建/运行/自举、
 GCC 和第三阶段 NeoCC 构建的
 OpenOICC 各 39 项集成测试。测试工具链通过 PATH 发现。生成器测试使用固定共享
 临时目录，因此两次完整验证应串行运行。

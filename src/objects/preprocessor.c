@@ -3,6 +3,7 @@
  * Copyright (c) 2001-2004 Fabrice Bellard.
  * LGPL-2.0-or-later; see tinycc/COPYING.
  */
+#include "../support/include_path.h"
 #include "preprocessor.h"
 #include "../host/host.h"
 #include "neoioic.h"
@@ -76,6 +77,92 @@ void neocc_string_clear(struct neocc_string *string)
 	*string = (struct neocc_string){ 0 };
 }
 
+static void includes_clear(struct em_preprocessor *members)
+{
+	for (size_t i = 0; i < NEOCC_INCLUDE_HASH_CAPACITY; i++) {
+		while (members->includes[i]) {
+			struct neocc_cached_include *entry = members->includes[i];
+
+			members->includes[i] = entry->next;
+			free(entry);
+		}
+	}
+}
+
+static int include_find(struct em_preprocessor *members,
+	const struct neocc_include_request *request,
+	struct neocc_cached_include **result)
+{
+	const char *filename = request->filename;
+	const char *basename = include_basename(filename);
+	struct neocc_cached_include *entry;
+	unsigned int hash = include_hash(basename) &
+		(NEOCC_INCLUDE_HASH_CAPACITY - 1);
+	size_t length;
+
+	for (entry = members->includes[hash]; entry; entry = entry->next) {
+		if (!include_path_compare(filename, entry->filename) ||
+		    (entry->once &&
+		     !include_path_compare(basename, include_basename(entry->filename)) &&
+		     !include_normalized_compare(filename, entry->filename))) {
+			*result = entry;
+			return R_P;
+		}
+	}
+	*result = NULL;
+	if (!request->add)
+		return R_P;
+	length = strlen(filename);
+	if (length > SIZE_MAX - sizeof(*entry) - 1)
+		return RN_INVALIDARG;
+	entry = malloc(sizeof(*entry) + length + 1);
+	if (!entry)
+		return R_N;
+	entry->next = members->includes[hash];
+	entry->ifndef_macro = entry->once = 0;
+	memcpy(entry->filename, filename, length + 1);
+	members->includes[hash] = entry;
+	*result = entry;
+	return R_P;
+}
+
+static void list_clear(struct neocc_preprocessor_list *list)
+{
+	for (size_t i = 0; i < list->count; i++)
+		free(list->items[i]);
+	free(list->items);
+	*list = (struct neocc_preprocessor_list){ 0 };
+}
+
+static int list_append(struct neocc_preprocessor_list *list,
+	const unsigned char *input, unsigned int quantity)
+{
+	size_t capacity, maximum = SIZE_MAX / sizeof(*list->items);
+	char **items, *text;
+
+	if (!input || !quantity || input[quantity - 1] ||
+	    memchr(input, 0, quantity - 1) || list->count >= maximum)
+		return RN_INVALIDARG;
+	text = malloc(quantity);
+	if (!text)
+		return R_N;
+	memcpy(text, input, quantity);
+	if (list->count == list->capacity) {
+		capacity = list->capacity ? list->capacity : 1;
+		if (capacity <= list->count)
+			capacity = capacity > maximum / 2 ? maximum : capacity * 2;
+		items = realloc(list->items, capacity * sizeof(*items));
+		if (!items) {
+			free(text);
+			return R_N;
+		}
+		list->items = items;
+		list->capacity = capacity;
+	}
+	list->items[list->count++] = text;
+	return R_P;
+}
+
 static void preprocessor_clear(struct neocc_preprocessor *state)
 {
 	neocc_string_clear(&state->parsed);
@@ -127,6 +214,9 @@ static int preprocessor_close(struct object *self,
 	OBS_OBJECT_CLOSE_;
 	if (self->ref_count || !members->state)
 		return R_P;
+	includes_clear(members);
+	list_clear(&members->results.libraries);
+	list_clear(&members->results.dependencies);
 	preprocessor_clear(members->state);
 	free(members->state);
 	members->state = NULL;
@@ -144,6 +234,7 @@ static int preprocessor_interact0(struct object *self, unsigned int action,
 
 	if (!self->ref_count || !members->state)
 		return RN_INVALIDARG;
+	includes_clear(members);
 	preprocessor_clear(members->state);
 	return R_P;
 }
@@ -153,7 +244,29 @@ static int preprocessor_interact3(struct object *self, unsigned int action,
 	unsigned char *output_stream, unsigned int capacity,
 	unsigned int *output_quantity, const struct vr *caller_context)
 {
-	SBO_OBJECT_INTERACT3;
+	struct em_preprocessor *members = self->members;
+	struct neocc_include_request request;
+	struct neocc_cached_include *entry;
+	int result;
+
+	if (output_quantity)
+		*output_quantity = 0;
+	if (action != NEOCC_AC3_PREPROCESSOR_INCLUDE) {
+		SBO_OBJECT_INTERACT3;
+	}
+	if (!self->ref_count || !members->state || !input_stream ||
+	    !output_stream || !output_quantity || quantity != sizeof(request) ||
+	    capacity < sizeof(entry))
+		return RN_INVALIDARG;
+	memcpy(&request, input_stream, sizeof(request));
+	if (!request.filename || (request.add != 0 && request.add != 1))
+		return RN_INVALIDARG;
+	result = include_find(members, &request, &entry);
+	if (!RP(result))
+		return result;
+	memcpy(output_stream, &entry, sizeof(entry));
+	*output_quantity = sizeof(entry);
+	return R_P;
 }
 
 static int preprocessor_input(struct object *self, unsigned char *input_stream,
@@ -185,11 +298,21 @@ static int preprocessor_interact1(struct object *self, unsigned int action,
 
 	*output_quantity = 0;
 	if (action != NEOCC_AC1_PREPROCESSOR_BORROW &&
-	    action != NEOCC_AC1_PREPROCESSOR_POP) {
+	    action != NEOCC_AC1_PREPROCESSOR_POP &&
+	    action != NEOCC_AC1_PREPROCESSOR_RESULTS) {
 		SBO_OBJECT_INTERACT1;
 	}
 	if (!self->ref_count || !state)
 		return RN_INVALIDARG;
+	if (action == NEOCC_AC1_PREPROCESSOR_RESULTS) {
+		const struct neocc_preprocessor_results *results = &members->results;
+
+		if (capacity < sizeof(results))
+			return RN_INVALIDARG;
+		memcpy(output_stream, &results, sizeof(results));
+		*output_quantity = sizeof(results);
+		return R_P;
+	}
 	if (action == NEOCC_AC1_PREPROCESSOR_POP) {
 		struct neocc_token_string *stream = state->macro_stack;
 		struct neocc_macro_pop result;
@@ -226,6 +349,14 @@ static int preprocessor_interact2(struct object *self, unsigned int action,
 	struct neocc_macro_push request;
 	struct neocc_token_string *stream;
 
+	if (action == NEOCC_AC2_PREPROCESSOR_DEPENDENCY ||
+	    action == NEOCC_AC2_PREPROCESSOR_LIBRARY) {
+		if (!self->ref_count || !state)
+			return RN_INVALIDARG;
+		return list_append(action == NEOCC_AC2_PREPROCESSOR_LIBRARY ?
+			&members->results.libraries : &members->results.dependencies,
+			input_stream, quantity);
+	}
 	if (action != NEOCC_AC2_PREPROCESSOR_PUSH) {
 		SBO_OBJECT_INTERACT2;
 	}

@@ -442,23 +442,28 @@ PUB_FUNC void tcc_memcheck(int d)
 
 #endif /* MEM_DEBUG */
 
-#ifdef _WIN32
-# define realpath(file, buf) _fullpath(buf, file, 260)
-#endif
-
-/* for #pragma once */
-ST_FUNC int normalized_PATHCMP(const char *f1, const char *f2)
+ST_FUNC int neocc_preprocessor_add(TCCState *s1, unsigned int action,
+                                  const char *text)
 {
-    char *p1, *p2;
-    int ret = 1;
-    if (!!(p1 = realpath(f1, NULL))) {
-        if (!!(p2 = realpath(f2, NULL))) {
-            ret = PATHCMP(p1, p2);
-            libc_free(p2); /* realpath() requirement */
-        }
-        libc_free(p1);
-    }
-    return ret;
+    size_t length = strlen(text);
+
+    if (length >= UINT_MAX)
+        return RN_INVALIDARG;
+    return vo_interact2(s1->preprocessor, action, (unsigned char *)text,
+                       (unsigned int)length + 1, &neocc_host_caller);
+}
+
+ST_FUNC const struct neocc_preprocessor_results *
+neocc_preprocessor_results(TCCState *s1)
+{
+    const struct neocc_preprocessor_results *results;
+    unsigned int quantity;
+
+    if (!RP(vo_interact1(s1->preprocessor, NEOCC_AC1_PREPROCESSOR_RESULTS,
+            (unsigned char *)&results, sizeof(results), &quantity,
+            &neocc_host_caller)) || quantity != sizeof(results))
+        return NULL;
+    return results;
 }
 
 /********************************************************/
@@ -1033,8 +1038,6 @@ LIBTCCAPI void tcc_delete(TCCState *s1)
     tcc_free(s1->install_name);
 #endif
     dynarray_reset(&s1->files, &s1->nb_files);
-    dynarray_reset(&s1->target_deps, &s1->nb_target_deps);
-    dynarray_reset(&s1->pragma_libs, &s1->nb_pragma_libs);
     dynarray_reset(&s1->argv, &s1->argc);
     dynarray_reset(&s1->link_argv, &s1->link_argc);
     neocc_string_clear(&s1->cmdline_defs);
@@ -1334,7 +1337,12 @@ ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
     if (flags & AFF_TYPE_BIN)
         return tcc_add_binary(s1, flags, filename, fd);
 
-    dynarray_add(&s1->target_deps, &s1->nb_target_deps, tcc_strdup(filename));
+    if (!RP(neocc_preprocessor_add(s1, NEOCC_AC2_PREPROCESSOR_DEPENDENCY,
+                                   filename))) {
+        if (fd > 0)
+            close(fd);
+        return tcc_error_noabort("cannot record dependency '%s'", filename);
+    }
     return tcc_compile(s1, flags, filename, fd);
 }
 
@@ -1425,9 +1433,15 @@ LIBTCCAPI int tcc_add_library(TCCState *s, const char *libraryname)
 /* handle #pragma comment(lib,) */
 ST_FUNC void tcc_add_pragma_libs(TCCState *s1)
 {
-    int i;
-    for (i = 0; i < s1->nb_pragma_libs; i++)
-        tcc_add_library(s1, s1->pragma_libs[i]);
+    const struct neocc_preprocessor_results *results = neocc_preprocessor_results(s1);
+    size_t i;
+
+    if (!results) {
+        tcc_error_noabort("cannot borrow preprocessor results");
+        return;
+    }
+    for (i = 0; i < results->libraries.count; i++)
+        tcc_add_library(s1, results->libraries.items[i]);
 }
 
 /********************************************************/

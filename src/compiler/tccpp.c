@@ -246,9 +246,6 @@ ST_FUNC struct neocc_token *tok_alloc(const char *str, int len)
 	return result.token;
 }
 
-#define TOK_HASH_INIT 1
-#define TOK_HASH_FUNC(h, c) ((h) + ((h) << 5) + ((h) >> 27) + (c))
-
 ST_FUNC int tok_alloc_const(const char *str)
 {
     return tok_alloc(str, strlen(str))->tok;
@@ -1048,14 +1045,14 @@ ST_FUNC void skip_to_eol(int warn)
     next_nomacro();
 }
 
-static CachedInclude *
+static struct neocc_cached_include *
 search_cached_include(TCCState *s1, const char *filename, int add);
 
 static int parse_include(TCCState *s1, int do_next, int test)
 {
     int c, i;
     char name[1024], buf[1024], *p;
-    CachedInclude *e;
+    struct neocc_cached_include *e;
 
     c = skip_spaces();
     if (c == '<' || c == '\"') {
@@ -1152,9 +1149,10 @@ static int parse_include(TCCState *s1, int do_next, int test)
             while (i == 1 && (bf = bf->prev))
                 i = bf->include_next_index;
             /* skip system include files */
-            if (s1->include_sys_deps || i - 2 < s1->nb_include_paths)
-                dynarray_add(&s1->target_deps, &s1->nb_target_deps,
-                    tcc_strdup(buf));
+            if ((s1->include_sys_deps || i - 2 < s1->nb_include_paths) &&
+                !RP(neocc_preprocessor_add(s1,
+                    NEOCC_AC2_PREPROCESSOR_DEPENDENCY, buf)))
+                tcc_error("cannot record dependency '%s'", buf);
         }
         /* add include file debug info */
         tcc_debug_bincl(s1);
@@ -1342,53 +1340,19 @@ bad_twosharp:
     //tok_print(str.str, "#define (%d) %s %d:", t | is_vaargs * 4, get_tok_str(v, 0));
 }
 
-static CachedInclude *search_cached_include(TCCState *s1, const char *filename, int add)
+static struct neocc_cached_include *search_cached_include(TCCState *s1,
+    const char *filename, int add)
 {
-    const char *s, *basename;
-    unsigned int h;
-    CachedInclude *e;
-    int c, i, len;
+    struct neocc_include_request request = { filename, add };
+    struct neocc_cached_include *entry;
+    unsigned int quantity;
 
-    s = basename = tcc_basename(filename);
-    h = TOK_HASH_INIT;
-    while ((c = (unsigned char)*s) != 0) {
-#ifdef _WIN32
-        h = TOK_HASH_FUNC(h, toup(c));
-#else
-        h = TOK_HASH_FUNC(h, c);
-#endif
-        s++;
-    }
-    h &= (CACHED_INCLUDES_HASH_SIZE - 1);
-
-    i = s1->cached_includes_hash[h];
-    for(;;) {
-        if (i == 0)
-            break;
-        e = s1->cached_includes[i - 1];
-        if (0 == PATHCMP(filename, e->filename))
-            return e;
-        if (e->once
-            && 0 == PATHCMP(basename, tcc_basename(e->filename))
-            && 0 == normalized_PATHCMP(filename, e->filename)
-            )
-            return e;
-        i = e->hash_next;
-    }
-    if (!add)
-        return NULL;
-
-    e = tcc_malloc(sizeof(CachedInclude) + (len = strlen(filename)));
-    memcpy(e->filename, filename, len + 1);
-    e->ifndef_macro = e->once = 0;
-    dynarray_add(&s1->cached_includes, &s1->nb_cached_includes, e);
-    /* add in hash table */
-    e->hash_next = s1->cached_includes_hash[h];
-    s1->cached_includes_hash[h] = s1->nb_cached_includes;
-#ifdef INC_DEBUG
-    printf("adding cached '%s'\n", filename);
-#endif
-    return e;
+    if (!RP(vo_interact3(s1->preprocessor, NEOCC_AC3_PREPROCESSOR_INCLUDE,
+            (unsigned char *)&request, sizeof(request),
+            (unsigned char *)&entry, sizeof(entry), &quantity,
+            &neocc_host_caller)) || quantity != sizeof(entry))
+        tcc_error("cannot cache include '%s'", filename);
+    return entry;
 }
 
 static int pragma_parse(TCCState *s1)
@@ -1477,7 +1441,8 @@ static int pragma_parse(TCCState *s1)
             goto pragma_err;
 
     } else if (s1->pp->token == TOK_comment) {
-        char *p; int t;
+        struct neocc_string *text;
+        int t;
         next();
         skip('(');
         t = s1->pp->token;
@@ -1485,17 +1450,20 @@ static int pragma_parse(TCCState *s1)
         skip(',');
         if (s1->pp->token != TOK_STR)
             goto pragma_err;
-        p = tcc_strdup(s1->pp->value.str.data);
+        text = neocc_temp_new(s1);
+        cstr_cat(text, s1->pp->value.str.data, 0);
         next();
         if (s1->pp->token != ')')
             goto pragma_err;
         if (t == TOK_lib) {
-            dynarray_add(&s1->pragma_libs, &s1->nb_pragma_libs, p);
+            if (!RP(neocc_preprocessor_add(s1,
+                    NEOCC_AC2_PREPROCESSOR_LIBRARY, text->data)))
+                tcc_error("cannot record pragma library");
         } else {
             if (t == TOK_option)
-                tcc_set_options(s1, p);
-            tcc_free(p);
+                tcc_set_options(s1, text->data);
         }
+        neocc_temp_free(s1, text);
 
     } else {
         tcc_warning_c(warn_all)("#pragma %s ignored", get_tok_str(s1->pp->token, &s1->pp->value));
@@ -3405,8 +3373,6 @@ ST_FUNC void tccpp_new(TCCState *s)
     int c;
     const char *p, *r;
 
-    memset(s->cached_includes_hash, 0, sizeof s->cached_includes_hash);
-
     cstr_realloc(&tcc_state->pp->spelling, STRING_MAX_SIZE);
     tok_str_realloc(&tcc_state->pp->unget, TOKSTR_MAX_SIZE);
     tok_str_realloc(&tcc_state->pp->expansion, TOKSTR_MAX_SIZE);
@@ -3435,8 +3401,6 @@ ST_FUNC void tccpp_new(TCCState *s)
 ST_FUNC void tccpp_delete(TCCState *s)
 {
     int n;
-
-    dynarray_reset(&s->cached_includes, &s->nb_cached_includes);
 
     /* free tokens */
     n = neocc_token_next(tcc_state) - TOK_IDENT;

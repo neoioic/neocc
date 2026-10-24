@@ -525,17 +525,6 @@ typedef struct AttributeDef {
     char new_section; /* section is new */
 } AttributeDef;
 
-/* include file cache, used to find files faster and also to eliminate
-   inclusion if the include file is protected by #ifndef ... #endif */
-typedef struct CachedInclude {
-    int ifndef_macro;
-    int once;
-    int hash_next; /* -1 if none */
-    char filename[1]; /* path specified in #include */
-} CachedInclude;
-
-#define CACHED_INCLUDES_HASH_SIZE 32
-
 #ifdef CONFIG_TCC_ASM
 typedef struct ExprValue {
     uint64_t v;
@@ -715,19 +704,6 @@ struct TCCState {
 
     /* output file for preprocessing (-E) */
     FILE *ppfp;
-
-    /* for -MD/-MF: collected dependencies for this compilation */
-    char **target_deps;
-    int nb_target_deps;
-
-    /* included files enclosed with #ifndef MACRO */
-    int cached_includes_hash[CACHED_INCLUDES_HASH_SIZE];
-    CachedInclude **cached_includes;
-    int nb_cached_includes;
-
-    /* #pragma comment libraries (retained across translation units) */
-    char **pragma_libs;
-    int nb_pragma_libs;
 
     /* sections */
     Section **sections;
@@ -1158,7 +1134,10 @@ PUB_FUNC int tcc_fclose(FILE *f);
 ST_FUNC DLLReference *tcc_add_dllref(TCCState *s1, const char *dllname, int level);
 ST_FUNC char *tcc_load_text(int fd);
 /* for #pragma once */
-ST_FUNC int normalized_PATHCMP(const char *f1, const char *f2);
+ST_FUNC int neocc_preprocessor_add(TCCState *s1, unsigned int action,
+                                  const char *text);
+ST_FUNC const struct neocc_preprocessor_results *
+neocc_preprocessor_results(TCCState *s1);
 
 /* tcc_parse_args return codes: */
 #define OPT_HELP 1

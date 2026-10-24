@@ -89,7 +89,7 @@ def compile_runtime(compiler, directory, reference):
 def regenerate(program, compiler, directory, runtime):
     names = ["source", "tokens", "preprocessor", "symbols", "expressions", "scopes", "functions", "switches", "initializers", "temporaries", "translation"]
     for name in [*[f"objects/{node}.{suffix}" for node in names
-                   for suffix in ["c", "h"]], "host/host.h", "support/io.h"]:
+                   for suffix in ["c", "h"]], "host/host.h", "support/io.h", "support/include_path.h"]:
         target = directory / "src" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / "src" / name, target)
@@ -101,7 +101,7 @@ def regenerate(program, compiler, directory, runtime):
         run([program, "generate", "--write", *sources])
         if before != [source.read_bytes() for source in sources]:
             raise RuntimeError("checked-in constructors differ from regeneration")
-    for name in [*names, "inlines"]:
+    for name in [*names, "inlines", "preprocessor_resources"]:
         executable = directory / f"{name}-test.exe"
         run([compiler, "-B" + str(runtime), "-std=c11", "-Iinclude", "-Isrc",
              "-Ithird_party/openoicc/include", "-Ithird_party/neoioic/include",
@@ -136,6 +136,12 @@ def main():
         report.append({"file": a.name, "stage2_sha256": digest(a),
                        "stage3_sha256": digest(b)})
     for compiler in [stage2, stage3]:
+        executable = compiler.parent / "preprocessor-resources.exe"
+        run([compiler, "-B" + str(runtime), "-std=c11",
+             "tests/cases/preprocessor_resources.c",
+             "tests/cases/preprocessor_resources_other.c", "-o", executable])
+        if run([executable]).replace(b"\r\n", b"\n") != (ROOT / "tests/cases/preprocessor_resources.expect").read_bytes():
+            raise RuntimeError("preprocessor resource stage behavior differs")
         executable = compiler.parent / "inlines.exe"
         run([compiler, "-B" + str(runtime), "-std=c11",
              "tests/cases/inlines.c", "tests/cases/inlines_other.c",

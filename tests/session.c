@@ -7,6 +7,7 @@
 #include "objects/scopes.h"
 #include "objects/functions.h"
 #include "objects/switches.h"
+#include "objects/preprocessor.h"
 
 static char diagnostic[4096];
 
@@ -39,6 +40,8 @@ static void clean_semantics(struct TCCState *state)
 	for (int i = 0; i < NEOCC_INCLUDE_STACK_CAPACITY; i++)
 		CHECK(!state->pp->include_stack[i]);
 
+	for (int i = 0; i < NEOCC_INCLUDE_HASH_CAPACITY; i++)
+		CHECK(!((struct em_preprocessor *)state->preprocessor->members)->includes[i]);
 	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	struct em_symbols *symbols = state->symbols->members;
 	struct em_scopes *scopes = state->scopes->members;
@@ -186,6 +189,12 @@ int main(int argc, char **argv)
 		CHECK(tcc_compile_string(a,
 			"struct natural { char a; int b; };\n"
 			"_Static_assert(sizeof(struct natural) == 8, \"reset\");\n") == 0);
+		CHECK(tcc_compile_string(a,
+			"#pragma comment(lib, \"kernel32\")\n") == 0);
+		CHECK(tcc_compile_string(a,
+			"#pragma comment(lib, \"kernel32\")\n") == 0);
+		CHECK(neocc_preprocessor_results(a)->libraries.count == 2);
+		CHECK(!neocc_preprocessor_results(b)->libraries.count);
 		tcc_define_symbol(a, "SESSION_VALUE", "17");
 		tcc_define_symbol(b, "SESSION_VALUE", "29");
 		CHECK(tcc_compile_string(a,

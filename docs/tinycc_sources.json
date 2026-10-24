@@ -7,11 +7,12 @@
       "source": "tinycc/libtcc.c",
       "destination": "src/compiler/libtcc.c",
       "sha256": "87373a094a1067c6a37d7c8e8c7102240a217cd2fd66b20baab3a71750afddcd",
-      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics. Compose expressions object and borrow its aligned workspace; unwind failures and close it before symbols. Compose scopes object and borrow its inline workspace; close it before expression and symbol storage. Compose functions object, borrow its inline workspace and close it before other semantic resources. Compose switches object, borrow its stack entry and close it before scope/symbol owners. Compose initializers object, borrow its workspace, unwind construction failure and close it before other semantic resources. Compose temporaries owner for stable descriptors and buffers; remove global stack registry; enter compilation boundaries before source allocation, unwind via VO before longjmp and preserve outer generated source; use non-throwing diagnostic formatting with allocation-free fallback. Compose and VO-borrow translation workspace; unwind and close before semantic owners. Read diagnostic/include-depth state from the VO-borrowed preprocessor control stacks; remove redundant session initialization.",
+      "local_changes": "Compose source, tokens, preprocessor and symbols objects per context; close partial graphs on failure; use typed local-string cleanup before diagnostic jumps; update the source cursor through its explicit context; retain compiler algorithms and diagnostic semantics. Compose expressions object and borrow its aligned workspace; unwind failures and close it before symbols. Compose scopes object and borrow its inline workspace; close it before expression and symbol storage. Compose functions object, borrow its inline workspace and close it before other semantic resources. Compose switches object, borrow its stack entry and close it before scope/symbol owners. Compose initializers object, borrow its workspace, unwind construction failure and close it before other semantic resources. Compose temporaries owner for stable descriptors and buffers; remove global stack registry; enter compilation boundaries before source allocation, unwind via VO before longjmp and preserve outer generated source; use non-throwing diagnostic formatting with allocation-free fallback. Compose and VO-borrow translation workspace; unwind and close before semantic owners. Read diagnostic/include-depth state from the VO-borrowed preprocessor control stacks; remove redundant session initialization. Move pragma libraries and collected dependencies into preprocessor-owned persistent results, append/borrow via VO and remove session cleanup. Close owned input descriptors on dependency-record failure; keep stdin borrowed. Move once path normalization to the private include-path helper.",
       "additional_derivatives": [
         "src/objects/temporaries.c",
         "src/objects/temporaries.h",
-        "include/neocc/temporaries.h"
+        "include/neocc/temporaries.h",
+        "src/support/include_path.h"
       ]
     },
     {
@@ -23,7 +24,7 @@
       "source": "tinycc/tcc.h",
       "destination": "src/compiler/tcc.h",
       "sha256": "f374c0db142cf52c2f4db47b56bfeac18645a4cbbd0f4fe1e1fda3b924325f1b",
-      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs. Extract neocc_expression_value and expressions workspace, removing SValue, vtop and canonical type globals. Add per-context scopes object and workspace pointers. Replace shared current-function, local-stack and return-chain globals with per-context functions object/workspace. Add per-context switches object and borrowed workspace. Add the initializers contract and per-context object/workspace pointers; remove the global_expr declaration. Compose temporaries, remove stack registry and _s macros, declare explicit-context allocation wrappers. Remove anon_sym, ind, nocode_wanted, debug_modes declarations and cur_text_section field/macro; compose translation and borrowed unit. Remove InlineFunc typedef and per-session inline_fns/nb_inline_fns fields; defer inline record contract to tokens. Remove session include/ifdef/pack arrays and cursors and legacy depth macros; use the preprocessor-owned control stacks and NEOCC capacity constants.",
+      "local_changes": "Use source, token and preprocessor contracts; extract strings and token-stream descriptors as structs and constant payload as union neocc_value; remove migrated global state declarations, including the five symbol stack heads and scope counter, and legacy aliases; preserve token numbering and ABI types. Extract semantic symbol/type and attribute records as structs, preserving layout and removing Sym/CType typedefs. Extract neocc_expression_value and expressions workspace, removing SValue, vtop and canonical type globals. Add per-context scopes object and workspace pointers. Replace shared current-function, local-stack and return-chain globals with per-context functions object/workspace. Add per-context switches object and borrowed workspace. Add the initializers contract and per-context object/workspace pointers; remove the global_expr declaration. Compose temporaries, remove stack registry and _s macros, declare explicit-context allocation wrappers. Remove anon_sym, ind, nocode_wanted, debug_modes declarations and cur_text_section field/macro; compose translation and borrowed unit. Remove InlineFunc typedef and per-session inline_fns/nb_inline_fns fields; defer inline record contract to tokens. Remove session include/ifdef/pack arrays and cursors and legacy depth macros; use the preprocessor-owned control stacks and NEOCC capacity constants. Remove CachedInclude and all session include-cache, pragma-library and dependency fields; declare explicit-context result append/borrow helpers.",
       "additional_derivatives": [
         "include/neocc/tokens.h",
         "include/neocc/preprocessor.h",
@@ -36,11 +37,12 @@
       "source": "tinycc/tccpp.c",
       "destination": "src/compiler/tccpp.c",
       "sha256": "233c83c1087abe2c52eef23e03053bfd09dc6bcf5958aa463548ab455f016993",
-      "local_changes": "Use tokens VO for interning/arena storage, preprocessor VO for macro stream stack operations and symbols VO for macro definition/parameter stack and token links; borrow per-context token/value, source cursor, debug indentation, working strings, character table, modes and counters; reset working references before arena release; retain preprocessing algorithms. Remove local string init/free helpers; share checked non-throwing formatting and guard preprocessor diagnostic recursion. Macro-stack unwinding now occurs in tccgen_finish before inline owners and symbols are released; preprocess_end closes source buffers and resets preprocessor/tokens afterwards. Borrow include/conditional/pack control stacks from preprocessor; initialization and reset belong to the object, retaining directive algorithms and limits.",
+      "local_changes": "Use tokens VO for interning/arena storage, preprocessor VO for macro stream stack operations and symbols VO for macro definition/parameter stack and token links; borrow per-context token/value, source cursor, debug indentation, working strings, character table, modes and counters; reset working references before arena release; retain preprocessing algorithms. Remove local string init/free helpers; share checked non-throwing formatting and guard preprocessor diagnostic recursion. Macro-stack unwinding now occurs in tccgen_finish before inline owners and symbols are released; preprocess_end closes source buffers and resets preprocessor/tokens afterwards. Borrow include/conditional/pack control stacks from preprocessor; initialization and reset belong to the object, retaining directive algorithms and limits. Move include-cache lookup, record/filename ownership and hash chains to preprocessor via VO; keep guard/once semantics. Append dependency/library results via VO, keep them across translation-unit reset, and own pragma text through temporaries before further parsing.",
       "additional_derivatives": [
         "src/objects/tokens.c",
         "src/objects/preprocessor.c",
-        "src/objects/preprocessor.h"
+        "src/objects/preprocessor.h",
+        "src/support/include_path.h"
       ]
     },
     {
@@ -105,7 +107,8 @@
     {
       "source": "tinycc/tcctools.c",
       "destination": "src/compiler/tcctools.c",
-      "sha256": "51b7453777a9dfaf2f57979c12b92eb63ffd787cee4dcc0ead2c18943493b893"
+      "sha256": "51b7453777a9dfaf2f57979c12b92eb63ffd787cee4dcc0ead2c18943493b893",
+      "local_changes": "Borrow dependency results through the preprocessor VO; retain deduplication, escaping and output order, checking the compiler allocator width before allocating the output index."
     },
     {
       "source": "tinycc/tcctok.h",

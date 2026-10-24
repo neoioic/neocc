@@ -7,12 +7,16 @@
 #include "objects/scopes.h"
 #include "objects/functions.h"
 #include "objects/switches.h"
+#include "objects/preprocessor.h"
 
 void *__real_calloc(size_t, size_t);
 void *__real_malloc(size_t);
 void *__real_realloc(void *, size_t);
 void __real_free(void *);
 static int fail_at, calls;
+static struct TCCState *preprocessing_state;
+static int preprocessing_failure;
+static char preprocessing_diagnostic[1024];
 static int temporary_fail_at, temporary_calls, temporary_resize_fail;
 static struct TCCState *temporary_state;
 static char temporary_diagnostic[512];
@@ -34,6 +38,21 @@ void *__wrap_malloc(size_t size)
 {
 	void *pointer;
 
+	if (preprocessing_state) {
+		size_t wanted = 0;
+
+		if (preprocessing_failure == 1)
+			wanted = sizeof(struct neocc_cached_include) +
+				strlen("tests/cases/nested/cache_guard.h") + 1;
+		if (preprocessing_failure == 2)
+			wanted = sizeof("neocc_failure_library");
+		if (preprocessing_failure == 4)
+			wanted = sizeof("tests/cases/preprocessor_results_fault.c");
+		if (wanted && size == wanted) {
+			preprocessing_failure = 0;
+			return NULL;
+		}
+	}
 	if (inline_state && size == sizeof(struct neocc_inline) +
 	    strlen("<string>") + 1 && ++inline_calls == inline_fail_at)
 		return NULL;
@@ -80,6 +99,19 @@ void *__wrap_realloc(void *old, size_t size)
 {
 	void *pointer;
 
+	if (preprocessing_state && (preprocessing_failure == 3 ||
+	    preprocessing_failure == 5 || preprocessing_failure == 6 ||
+	    preprocessing_failure == 9)) {
+		struct em_preprocessor *members = preprocessing_state->preprocessor->members;
+		struct neocc_preprocessor_list *list = preprocessing_failure == 3 ?
+			&members->results.libraries : &members->results.dependencies;
+
+		if ((old && old == list->items) ||
+		    (preprocessing_failure == 9 && !old && !list->items)) {
+			preprocessing_failure = 0;
+			return NULL;
+		}
+	}
 	if (temporary_state && temporary_resize_fail) {
 		struct em_temporaries *members = temporary_state->temporaries->members;
 
@@ -166,6 +198,8 @@ static void clean_preprocessor(struct TCCState *state)
 	for (int i = 0; i < NEOCC_INCLUDE_STACK_CAPACITY; i++)
 		CHECK(!state->pp->include_stack[i]);
 
+	for (int i = 0; i < NEOCC_INCLUDE_HASH_CAPACITY; i++)
+		CHECK(!((struct em_preprocessor *)state->preprocessor->members)->includes[i]);
 	CHECK(!tokens->inline_head && !tokens->inline_tail);
 	CHECK(!state->unit->anonymous_symbol && !state->unit->instruction);
 	CHECK(!state->unit->suppression && !state->unit->debug_modes &&
@@ -385,6 +419,91 @@ static void function_error(void *opaque, const char *text)
 	failure->seen++;
 }
 
+static void preprocessing_error(void *opaque, const char *text)
+{
+	struct TCCState *state = opaque;
+
+	snprintf(preprocessing_diagnostic, sizeof(preprocessing_diagnostic), "%s", text);
+	for (unsigned int i = 0; i < state->preprocessor->node_count; i++) {
+		struct object *node = state->preprocessor->nodes + i;
+
+		for (unsigned int j = 0; j < node->caller_count; j++)
+			CHECK(!node->callers[j].cr && !node->callers[j].mr);
+	}
+}
+
+static void preprocessing_failures(const char *runtime)
+{
+	size_t initial_live = live;
+
+	unsigned long before, after;
+
+	CHECK(GetProcessHandleCount(GetCurrentProcess(), &before));
+	for (int failure = 1; failure <= 9; failure++) {
+		struct TCCState *state = tcc_new();
+		const struct neocc_preprocessor_results *view;
+
+		CHECK(state);
+		tcc_set_lib_path(state, runtime);
+		tcc_set_error_func(state, state, preprocessing_error);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		if (failure >= 6)
+			tcc_set_options(state, "-MD");
+		if (failure == 8)
+			tcc_define_symbol(state, "NEOCC_PP_DIAGNOSTIC", "1");
+		if (failure == 5)
+			CHECK(RP(neocc_preprocessor_add(state,
+				NEOCC_AC2_PREPROCESSOR_DEPENDENCY, "retained-input.c")));
+		preprocessing_state = state;
+		preprocessing_failure = failure <= 6 || failure == 9 ? failure : 0;
+		preprocessing_diagnostic[0] = 0;
+		if (failure == 1)
+			CHECK(tcc_compile_string(state,
+				"#include \"tests/cases/nested/cache_guard.h\"\n") < 0);
+		else if (failure == 2 || failure == 3)
+			CHECK(tcc_compile_string(state,
+				"#pragma comment(lib, \"neocc_failure_library\")\n"
+				"#pragma comment(lib, \"neocc_failure_library\")\n") < 0);
+		else if (failure == 7)
+			CHECK(tcc_compile_string(state,
+				"#pragma comment(lib, \"neocc_failure_library\" !\n") < 0);
+		else
+			CHECK(tcc_add_file(state, "tests/cases/preprocessor_results_fault.c") < 0);
+		CHECK(!preprocessing_failure);
+		CHECK(strstr(preprocessing_diagnostic, failure == 1 ? "cannot cache include" :
+			failure <= 3 ? "cannot record pragma library" :
+			failure <= 6 || failure == 9 ? "cannot record dependency" :
+			failure == 7 ? "malformed #pragma directive" :
+			"preprocessing resource diagnostic"));
+		preprocessing_state = NULL;
+		view = neocc_preprocessor_results(state);
+		CHECK(view);
+		if (failure == 3)
+			CHECK(view->libraries.count == 1 &&
+			      !strcmp(view->libraries.items[0], "neocc_failure_library"));
+		if (failure == 5)
+			CHECK(view->dependencies.count == 1 &&
+			      !strcmp(view->dependencies.items[0], "retained-input.c"));
+		if (failure == 6)
+			CHECK(view->dependencies.count == 1);
+		if (failure == 8)
+			CHECK(view->libraries.count == 1 && view->dependencies.count >= 2);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+		state = tcc_new();
+		CHECK(state);
+		tcc_set_lib_path(state, runtime);
+		CHECK(tcc_set_output_type(state, TCC_OUTPUT_OBJ) == 0);
+		CHECK(tcc_compile_string(state, "int after_preprocessing_failure;") == 0);
+		clean_preprocessor(state);
+		tcc_delete(state);
+		CHECK(live == initial_live);
+	}
+	CHECK(GetProcessHandleCount(GetCurrentProcess(), &after));
+	CHECK(before == after);
+}
+
 int main(int argc, char **argv)
 {
 	struct TCCState *state;
@@ -395,6 +514,7 @@ int main(int argc, char **argv)
 
 	CHECK(argc == 2);
 	tcc_set_realloc(compiler_reallocator);
+	preprocessing_failures(argv[1]);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &before));
 	/* Options and path lists own copies in the compiler allocator domain. */
 	state = tcc_new();

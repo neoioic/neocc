@@ -10,7 +10,11 @@
 #define NEOCC_AC0_PREPROCESSOR_RESET AC0_
 #define NEOCC_AC1_PREPROCESSOR_BORROW AC1_
 #define NEOCC_AC1_PREPROCESSOR_POP (AC1_ + 1)
+#define NEOCC_AC1_PREPROCESSOR_RESULTS (AC1_ + 2)
 #define NEOCC_AC2_PREPROCESSOR_PUSH AC2_
+#define NEOCC_AC2_PREPROCESSOR_DEPENDENCY (AC2_ + 1)
+#define NEOCC_AC2_PREPROCESSOR_LIBRARY (AC2_ + 2)
+#define NEOCC_AC3_PREPROCESSOR_INCLUDE AC3_
 #define NEOCC_CHAR_SPACE 1
 #define NEOCC_CHAR_ID 2
 #define NEOCC_CHAR_NUMBER 4
@@ -19,6 +23,41 @@
 #define NEOCC_INCLUDE_STACK_CAPACITY 32
 #define NEOCC_IFDEF_STACK_CAPACITY 64
 #define NEOCC_PACK_STACK_CAPACITY 8
+#define NEOCC_INCLUDE_HASH_CAPACITY 32
+
+/* Cache records and filenames belong to preprocessor until RESET/final close.
+ * Only ifndef_macro/once may be changed through this mutable borrow.
+ * INCLUDE looks up a path, optionally adding a zero-initialized record.
+ * A miss without add succeeds with a NULL result; failure publishes nothing.
+ */
+struct neocc_cached_include {
+	struct neocc_cached_include *next;
+	int ifndef_macro;
+	int once;
+	char filename[];
+};
+
+struct neocc_include_request {
+	const char *filename;
+	int add;
+};
+
+struct neocc_preprocessor_list {
+	char **items;
+	size_t count;
+	size_t capacity;
+};
+
+/* Read-only in-process borrow, retained across translation-unit RESET.
+ * APPEND messages contain exactly one NUL-terminated string (including NUL).
+ * Append copies the input and preserves order/duplicates, invalidating only
+ * the affected items array on success. Individual strings remain valid until
+ * final close. Intermediate/partial close preserves all resources.
+ */
+struct neocc_preprocessor_results {
+	struct neocc_preprocessor_list libraries;
+	struct neocc_preprocessor_list dependencies;
+};
 
 /* Constant payload and long-double words use the host representation,
  * preserving TinyCC's token-stream and direct code-generation layout.
