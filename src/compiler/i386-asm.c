@@ -275,7 +275,7 @@ static inline int get_reg_shift(TCCState *s1)
         shift = 3;
         break;
     default:
-        expect("1, 2, 4 or 8 constant");
+        expect(s1, "1, 2, 4 or 8 constant");
         shift = 0;
         break;
     }
@@ -328,7 +328,7 @@ static int asm_parse_reg(unsigned int *type)
     *type = 0;
     if (tcc_state->pp->token != '%')
         goto error_32;
-    next();
+    next(tcc_state);
     if (tcc_state->pp->token >= TOK_ASM_eax && tcc_state->pp->token <= TOK_ASM_edi) {
         reg = tcc_state->pp->token - TOK_ASM_eax;
 	*type = OP_REG32;
@@ -345,9 +345,9 @@ static int asm_parse_reg(unsigned int *type)
 #endif
     } else {
     error_32:
-        expect("register");
+        expect(tcc_state, "register");
     }
-    next();
+    next(tcc_state);
     return reg;
 }
 
@@ -359,12 +359,12 @@ static void parse_operand(TCCState *s1, Operand *op)
 
     indir = 0;
     if (s1->pp->token == '*') {
-        next();
+        next(s1);
         indir = OP_INDIR;
     }
 
     if (s1->pp->token == '%') {
-        next();
+        next(s1);
         if (s1->pp->token >= TOK_ASM_al && s1->pp->token <= TOK_ASM_db7) {
             reg = s1->pp->token - TOK_ASM_al;
             op->type = 1 << (reg >> 3); /* WARNING: do not change constant order */
@@ -384,9 +384,9 @@ static void parse_operand(TCCState *s1, Operand *op)
         } else if (s1->pp->token == TOK_ASM_st) {
             op->type = OP_ST;
             op->reg = 0;
-            next();
+            next(s1);
             if (s1->pp->token == '(') {
-                next();
+                next(s1);
                 if (s1->pp->token != TOK_PPNUM)
                     goto reg_error;
                 p = s1->pp->value.str.data;
@@ -394,8 +394,8 @@ static void parse_operand(TCCState *s1, Operand *op)
                 if ((unsigned)reg >= 8 || p[1] != '\0')
                     goto reg_error;
                 op->reg = reg;
-                next();
-                skip(')');
+                next(s1);
+                skip(s1, ')');
             }
             if (op->reg == 0)
                 op->type |= OP_ST0;
@@ -411,11 +411,11 @@ static void parse_operand(TCCState *s1, Operand *op)
         reg_error:
             tcc_error("unknown register %%%s", get_tok_str(s1, s1->pp->token, &s1->pp->value));
         }
-        next();
+        next(s1);
     no_skip: ;
     } else if (s1->pp->token == '$') {
         /* constant value */
-        next();
+        next(s1);
         asm_expr(s1, &e);
         op->type = OP_IM32;
         op->e = e;
@@ -441,17 +441,17 @@ static void parse_operand(TCCState *s1, Operand *op)
             asm_expr(s1, &e);
             op->e = e;
         } else {
-            next();
+            next(s1);
             if (s1->pp->token == '%') {
-                unget_tok('(');
+                unget_tok(s1, '(');
                 op->e.v = 0;
                 op->e.sym = NULL;
             } else {
                 /* bracketed offset expression */
                 asm_expr(s1, &e);
                 if (s1->pp->token != ')')
-                    expect(")");
-                next();
+                    expect(s1, ")");
+                next(s1);
                 op->e.v = e.v;
                 op->e.sym = e.sym;
             }
@@ -459,23 +459,23 @@ static void parse_operand(TCCState *s1, Operand *op)
         }
         if (s1->pp->token == '(') {
 	    unsigned int type = 0;
-            next();
+            next(s1);
             if (s1->pp->token != ',') {
                 op->reg = asm_parse_reg(&type);
             }
             if (s1->pp->token == ',') {
-                next();
+                next(s1);
                 if (s1->pp->token != ',') {
                     op->reg2 = asm_parse_reg(&type);
                 }
                 if (s1->pp->token == ',') {
-                    next();
+                    next(s1);
                     op->shift = get_reg_shift(s1);
                 }
             }
 	    if (type & OP_REG32)
 	        op->type |= OP_EA32;
-            skip(')');
+            skip(s1, ')');
         }
         if (op->reg == -1 && op->reg2 == -1)
             op->type |= OP_ADDR;
@@ -700,7 +700,7 @@ ST_FUNC void asm_opcode(TCCState *s1, int opcode)
     /* force synthetic ';' after prefix instruction, so we can handle */
     /* one-line things like "rep stosb" instead of only "rep\nstosb" */
     if (opcode >= TOK_ASM_wait && opcode <= TOK_ASM_repnz)
-        unget_tok(';');
+        unget_tok(s1, ';');
 
     /* get operands */
     pop = ops;
@@ -718,7 +718,7 @@ ST_FUNC void asm_opcode(TCCState *s1, int opcode)
            if (!(pop->type & OP_SEG) || seg_prefix)
                tcc_error("incorrect prefix");
            seg_prefix = segment_prefixes[pop->reg];
-           next();
+           next(s1);
            parse_operand(s1, pop);
            if (!(pop->type & OP_EA)) {
                tcc_error("segment prefix must be followed by memory reference");
@@ -728,7 +728,7 @@ ST_FUNC void asm_opcode(TCCState *s1, int opcode)
         nb_ops++;
         if (s1->pp->token != ',')
             break;
-        next();
+        next(s1);
     }
 
     s = 0; /* avoid warning */
@@ -1238,9 +1238,9 @@ ST_FUNC int asm_parse_regvar (int t)
     if (s[0] == '%')
         ++s;
     t = tok_alloc_const(tcc_state, s);
-    unget_tok(t);
+    unget_tok(tcc_state, t);
     /* Internally the % prefix is required. */
-    unget_tok('%');
+    unget_tok(tcc_state, '%');
     parse_operand(tcc_state, &op);
     /* Accept only integer regs for now. */
     if (op.type & OP_REG)

@@ -592,13 +592,14 @@ static void error1(TCCState *s1, int mode, const char *fmt, va_list ap)
     int formatted = 1;
     int line = 0;
 
-    tcc_exit_state(s1);
+    if (tcc_state == s1)
+        tcc_exit_state(s1);
 
     if (mode == ERROR_WARN) {
         if (s1->warn_error)
             mode = ERROR_ERROR;
         if (s1->warn_num) {
-            /* handle tcc_warning_c(warn_option)(fmt, ...) */
+            /* handle tcc_warning_c(context, warn_option, fmt, ...) */
             int wopt = *(&s1->warn_none + s1->warn_num);
             s1->warn_num = 0;
             if (0 == (wopt & WARN_ON))
@@ -639,7 +640,7 @@ static void error1(TCCState *s1, int mode, const char *fmt, va_list ap)
     }
     formatted &= neocc_string_printf(cs, mode == ERROR_WARN ? "warning: " : "error: ") >= 0;
     if (s1->pp && s1->pp->expression > 1)
-        formatted &= pp_error(cs); /* special handler for preprocessor expression errors */
+        formatted &= pp_error(s1, cs); /* special handler for preprocessor expression errors */
     else
         formatted &= neocc_string_vprintf(cs, fmt, ap) >= 0;
     if (formatted)
@@ -674,11 +675,11 @@ LIBTCCAPI void tcc_set_error_func(TCCState *s, void *error_opaque, TCCErrorFunc 
 }
 
 /* error without aborting current compilation */
-PUB_FUNC int _tcc_error_noabort(const char *fmt, ...)
+PUB_FUNC int _tcc_error_noabort(TCCState *s1, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    error1(tcc_state, ERROR_NOABORT, fmt, ap);
+    error1(s1, ERROR_NOABORT, fmt, ap);
     va_end(ap);
     return -1;
 }
@@ -702,7 +703,7 @@ ST_FUNC struct neocc_string *neocc_temp_new(TCCState *s1)
         &neocc_host_caller);
 
     if (!RP(result) || quantity != sizeof(string))
-        tcc_error("cannot allocate temporary string");
+        _tcc_error(s1, "cannot allocate temporary string");
     return string;
 }
 
@@ -710,14 +711,14 @@ ST_FUNC void neocc_temp_free(TCCState *s1, struct neocc_string *string)
 {
     if (!RP(vo_interact2(s1->temporaries, NEOCC_AC2_TEMPORARIES_POP,
             (unsigned char *)&string, sizeof(string), &neocc_host_caller)))
-        tcc_error("invalid temporary string release");
+        _tcc_error(s1, "invalid temporary string release");
 }
 
-PUB_FUNC void _tcc_warning(const char *fmt, ...)
+PUB_FUNC void _tcc_warning(TCCState *s1, const char *fmt, ...)
 {
     va_list ap;
     va_start(ap, fmt);
-    error1(tcc_state, ERROR_WARN, fmt, ap);
+    error1(s1, ERROR_WARN, fmt, ap);
     va_end(ap);
 }
 
@@ -741,7 +742,7 @@ static void neocc_source_push(TCCState *s1, const char *filename,
 	if (!RP(result) || quantity != sizeof(output)) {
 		if (fd > 0)
 			close(fd);
-		tcc_error("cannot create source buffer for '%s' (result %d)",
+		_tcc_error(s1, "cannot create source buffer for '%s' (result %d)",
 			filename, result);
 	}
 	s1->pp->source = output.current;
@@ -753,16 +754,15 @@ ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen)
 	neocc_source_push(s1, filename, (size_t)initlen, -1);
 }
 
-ST_FUNC void tcc_close(void)
+ST_FUNC void tcc_close(TCCState *s1)
 {
-	TCCState *s1 = tcc_state;
 	struct neocc_source_result output;
 	unsigned int quantity = 0;
 	int result = vo_interact1(s1->sources, NEOCC_AC1_SOURCE_POP,
 		(unsigned char *)&output, sizeof(output), &quantity,
 		&neocc_host_caller);
 	if (!RP(result) || quantity != sizeof(output))
-		tcc_error("cannot release source buffer (result %d)", result);
+		_tcc_error(s1, "cannot release source buffer (result %d)", result);
 	s1->pp->source = output.current;
 	s1->pp->token_flags = output.tok_flags;
 	total_lines += output.lines;
@@ -843,7 +843,7 @@ static int tcc_compile(TCCState *s1, int filetype, const char *str, int fd)
         preprocess_end(s1);
     } else {
         while (s1->pp->source)
-            tcc_close();
+            tcc_close(s1);
     }
     if (temporary_scope)
         vo_interact0(s1->temporaries, NEOCC_AC0_TEMPORARIES_LEAVE,
@@ -1634,7 +1634,7 @@ static int tcc_set_linker(TCCState *s, const char *optarg)
             return tcc_error_noabort("unsupported linker option '%s'", o.opt);
         }
         if (ignoring)
-            tcc_warning_c(warn_unsupported)("unsupported linker option '%s'", o.opt);
+            tcc_warning_c(s, warn_unsupported, "unsupported linker option '%s'", o.opt);
         ++s->link_optind;
     }
     return 0;
@@ -2291,7 +2291,7 @@ PUB_FUNC int tcc_parse_args(TCCState *s, int *pargc, char ***pargv)
             return x;
         default:
 unsupported_option:
-            tcc_warning_c(warn_unsupported)("unsupported option '%s'", r);
+            tcc_warning_c(s, warn_unsupported, "unsupported option '%s'", r);
             break;
         }
         empty = 0;

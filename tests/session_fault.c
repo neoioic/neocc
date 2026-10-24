@@ -435,7 +435,9 @@ static void preprocessing_error(void *opaque, const char *text)
 static void context_error(void *opaque, const char *text)
 {
 	struct TCCState *state = opaque;
-	struct object *objects[] = { state->tokens, state->preprocessor };
+	struct object *objects[] = {
+		state->tokens, state->preprocessor, state->symbols
+	};
 
 	snprintf(preprocessing_diagnostic, sizeof(preprocessing_diagnostic), "%s", text);
 	for (unsigned int i = 0; i < countof(objects); i++) {
@@ -455,6 +457,7 @@ static void preprocessing_context_failures(void)
 		"cannot resize token stream", "cannot intern token",
 		"cannot grow compiler string", "cannot grow compiler string",
 		"cannot enter macro stream", "cannot leave macro stream",
+		"cannot push semantic symbol",
 	};
 
 	for (int absent = 0; absent < 2; absent++) {
@@ -488,8 +491,12 @@ static void preprocessing_context_failures(void)
 					get_tok_str(state, TOK_STR, &value);
 				} else if (failure == 4) {
 					begin_macro(state, NULL, 0);
-				} else {
+				} else if (failure == 5) {
 					end_macro(state);
+				} else {
+					symbol_fail_at = symbol_calls + 1;
+					sym_stack_push(state, NEOCC_SYMBOL_STACK_DEFINE,
+						TOK_IDENT, MACRO_OBJ, 0);
 				}
 				CHECK(0);
 			}
@@ -498,9 +505,76 @@ static void preprocessing_context_failures(void)
 			CHECK(tcc_state == (absent ? NULL : other));
 			CHECK(!state->pp->macro_stack && !other->pp->macro_stack);
 			CHECK(!string.data && !string.size && !string.size_allocated);
-			arena_fail_at = resize_fail_at = 0;
+			arena_fail_at = resize_fail_at = symbol_fail_at = 0;
 			state->error_set_jmp_enabled = 0;
 			state->pp->source = NULL;
+			tcc_state = NULL;
+			tcc_delete(state);
+			tcc_delete(other);
+			CHECK(live == initial_live);
+		}
+	}
+}
+
+static void lexical_context_failures(void)
+{
+	size_t initial_live = live;
+	static const char *const inputs[] = {
+		"#line 73 \"lexical-error.c\"\n#warning explicit warning\n",
+		"#line 73 \"lexical-error.c\"\n#define F(x) x\nF(1,2)\n",
+		"#line 73 \"lexical-error.c\"\n#if 1 +\n#endif\n",
+	};
+	static const char *const messages[] = {
+		"explicit warning", "too many args", "bad preprocessor expression",
+		"not a valid universal character",
+	};
+	char long_input[2048];
+
+	/* One lexical token exceeds parse_string's stack buffer, then diagnoses. */
+	memset(long_input, 'a', sizeof(long_input));
+	long_input[0] = '"';
+	strcpy(long_input + 1500, "\\U00110000\"\n");
+	for (int absent = 0; absent < 2; absent++) {
+		for (unsigned int failure = 0; failure < countof(messages); failure++) {
+			struct TCCState *state = tcc_new(), *other = tcc_new();
+			const char *input = failure < countof(inputs) ?
+				inputs[failure] : long_input;
+
+			CHECK(state && other);
+			tcc_set_error_func(state, state, context_error);
+			tcc_set_error_func(other, NULL, quiet_error);
+			tcc_state = absent ? NULL : other;
+			tccpp_new(state);
+			tcc_open_bf(state, "lexical-input.c", strlen(input));
+			memcpy(state->pp->source->buffer, input, strlen(input));
+			state->pp->parse_flags = PARSE_FLAG_PREPROCESS |
+				PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
+			state->warn_error = 1;
+			state->error_set_jmp_enabled = 1;
+			CHECK(RP(vo_interact0(state->temporaries,
+				NEOCC_AC0_TEMPORARIES_ENTER, &neocc_host_caller)));
+			preprocessing_diagnostic[0] = 0;
+			if (!setjmp(state->error_jmp_buf)) {
+				while (state->pp->token != TOK_EOF)
+					next(state);
+				CHECK(0);
+			}
+			CHECK(strstr(preprocessing_diagnostic, messages[failure]));
+			CHECK(strstr(preprocessing_diagnostic,
+				failure < 3 ? "lexical-error.c:" : "lexical-input.c:"));
+			CHECK(state->nb_errors == 1 && !other->nb_errors);
+			CHECK(tcc_state == (absent ? NULL : other));
+			CHECK(((struct em_temporaries *)state->temporaries->members)->top->boundary);
+			CHECK(RP(vo_interact0(state->temporaries,
+				NEOCC_AC0_TEMPORARIES_LEAVE, &neocc_host_caller)));
+			CHECK(!((struct em_temporaries *)state->temporaries->members)->top);
+			while (state->pp->macro_stack)
+				end_macro(state);
+			free_defines(state, NULL);
+			preprocess_end(state);
+			CHECK(!state->pp->source && !state->pp->macro_stack);
+			CHECK(tcc_state == (absent ? NULL : other));
+			state->error_set_jmp_enabled = 0;
 			tcc_state = NULL;
 			tcc_delete(state);
 			tcc_delete(other);
@@ -592,6 +666,7 @@ int main(int argc, char **argv)
 	CHECK(argc == 2);
 	tcc_set_realloc(compiler_reallocator);
 	preprocessing_context_failures();
+	lexical_context_failures();
 	preprocessing_failures(argv[1]);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &before));
 	/* Options and path lists own copies in the compiler allocator domain. */

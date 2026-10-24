@@ -264,7 +264,7 @@ ST_FUNC int ieee_finite(double d)
 ST_FUNC void test_lvalue(void)
 {
     if (!(tcc_state->expr->top->r & VT_LVAL))
-        expect("lvalue");
+        expect(tcc_state, "lvalue");
 }
 
 ST_FUNC void check_vstack(void)
@@ -358,7 +358,7 @@ ST_FUNC int tccgen_compile(TCCState *s1)
     printf("%s: **** new file\n", s1->pp->source->filename);
 #endif
     s1->pp->parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM | PARSE_FLAG_TOK_STR;
-    next();
+    next(s1);
     decl(VT_CONST);
     gen_inline_functions(s1);
     check_vstack();
@@ -384,7 +384,7 @@ ST_FUNC void tccgen_finish(TCCState *s1)
     sym_pop(NEOCC_SYMBOL_STACK_GLOBAL, NULL, 0);
     sym_pop(NEOCC_SYMBOL_STACK_LOCAL, NULL, 0);
     /* free preprocessor macros */
-    free_defines(NULL);
+    free_defines(s1, NULL);
     if (!RP(vo_interact0(s1->initializers, NEOCC_AC0_INITIALIZERS_RESET,
                          &neocc_host_caller)))
         tcc_error("cannot reset initializer workspace");
@@ -578,40 +578,40 @@ ST_FUNC void greloc(Section *s, struct neocc_symbol *sym, unsigned long offset, 
 
 /* ------------------------------------------------------------------------- */
 /* Symbols remain ordinary compiler records; the object owns their storage. */
-static struct neocc_symbol *sym_malloc(void)
+static struct neocc_symbol *sym_malloc(TCCState *s1)
 {
     struct neocc_symbol *symbol;
     unsigned int quantity;
-    int result = vo_interact1(tcc_state->symbols, NEOCC_AC1_SYMBOLS_ALLOCATE,
+    int result = vo_interact1(s1->symbols, NEOCC_AC1_SYMBOLS_ALLOCATE,
         (unsigned char *)&symbol, sizeof(symbol), &quantity, &neocc_host_caller);
 
     if (!RP(result) || quantity != sizeof(symbol))
-        tcc_error("cannot allocate semantic symbol (result %d)", result);
+        _tcc_error(s1, "cannot allocate semantic symbol (result %d)", result);
     return symbol;
 }
 
-ST_INLN void sym_free(struct neocc_symbol *symbol)
+ST_INLN void sym_free(TCCState *s1, struct neocc_symbol *symbol)
 {
-    int result = vo_interact2(tcc_state->symbols, NEOCC_AC2_SYMBOLS_RELEASE,
+    int result = vo_interact2(s1->symbols, NEOCC_AC2_SYMBOLS_RELEASE,
         (unsigned char *)&symbol, sizeof(symbol), &neocc_host_caller);
 
     if (!RP(result))
-        tcc_error("cannot release semantic symbol (result %d)", result);
+        _tcc_error(s1, "cannot release semantic symbol (result %d)", result);
 }
 
-ST_FUNC struct neocc_symbol *sym_stack_push(unsigned int stack, int v, int t,
+ST_FUNC struct neocc_symbol *sym_stack_push(TCCState *s1, unsigned int stack, int v, int t,
                                             int c)
 {
     struct neocc_symbol_push request = { stack, v, t, c };
     struct neocc_symbol_stack_result result;
     unsigned int quantity = 0;
-    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_PUSH,
+    int code = vo_interact3(s1->symbols, NEOCC_AC3_SYMBOLS_PUSH,
         (unsigned char *)&request, sizeof(request),
         (unsigned char *)&result, sizeof(result), &quantity,
         &neocc_host_caller);
 
     if (!RP(code) || quantity != sizeof(result) || !result.top)
-        tcc_error("cannot push semantic symbol (result %d)", code);
+        _tcc_error(s1, "cannot push semantic symbol (result %d)", code);
     return result.top;
 }
 
@@ -631,29 +631,29 @@ ST_FUNC struct neocc_symbol *sym_stack_copy(unsigned int stack,
     return result.top;
 }
 
-ST_FUNC struct neocc_symbol *sym_stack_top(unsigned int stack)
+ST_FUNC struct neocc_symbol *sym_stack_top(TCCState *s1, unsigned int stack)
 {
     struct neocc_symbol_stack_query request = { stack };
     struct neocc_symbol_stack_result result;
     unsigned int quantity = 0;
-    int code = vo_interact3(tcc_state->symbols, NEOCC_AC3_SYMBOLS_TOP,
+    int code = vo_interact3(s1->symbols, NEOCC_AC3_SYMBOLS_TOP,
         (unsigned char *)&request, sizeof(request),
         (unsigned char *)&result, sizeof(result), &quantity,
         &neocc_host_caller);
 
     if (!RP(code) || quantity != sizeof(result))
-        tcc_error("cannot query semantic symbol stack (result %d)", code);
+        _tcc_error(s1, "cannot query semantic symbol stack (result %d)", code);
     return result.top;
 }
 
-ST_FUNC void sym_stack_drop(unsigned int stack, struct neocc_symbol *symbol)
+ST_FUNC void sym_stack_drop(TCCState *s1, unsigned int stack, struct neocc_symbol *symbol)
 {
     struct neocc_symbol_drop request = { stack, symbol };
-    int code = vo_interact2(tcc_state->symbols, NEOCC_AC2_SYMBOLS_DROP,
+    int code = vo_interact2(s1->symbols, NEOCC_AC2_SYMBOLS_DROP,
         (unsigned char *)&request, sizeof(request), &neocc_host_caller);
 
     if (!RP(code))
-        tcc_error("cannot drop semantic symbol (result %d)", code);
+        _tcc_error(s1, "cannot drop semantic symbol (result %d)", code);
 }
 
 /* Return zero when the symbol is not on the source stack. */
@@ -708,11 +708,11 @@ ST_FUNC void sym_scope_set(int level)
 }
 
 /* push, without hashing */
-ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c)
+ST_FUNC struct neocc_symbol *sym_push2(TCCState *s1, struct neocc_symbol **ps, int v, int t, int c)
 {
     struct neocc_symbol *s;
 
-    s = sym_malloc();
+    s = sym_malloc(s1);
     memset(s, 0, sizeof *s);
     s->v = v;
     s->type.t = t;
@@ -782,10 +782,10 @@ static inline int sym_scope_ex(struct neocc_symbol *s)
 ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c)
 {
     struct neocc_symbol *s;
-    unsigned int stack = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ?
+    unsigned int stack = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL) ?
         NEOCC_SYMBOL_STACK_LOCAL : NEOCC_SYMBOL_STACK_GLOBAL;
 
-    s = sym_stack_push(stack, v, type->t, c);
+    s = sym_stack_push(tcc_state, stack, v, type->t, c);
     s->type.ref = type->ref;
     s->r = r;
     /* don't record fields or anonymous symbols */
@@ -802,7 +802,7 @@ ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int
 ST_FUNC struct neocc_symbol *global_identifier_push(int v, int t, int c)
 {
     struct neocc_symbol *s, **ps;
-    s = sym_stack_push(NEOCC_SYMBOL_STACK_GLOBAL, v, t, c);
+    s = sym_stack_push(tcc_state, NEOCC_SYMBOL_STACK_GLOBAL, v, t, c);
     s->r = VT_CONST | VT_SYM;
     /* don't record anonymous symbol */
     if (v < SYM_FIRST_ANOM) {
@@ -823,13 +823,13 @@ ST_FUNC void sym_pop(unsigned int stack, struct neocc_symbol *b, int keep)
 {
     struct neocc_symbol *s, *next;
 
-    s = sym_stack_top(stack);
+    s = sym_stack_top(tcc_state, stack);
     while (s != b) {
         next = s->prev;
         if ((s->v & ~SYM_STRUCT) < SYM_FIRST_ANOM)
             sym_link(s, 0);
         if (!keep)
-            sym_stack_drop(stack, s);
+            sym_stack_drop(tcc_state, stack, s);
         s = next;
     }
 }
@@ -844,7 +844,7 @@ ST_FUNC void sym_list_pop(struct neocc_symbol **ptop, struct neocc_symbol *b,
     while (s != b) {
         next = s->prev;
         if (!keep)
-            sym_free(s);
+            sym_free(tcc_state, s);
         s = next;
     }
     if (!keep)
@@ -863,7 +863,7 @@ ST_FUNC struct neocc_symbol *label_find(int v)
 ST_FUNC struct neocc_symbol *label_push(unsigned int stack, int v, int flags)
 {
     struct neocc_symbol *s, **ps;
-    s = sym_stack_push(stack, v, VT_STATIC, 0);
+    s = sym_stack_push(tcc_state, stack, v, VT_STATIC, 0);
     s->r = flags;
     ps = &neocc_token_at(tcc_state, (v - TOK_IDENT) + TOK_IDENT)->sym_label;
     if (stack == NEOCC_SYMBOL_STACK_GLOBAL_LABEL) {
@@ -883,10 +883,10 @@ ST_FUNC void label_pop(unsigned int stack, struct neocc_symbol *slast, int keep)
 {
     struct neocc_symbol *s, *next;
 
-    for (s = sym_stack_top(stack); s != slast; s = next) {
+    for (s = sym_stack_top(tcc_state, stack); s != slast; s = next) {
         next = s->prev;
         if (s->r == LABEL_DECLARED) {
-            tcc_warning_c(warn_all)("label '%s' declared but not used", get_tok_str(tcc_state, s->v, NULL));
+            tcc_warning_c(tcc_state, warn_all, "label '%s' declared but not used", get_tok_str(tcc_state, s->v, NULL));
         } else if (s->r == LABEL_FORWARD) {
                 tcc_error("label '%s' used but not defined",
                       get_tok_str(tcc_state, s->v, NULL));
@@ -901,7 +901,7 @@ ST_FUNC void label_pop(unsigned int stack, struct neocc_symbol *slast, int keep)
         if (s->r != LABEL_GONE)
             neocc_token_at(tcc_state, (s->v - TOK_IDENT) + TOK_IDENT)->sym_label = s->prev_tok;
         if (!keep)
-            sym_stack_drop(stack, s);
+            sym_stack_drop(tcc_state, stack, s);
         else
             s->r = LABEL_GONE;
     }
@@ -913,7 +913,7 @@ static void label_discard(unsigned int stack)
 {
     struct neocc_symbol *s;
 
-    for (s = sym_stack_top(stack); s; s = s->prev)
+    for (s = sym_stack_top(tcc_state, stack); s; s = s->prev)
         if (s->r != LABEL_GONE) {
             neocc_token_at(tcc_state,
                 (s->v - TOK_IDENT) + TOK_IDENT)->sym_label = s->prev_tok;
@@ -1440,7 +1440,7 @@ static struct neocc_symbol *external_sym(int v, struct neocc_type *type, int r, 
     } else {
         patch_storage(s, ad, type);
     }
-    if (sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL)) {
+    if (sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL)) {
         /* make sure that type->ref is on global stack */
         move_ref_to_global(s);
         /* put into local scope */
@@ -1781,7 +1781,7 @@ static void add_local_bounds(struct neocc_symbol *s, struct neocc_symbol *e)
    register bounds */
 static void tcc_debug_end_scope(struct neocc_symbol *b, int bounds)
 {
-    struct neocc_symbol *local = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    struct neocc_symbol *local = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL);
 
 #ifdef CONFIG_TCC_BCHECK
     if (tcc_state->do_bounds_check && bounds)
@@ -3733,7 +3733,7 @@ static void verify_assign_cast(struct neocc_type *dt)
             }
         }
         if (qualwarn)
-            tcc_warning_c(warn_discarded_qualifiers)("assignment discards qualifiers from pointer target type");
+            tcc_warning_c(tcc_state, warn_discarded_qualifiers, "assignment discards qualifiers from pointer target type");
         break;
     case VT_BYTE:
     case VT_SHORT:
@@ -3958,12 +3958,12 @@ ST_FUNC struct neocc_string* parse_mult_str (const char *msg)
     struct neocc_string *string = &tcc_state->initializer->string;
     /* read the string */
     if (tcc_state->pp->token != TOK_STR)
-        expect(msg);
+        expect(tcc_state, msg);
     cstr_reset(string);
     while (tcc_state->pp->token == TOK_STR) {
         /* XXX: add \0 handling too ? */
         cstr_cat(tcc_state, string, tcc_state->pp->value.str.data, -1);
-        next();
+        next(tcc_state);
     }
     cstr_ccat(tcc_state, string, '\0');
     return string;
@@ -4000,31 +4000,31 @@ redo:
     if (NULL == ad) /* skip over / ignore attributes */
         ad = &ad_tmp;
 
-    next();
-    skip('(');
-    skip('(');
+    next(tcc_state);
+    skip(tcc_state, '(');
+    skip(tcc_state, '(');
     while (tcc_state->pp->token != ')') {
         if (tcc_state->pp->token < TOK_IDENT)
-            expect("attribute name");
+            expect(tcc_state, "attribute name");
         t = tcc_state->pp->token;
-        next();
+        next(tcc_state);
         switch(t) {
 	case TOK_CLEANUP1:
 	case TOK_CLEANUP2:
 	{
 	    struct neocc_symbol *s;
 
-	    skip('(');
+	    skip(tcc_state, '(');
 	    s = sym_find(tcc_state->pp->token);
 	    if (!s) {
-	        tcc_warning_c(warn_implicit_function_declaration)(
+	        tcc_warning_c(tcc_state, warn_implicit_function_declaration,
                     "implicit declaration of function '%s'", get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
 	        s = external_global_sym(tcc_state->pp->token, &tcc_state->expr->func_old_type);
             } else if ((s->type.t & VT_BTYPE) != VT_FUNC)
                 tcc_error("'%s' is not declared as function", get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
 	    ad->cleanup_func = s;
-	    next();
-            skip(')');
+	    next(tcc_state);
+            skip(tcc_state, ')');
 	    break;
 	}
         case TOK_CONSTRUCTOR1:
@@ -4041,24 +4041,24 @@ redo:
             break;
         case TOK_SECTION1:
         case TOK_SECTION2:
-            skip('(');
+            skip(tcc_state, '(');
 	    astr = parse_mult_str("section name")->data;
             n = tcc_state->nb_sections;
             ad->section = find_section(tcc_state, astr);
             ad->new_section = n < tcc_state->nb_sections;
-            skip(')');
+            skip(tcc_state, ')');
             break;
         case TOK_ALIAS1:
         case TOK_ALIAS2:
-            skip('(');
+            skip(tcc_state, '(');
 	    astr = parse_mult_str("alias(\"target\")")->data;
             /* save string as token, for later */
             ad->alias_target = tok_alloc_const(tcc_state, astr);
-            skip(')');
+            skip(tcc_state, ')');
             break;
 	case TOK_VISIBILITY1:
 	case TOK_VISIBILITY2:
-            skip('(');
+            skip(tcc_state, '(');
 	    astr = parse_mult_str("visibility(\"default|hidden|internal|protected\")")->data;
 	    if (!strcmp (astr, "default"))
 	        ad->a.visibility = STV_DEFAULT;
@@ -4069,17 +4069,17 @@ redo:
 	    else if (!strcmp (astr, "protected"))
 	        ad->a.visibility = STV_PROTECTED;
 	    else
-                expect("visibility(\"default|hidden|internal|protected\")");
-            skip(')');
+                expect(tcc_state, "visibility(\"default|hidden|internal|protected\")");
+            skip(tcc_state, ')');
             break;
         case TOK_ALIGNED1:
         case TOK_ALIGNED2:
             if (tcc_state->pp->token == '(') {
-                next();
-                n = expr_const();
+                next(tcc_state);
+                n = expr_const(tcc_state);
                 if (n <= 0 || (n & (n - 1)) != 0) 
                     tcc_error("alignment must be a positive power of two");
-                skip(')');
+                skip(tcc_state, ')');
             } else {
                 n = MAX_ALIGN;
             }
@@ -4137,15 +4137,15 @@ redo:
 #ifdef TCC_TARGET_I386
         case TOK_REGPARM1:
         case TOK_REGPARM2:
-            skip('(');
-            n = expr_const();
+            skip(tcc_state, '(');
+            n = expr_const(tcc_state);
             if (n > 3) 
                 n = 3;
             else if (n < 0)
                 n = 0;
             if (n > 0)
                 ad->f.func_call = FUNC_FASTCALL1 + n - 1;
-            skip(')');
+            skip(tcc_state, ')');
             break;
         case TOK_FASTCALL1:
         case TOK_FASTCALL2:
@@ -4159,7 +4159,7 @@ redo:
             break;
 #endif
         case TOK_MODE:
-            skip('(');
+            skip(tcc_state, '(');
             switch(tcc_state->pp->token) {
                 case TOK_MODE_DI:
                     ad->attr_mode = VT_LLONG + 1;
@@ -4178,8 +4178,8 @@ redo:
                     tcc_warning("__mode__(%s) not supported\n", get_tok_str(tcc_state, tcc_state->pp->token, NULL));
                     break;
             }
-            next();
-            skip(')');
+            next(tcc_state);
+            skip(tcc_state, ')');
             break;
         case TOK_DLLEXPORT:
             ad->a.dllexport = 1;
@@ -4191,7 +4191,7 @@ redo:
             ad->a.dllimport = 1;
             break;
         default:
-            tcc_warning_c(warn_unsupported)("'%s' attribute ignored", get_tok_str(tcc_state, t, NULL));
+            tcc_warning_c(tcc_state, warn_unsupported, "'%s' attribute ignored", get_tok_str(tcc_state, t, NULL));
             /* skip parameters */
 skip_param:
             if (tcc_state->pp->token == '(') {
@@ -4201,17 +4201,17 @@ skip_param:
                         parenthesis++;
                     else if (tcc_state->pp->token == ')')
                         parenthesis--;
-                    next();
+                    next(tcc_state);
                 } while (parenthesis && tcc_state->pp->token != -1);
             }
             break;
         }
         if (tcc_state->pp->token != ',')
             break;
-        next();
+        next(tcc_state);
     }
-    skip(')');
-    skip(')');
+    skip(tcc_state, ')');
+    skip(tcc_state, ')');
     goto redo;
 }
 
@@ -4221,9 +4221,9 @@ static struct neocc_symbol * find_field (struct neocc_type *type, int v, int *cu
     int v1 = v | SYM_FIELD;
     if (!(v & SYM_FIELD)) { /* top-level call */
         if ((type->t & VT_BTYPE) != VT_STRUCT)
-            expect("struct or union");
+            expect(tcc_state, "struct or union");
         if (v < TOK_UIDENT)
-            expect("field name");
+            expect(tcc_state, "field name");
         if (s->c < 0)
             tcc_error("dereferencing incomplete type '%s'",
                 get_tok_str(tcc_state, s->v & ~SYM_STRUCT, 0));
@@ -4532,21 +4532,21 @@ static void struct_decl(struct neocc_type *type, int u)
     struct neocc_type type1, btype;
 
     memset(&ad, 0, sizeof ad);
-    next();
+    next(tcc_state);
     parse_attribute(&ad);
 
     v = 0;
     if (tcc_state->pp->token >= TOK_IDENT) /* struct/enum tag */
-        v = tcc_state->pp->token, next();
+        v = tcc_state->pp->token, next(tcc_state);
 
     bt = ut = 0;
     if (u == VT_ENUM) {
         ut = VT_INT;
         if (tcc_state->pp->token == ':') { /* C2x enum : <type> ... */
-            next();
+            next(tcc_state);
             if (!parse_btype(&btype, &ad1, 0)
              || !is_integer_btype(btype.t & VT_BTYPE))
-                expect("enum type");
+                expect(tcc_state, "enum type");
             bt = ut = btype.t & (VT_BTYPE|VT_LONG|VT_UNSIGNED|VT_DEFSIGN);
         }
     }
@@ -4563,7 +4563,7 @@ static void struct_decl(struct neocc_type *type, int u)
         }
     } else {
         if (tcc_state->pp->token != '{')
-            expect("struct/union/enum name");
+            expect(tcc_state, "struct/union/enum name");
         v = tcc_state->unit->anonymous_symbol++;
     }
     /* Record the original enum/struct/union token.  */
@@ -4577,7 +4577,7 @@ do_decl:
     type->ref = s;
 
     if (tcc_state->pp->token == '{') {
-        next();
+        next(tcc_state);
         if (s->c != -1
             && !(u == VT_ENUM && s->c == 0)) /* not yet defined typed enum */
             tcc_error("struct/union/enum already defined");
@@ -4597,10 +4597,10 @@ do_decl:
             for(;;) {
                 v = tcc_state->pp->token;
                 if (v < TOK_UIDENT)
-                    expect("identifier");
-                next();
+                    expect(tcc_state, "identifier");
+                next(tcc_state);
                 if (tcc_state->pp->token == '=') {
-                    next();
+                    next(tcc_state);
 		    ll = expr_const64();
                 }
                 if (bt && !in_range(ll, t.t))
@@ -4615,13 +4615,13 @@ do_decl:
                     pl = ll;
                 if (tcc_state->pp->token != ',')
                     break;
-                next();
+                next(tcc_state);
                 ll++;
                 /* NOTE: we accept a trailing comma */
                 if (tcc_state->pp->token == '}')
                     break;
             }
-            skip('}');
+            skip(tcc_state, '}');
 
             if (bt) {
                 t.t = bt;
@@ -4664,7 +4664,7 @@ do_decl:
                         do_Static_assert();
                         continue;
                     }
-		    skip(';');
+		    skip(tcc_state, ';');
 		    continue;
 		}
                 while (1) {
@@ -4679,12 +4679,12 @@ do_decl:
                             type_decl(&type1, &ad1, &v, TYPE_DIRECT);
                         if (v == 0) {
                     	    if ((type1.t & VT_BTYPE) != VT_STRUCT)
-                        	expect("identifier");
+				expect(tcc_state, "identifier");
                     	    else {
 				int v = btype.ref->v;
 				if ((v & ~SYM_STRUCT) < SYM_FIRST_ANOM) {
 				    if (tcc_state->ms_extensions == 0)
-                        		expect("identifier");
+					expect(tcc_state, "identifier");
 				}
                     	    }
                         }
@@ -4702,8 +4702,8 @@ do_decl:
                                   get_tok_str(tcc_state, v, NULL));
                     }
                     if (tcc_state->pp->token == ':') {
-                        next();
-                        bit_size = expr_const();
+                        next(tcc_state);
+                        bit_size = expr_const(tcc_state);
                         /* XXX: handle v = 0 case for messages */
                         if (bit_size < 0)
                             tcc_error("negative width in bit-field '%s'", 
@@ -4759,11 +4759,11 @@ do_decl:
                     }
                     if (tcc_state->pp->token == ';' || tcc_state->pp->token == TOK_EOF)
                         break;
-                    skip(',');
+                    skip(tcc_state, ',');
                 }
-                skip(';');
+                skip(tcc_state, ';');
             }
-            skip('}');
+            skip(tcc_state, '}');
 	    parse_attribute(&ad);
             if (ad.cleanup_func) {
                 tcc_warning("attribute '__cleanup__' ignored on type");
@@ -4816,14 +4816,14 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
         switch(tcc_state->pp->token) {
         case TOK_EXTENSION:
             /* currently, we really ignore extension */
-            next();
+            next(tcc_state);
             continue;
 
             /* basic types */
         case TOK_CHAR:
             u = VT_BYTE;
         basic_type:
-            next();
+            next(tcc_state);
         basic_type1:
             if (u == VT_SHORT || u == VT_LONG) {
                 if (st != -1 || (bt != -1 && bt != VT_INT))
@@ -4852,8 +4852,8 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
         case TOK_ALIGNAS:
             { int n;
               AttributeDef ad1;
-              next();
-              skip('(');
+              next(tcc_state);
+              skip(tcc_state, '(');
               memset(&ad1, 0, sizeof(AttributeDef));
               if (parse_btype(&type1, &ad1, 0)) {
                   type_decl(&type1, &ad1, &n, TYPE_ABSTRACT);
@@ -4862,11 +4862,11 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
                   else
                     type_size(&type1, &n);
               } else {
-                  n = expr_const();
+                  n = expr_const(tcc_state);
                   if (n < 0 || (n & (n - 1)) != 0)
                     tcc_error("alignment must be a positive power of two");
               }
-              skip(')');
+              skip(tcc_state, ')');
               ad->a.aligned = exact_log2p1(n);
             }
             continue;
@@ -4879,7 +4879,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
                 u = VT_LONG;
                 goto basic_type;
             }
-            next();
+            next(tcc_state);
             break;
         case TOK_BOOL:
             u = VT_BOOL;
@@ -4896,7 +4896,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
                 u = VT_DOUBLE;
                 goto basic_type;
             }
-            next();
+            next(tcc_state);
             break;
         case TOK_ENUM:
             struct_decl(&type1, VT_ENUM);
@@ -4913,7 +4913,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
 
             /* type modifiers */
         case TOK__Atomic:
-            next();
+            next(tcc_state);
             type->t = t;
             parse_btype_qualify(type, VT_ATOMIC);
             t = type->t;
@@ -4932,7 +4932,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             type->t = t;
             parse_btype_qualify(type, VT_CONSTANT);
             t = type->t;
-            next();
+            next(tcc_state);
             break;
         case TOK_VOLATILE1:
         case TOK_VOLATILE2:
@@ -4940,7 +4940,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             type->t = t;
             parse_btype_qualify(type, VT_VOLATILE);
             t = type->t;
-            next();
+            next(tcc_state);
             break;
         case TOK_SIGNED1:
         case TOK_SIGNED2:
@@ -4948,24 +4948,24 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             if ((t & (VT_DEFSIGN|VT_UNSIGNED)) == (VT_DEFSIGN|VT_UNSIGNED))
                 tcc_error("signed and unsigned modifier");
             t |= VT_DEFSIGN;
-            next();
+            next(tcc_state);
             typespec_found = 1;
             break;
         case TOK_RESTRICT1:
         case TOK_RESTRICT2:
         case TOK_RESTRICT3:
             t |= VT_RESTRICT;
-            next();
+            next(tcc_state);
             break;
         case TOK_REGISTER:
         case TOK_AUTO:
-            next();
+            next(tcc_state);
             break;
         case TOK_UNSIGNED:
             if ((t & (VT_DEFSIGN|VT_UNSIGNED)) == VT_DEFSIGN)
                 tcc_error("signed and unsigned modifier");
             t |= VT_DEFSIGN | VT_UNSIGNED;
-            next();
+            next(tcc_state);
             typespec_found = 1;
             break;
 
@@ -4983,16 +4983,16 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             if (t & (VT_EXTERN|VT_STATIC|VT_TYPEDEF) & ~g)
                 tcc_error("multiple storage classes");
             t |= g;
-            next();
+            next(tcc_state);
             break;
         case TOK_INLINE1:
         case TOK_INLINE2:
         case TOK_INLINE3:
             t |= VT_INLINE;
-            next();
+            next(tcc_state);
             break;
         case TOK_NORETURN3:
-            next();
+            next(tcc_state);
             ad->f.func_noreturn = 1;
             break;
             /* GNUC attribute */
@@ -5008,7 +5008,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
         case TOK_TYPEOF1:
         case TOK_TYPEOF2:
         case TOK_TYPEOF3:
-            next();
+            next(tcc_state);
             parse_expr_type(&type1);
             /* remove all storage modifiers except typedef */
             type1.t &= ~(VT_STORAGE&~VT_TYPEDEF);
@@ -5023,7 +5023,7 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             if (t & VT_TLS)
                 tcc_error("multiple thread-local storage specifiers");
             t |= VT_TLS;
-            next();
+            next(tcc_state);
             break;
         default:
             if (typespec_found)
@@ -5032,10 +5032,10 @@ static int parse_btype(struct neocc_type *type, AttributeDef *ad, int ignore_lab
             if (!s || !(s->type.t & VT_TYPEDEF))
                 goto the_end;
 
-            n = tcc_state->pp->token, next();
+            n = tcc_state->pp->token, next(tcc_state);
             if (tcc_state->pp->token == ':' && ignore_label) {
                 /* ignore if it's a label */
-                unget_tok(n);
+                unget_tok(tcc_state, n);
                 goto the_end;
             }
 
@@ -5094,7 +5094,7 @@ static inline void convert_expression_type(struct neocc_type *pt)
 
 ST_FUNC struct neocc_string* parse_asm_str(void)
 {
-    skip('(');
+    skip(tcc_state, '(');
     return parse_mult_str("string constant");
 }
 
@@ -5104,9 +5104,9 @@ static int asm_label_instr(void)
     int v;
     char *astr;
 
-    next();
+    next(tcc_state);
     astr = parse_asm_str()->data;
-    skip(')');
+    skip(tcc_state, ')');
 #ifdef ASM_DEBUG
     printf("asm_alias: \"%s\"\n", astr);
 #endif
@@ -5126,16 +5126,16 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 
     if (tcc_state->pp->token == '(') {
         /* function type, or recursive declarator (return if so) */
-        next();
+        next(tcc_state);
 	if (TYPE_DIRECT == (td & (TYPE_DIRECT|TYPE_ABSTRACT)))
 	  return 0;
 
         /* we push a anonymous symbol which will contain the function prototype */
         /* it also serves as a boundary for the function parameter scope */
-        stack = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ?
+        stack = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL) ?
             NEOCC_SYMBOL_STACK_LOCAL : NEOCC_SYMBOL_STACK_GLOBAL;
         sym_scope_add(1);
-        sr = sym_stack_push(stack, SYM_FIELD, 0, 0);
+        sr = sym_stack_push(tcc_state, stack, SYM_FIELD, 0, 0);
 
 	if (tcc_state->pp->token == ')')
 	  l = 0;
@@ -5167,10 +5167,10 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
                     n = tcc_state->pp->token;
                     pt.t = VT_INT | VT_EXTERN; /* default type */
                     pt.ref = NULL;
-                    next();
+                    next(tcc_state);
                 }
                 if (n < TOK_UIDENT)
-                    expect("identifier");
+                    expect(tcc_state, "identifier");
                 convert_parameter_type(&pt);
                 arg_size += (type_size(&pt, &align) + PTR_SIZE - 1) / PTR_SIZE;
                 /* these symbols may be evaluated for VLArrays (see below, under
@@ -5180,10 +5180,10 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
                 plast = &s->next;
                 if (tcc_state->pp->token == ')')
                     break;
-                skip(',');
+                skip(tcc_state, ',');
                 if (l == FUNC_NEW && tcc_state->pp->token == TOK_DOTS) {
                     l = FUNC_ELLIPSIS;
-                    next();
+                    next(tcc_state);
                     break;
                 }
 		if (l == FUNC_NEW && !parse_btype(&pt, &ad1, 0))
@@ -5192,7 +5192,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
         } else
             /* if no parameters, then old type prototype */
             l = FUNC_OLD;
-        skip(')');
+        skip(tcc_state, ')');
         /* A function return value has the unqualified version of its
            declared type. */
         type->t &= ~VT_QUAL;
@@ -5200,8 +5200,8 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
            and the array brackets to be put after the arguments, such 
            that "int c()[]" means something like "int[] c()" */
         if (tcc_state->pp->token == '[') {
-            next();
-            skip(']'); /* only handle simple "[]" */
+            next(tcc_state);
+            skip(tcc_state, ']'); /* only handle simple "[]" */
             mk_pointer(type);
         }
         ad->f.func_args = arg_size;
@@ -5220,7 +5220,7 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 	int saved_nocode_wanted = tcc_state->unit->suppression;
         int array_qualifiers = 0;
         /* array definition */
-        next();
+        next(tcc_state);
         n = -1;
         t1 = 0;
         if (td & TYPE_PARAM) while (1) {
@@ -5230,19 +5230,19 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 	    switch (tcc_state->pp->token) {
 	    case TOK_CONST1: case TOK_CONST2: case TOK_CONST3:
 		array_qualifiers |= VT_CONSTANT;
-		next();
+		next(tcc_state);
 		continue;
 	    case TOK_VOLATILE1: case TOK_VOLATILE2: case TOK_VOLATILE3:
 		array_qualifiers |= VT_VOLATILE;
-		next();
+		next(tcc_state);
 		continue;
 	    case TOK_RESTRICT1: case TOK_RESTRICT2: case TOK_RESTRICT3:
 		array_qualifiers |= VT_RESTRICT;
-		next();
+		next(tcc_state);
 		continue;
 	    case TOK_STATIC:
 	    case '*':
-		next();
+		next(tcc_state);
 		continue;
 	    default:
 		break;
@@ -5252,21 +5252,21 @@ static int post_type(struct neocc_type *type, AttributeDef *ad, int storage, int
 		   at start of function. Save code here for later use. */
 	        tcc_state->unit->suppression = 1;
 		skip_or_save_block(vla_array_tok = tok_str_alloc(tcc_state));
-		unget_tok(0);
+		unget_tok(tcc_state, 0);
 		vla_array_str = vla_array_tok->str;
 		begin_macro(tcc_state, vla_array_tok, 2);
-		next();
+		next(tcc_state);
 	        gexpr();
 		end_macro(tcc_state);
-		next();
+		next(tcc_state);
 		goto check;
             }
             break;
 
 	} else if (tcc_state->pp->token != ']') {
-            if (!sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL) ||
+            if (!sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL) ||
                 (storage & VT_STATIC))
-                vpushi(expr_const());
+                vpushi(expr_const(tcc_state));
             else {
 		/* VLAs (which can only happen with a local stack and !VT_STATIC)
 		   length must always be evaluated, even under nocode_wanted,
@@ -5287,7 +5287,7 @@ check:
                 t1 = VT_VLA;
             }
         }
-        skip(']');
+        skip(tcc_state, ']');
         /* parse next post type */
         post_type(type, ad, storage, (td & ~(TYPE_DIRECT|TYPE_ABSTRACT)) | TYPE_NEST);
 
@@ -5358,7 +5358,7 @@ static struct neocc_type *type_decl(struct neocc_type *type, AttributeDef *ad, i
     while (tcc_state->pp->token == '*') {
         qualifiers = 0;
     redo:
-        next();
+        next(tcc_state);
         switch(tcc_state->pp->token) {
         case TOK__Atomic:
             qualifiers |= VT_ATOMIC;
@@ -5401,17 +5401,17 @@ static struct neocc_type *type_decl(struct neocc_type *type, AttributeDef *ad, i
 	       the syntax is not clear */
 	    parse_attribute(ad);
 	    post = type_decl(type, ad, v, td);
-	    skip(')');
+	    skip(tcc_state, ')');
 	} else
 	  goto abstract;
     } else if (tcc_state->pp->token >= TOK_IDENT && (td & TYPE_DIRECT)) {
 	/* type identifier */
 	*v = tcc_state->pp->token;
-	next();
+	next(tcc_state);
     } else {
   abstract:
 	if (!(td & TYPE_ABSTRACT))
-	  expect("identifier");
+	  expect(tcc_state, "identifier");
 	*v = 0;
     }
     post_type(post, ad, post != ret ? 0 : storage,
@@ -5428,7 +5428,7 @@ ST_FUNC void indir(void)
     if ((tcc_state->expr->top->type.t & VT_BTYPE) != VT_PTR) {
         if ((tcc_state->expr->top->type.t & VT_BTYPE) == VT_FUNC)
             return;
-        expect("pointer");
+        expect(tcc_state, "pointer");
     }
     if (tcc_state->expr->top->r & VT_LVAL)
         gv(RC_INT);
@@ -5490,13 +5490,13 @@ static void parse_expr_type(struct neocc_type *type)
     int n;
     AttributeDef ad;
 
-    skip('(');
+    skip(tcc_state, '(');
     if (parse_btype(type, &ad, 0)) {
         type_decl(type, &ad, &n, TYPE_ABSTRACT);
     } else {
         expr_type(type, gexpr);
     }
-    skip(')');
+    skip(tcc_state, ')');
 }
 
 static void parse_type(struct neocc_type *type)
@@ -5505,7 +5505,7 @@ static void parse_type(struct neocc_type *type)
     int n;
 
     if (!parse_btype(type, &ad, 0)) {
-        expect("type");
+        expect(tcc_state, "type");
     }
     type_decl(type, &ad, &n, TYPE_ABSTRACT);
 }
@@ -5516,11 +5516,11 @@ static void parse_builtin_params(int nc, const char *args)
     struct neocc_type type;
     if (nc)
         tcc_state->unit->suppression++;
-    next();
+    next(tcc_state);
     if (*args == 0)
-	skip(sep);
+	skip(tcc_state, sep);
     while ((c = *args++)) {
-	skip(sep);
+	skip(tcc_state, sep);
 	sep = ',';
         if (c == 't') {
             parse_type(&type);
@@ -5556,7 +5556,7 @@ static void parse_builtin_params(int nc, const char *args)
 	}
         gen_assign_cast(&type);
     }
-    skip(')');
+    skip(tcc_state, ')');
     if (nc)
         tcc_state->unit->suppression--;
 }
@@ -5605,8 +5605,8 @@ static void parse_atomic(int atok)
 
     atom = atom_ptr = NULL;
     size = 0; /* pacify compiler */
-    next();
-    skip('(');
+    next(tcc_state);
+    skip(tcc_state, '(');
     for (arg = 0;;) {
         expr_eq();
         switch (template[arg]) {
@@ -5614,7 +5614,7 @@ static void parse_atomic(int atok)
         case 'A':
             atom_ptr = &tcc_state->expr->top->type;
             if ((atom_ptr->t & VT_BTYPE) != VT_PTR)
-                expect("pointer");
+                expect(tcc_state, "pointer");
             atom = pointed_type(atom_ptr);
             size = type_size(atom, &align);
             if (size > 8
@@ -5622,7 +5622,7 @@ static void parse_atomic(int atok)
                 || (atok > TOK___atomic_compare_exchange
                     && (0 == btype_size(atom->t & VT_BTYPE)
                         || (atom->t & VT_BTYPE) == VT_PTR)))
-                expect("integral or integer-sized pointer target type");
+                expect(tcc_state, "integral or integer-sized pointer target type");
             /* GCC does not care either: */
             /* if (!(atom->t & VT_ATOMIC))
                 tcc_warning("pointer target declaration is missing '_Atomic'"); */
@@ -5657,9 +5657,9 @@ static void parse_atomic(int atok)
         }
         if ('.' == template[++arg])
             break;
-        skip(',');
+        skip(tcc_state, ',');
     }
-    skip(')');
+    skip(tcc_state, ')');
 
     ct.t = VT_VOID;
     switch (template[arg + 1]) {
@@ -5713,7 +5713,7 @@ ST_FUNC void unary(void)
  tok_next:
     switch(tcc_state->pp->token) {
     case TOK_EXTENSION:
-        next();
+        next(tcc_state);
         goto tok_next;
     case TOK_LCHAR:
 #ifdef TCC_TARGET_PE
@@ -5726,7 +5726,7 @@ ST_FUNC void unary(void)
  push_tokc:
 	type.t = t;
 	vsetc(&type, VT_CONST, &tcc_state->pp->value);
-        next();
+        next(tcc_state);
         break;
     case TOK_CUINT:
         t = VT_INT | VT_UNSIGNED;
@@ -5792,11 +5792,11 @@ ST_FUNC void unary(void)
     case TOK_SOTYPE:
     case '(':
         t = tcc_state->pp->token;
-        next();
+        next(tcc_state);
         /* cast ? */
         if (parse_btype(&type, &ad, 0)) {
             type_decl(&type, &ad, &n, TYPE_ABSTRACT);
-            skip(')');
+            skip(tcc_state, ')');
             /* check ISOC99 compound literal */
             if (tcc_state->pp->token == '{') {
                     /* data is allocated locally by default */
@@ -5819,7 +5819,7 @@ ST_FUNC void unary(void)
         } else if (tcc_state->pp->token == '{') {
 	    int saved_nocode_wanted = tcc_state->unit->suppression;
             if (CONST_WANTED && !NOEVAL_WANTED)
-                expect("constant");
+                expect(tcc_state, "constant");
             if (0 == sym_scope_get())
                 tcc_error("statement expression outside of function");
             /* save all registers */
@@ -5838,19 +5838,19 @@ ST_FUNC void unary(void)
                statement expression.  */
             if (saved_nocode_wanted)
               tcc_state->unit->suppression = saved_nocode_wanted;
-            skip(')');
+            skip(tcc_state, ')');
         } else {
             gexpr();
-            skip(')');
+            skip(tcc_state, ')');
         }
         break;
     case '*':
-        next();
+        next(tcc_state);
         unary();
         indir();
         break;
     case '&':
-        next();
+        next(tcc_state);
         unary();
         /* functions names must be treated as function pointers,
            except for unary '&' and sizeof. Since we consider that
@@ -5866,18 +5866,18 @@ ST_FUNC void unary(void)
         gaddrof();
         break;
     case '!':
-        next();
+        next(tcc_state);
         unary();
         gen_test_zero(TOK_EQ);
         break;
     case '~':
-        next();
+        next(tcc_state);
         unary();
         vpushi(-1);
         gen_op('^');
         break;
     case '+':
-        next();
+        next(tcc_state);
         unary();
         if ((tcc_state->expr->top->type.t & VT_BTYPE) == VT_PTR)
             tcc_error("pointer not accepted for unary plus");
@@ -5894,7 +5894,7 @@ ST_FUNC void unary(void)
     case TOK_ALIGNOF2:
     case TOK_ALIGNOF3:
         t = tcc_state->pp->token;
-        next();
+        next(tcc_state);
         if (tcc_state->pp->token == '(')
             tcc_state->pp->token = TOK_SOTYPE;
         expr_type(&type, unary);
@@ -5926,10 +5926,10 @@ ST_FUNC void unary(void)
     case TOK_builtin_choose_expr:
 	{
 	    int64_t c;
-	    next();
-	    skip('(');
+	    next(tcc_state);
+	    skip(tcc_state, '(');
 	    c = expr_const64();
-	    skip(',');
+	    skip(tcc_state, ',');
 	    if (!c) {
 		tcc_state->unit->suppression++;
 	    }
@@ -5938,7 +5938,7 @@ ST_FUNC void unary(void)
 		vpop();
 		tcc_state->unit->suppression--;
 	    }
-	    skip(',');
+	    skip(tcc_state, ',');
 	    if (c) {
 		tcc_state->unit->suppression++;
 	    }
@@ -5947,7 +5947,7 @@ ST_FUNC void unary(void)
 		vpop();
 		tcc_state->unit->suppression--;
 	    }
-	    skip(')');
+	    skip(tcc_state, ')');
 	}
         break;
     case TOK_builtin_constant_p:
@@ -5971,12 +5971,12 @@ ST_FUNC void unary(void)
         {
             int tok1 = tcc_state->pp->token;
             int level;
-            next();
-            skip('(');
-            level = expr_const();
+            next(tcc_state);
+            skip(tcc_state, '(');
+            level = expr_const(tcc_state);
             if (level < 0)
                 tcc_error("%s only takes positive integers", get_tok_str(tcc_state, tok1, 0));
-            skip(')');
+            skip(tcc_state, ')');
             type.t = VT_VOID;
             mk_pointer(&type);
             vset(&type, VT_LOCAL, 0);       /* local frame */
@@ -6105,12 +6105,12 @@ ST_FUNC void unary(void)
     case TOK_INC:
     case TOK_DEC:
         t = tcc_state->pp->token;
-        next();
+        next(tcc_state);
         unary();
         inc(0, t);
         break;
     case '-':
-        next();
+        next(tcc_state);
         unary();
 	if (is_float(tcc_state->expr->top->type.t)) {
             gen_opif(TOK_NEG);
@@ -6123,10 +6123,10 @@ ST_FUNC void unary(void)
     case TOK_LAND:
         if (!gnu_ext)
             goto tok_identifier;
-        next();
+        next(tcc_state);
         /* allow to take the address of a label */
         if (tcc_state->pp->token < TOK_UIDENT)
-            expect("label identifier");
+            expect(tcc_state, "label identifier");
         s = label_find(tcc_state->pp->token);
         if (!s) {
             s = label_push(NEOCC_SYMBOL_STACK_GLOBAL_LABEL,
@@ -6141,7 +6141,7 @@ ST_FUNC void unary(void)
             s->type.t |= VT_STATIC;
         }
         vpushsym(&s->type, s);
-        next();
+        next(tcc_state);
         break;
 
     case TOK_GENERIC:
@@ -6154,8 +6154,8 @@ ST_FUNC void unary(void)
 	int saved_nocode_wanted = tcc_state->unit->suppression;
         tcc_state->unit->suppression &= ~CONST_WANTED_MASK;
 
-        next();
-	skip('(');
+        next(tcc_state);
+	skip(tcc_state, '(');
 	expr_type(&controlling_type, expr_eq);
 	convert_expression_type(&controlling_type);
 
@@ -6163,14 +6163,14 @@ ST_FUNC void unary(void)
 
         for (;;) {
 	    learn = 0;
-	    skip(',');
+	    skip(tcc_state, ',');
 	    if (tcc_state->pp->token == TOK_DEFAULT) {
 		if (has_default)
 		    tcc_error("too many 'default'");
 		has_default = 1;
 		if (!has_match)
 		    learn = 1;
-		next();
+		next(tcc_state);
 	    } else {
 		int v;
 		parse_btype(&type, &ad, 0);
@@ -6183,7 +6183,7 @@ ST_FUNC void unary(void)
 		    learn = 1;
 		}
 	    }
-	    skip(':');
+	    skip(tcc_state, ':');
 	    if (learn) {
 		if (str)
 		    tok_str_free(tcc_state, str);
@@ -6200,12 +6200,12 @@ ST_FUNC void unary(void)
 	    tcc_error("type '%s' does not match any association", buf);
 	}
 	begin_macro(tcc_state, str, 1);
-	next();
+	next(tcc_state);
 	expr_eq();
 	if (tcc_state->pp->token != TOK_EOF)
-	    expect(",");
+	    expect(tcc_state, ",");
 	end_macro(tcc_state);
-        next();
+        next(tcc_state);
 	break;
     }
     // special qnan , snan and infinity values
@@ -6214,7 +6214,7 @@ ST_FUNC void unary(void)
 special_math_val:
 	vpushi(n);
 	tcc_state->expr->top->type.t = VT_FLOAT;
-        next();
+        next(tcc_state);
         break;
     case TOK___SNAN__:
 	n = 0x7f800001;
@@ -6228,7 +6228,7 @@ special_math_val:
         if (tcc_state->pp->token < TOK_UIDENT)
             tcc_error("expression expected before '%s'", get_tok_str(tcc_state, tcc_state->pp->token, &tcc_state->pp->value));
         t = tcc_state->pp->token;
-        next();
+        next(tcc_state);
         s = sym_find(t);
         if (!s || IS_ASM_SYM(s)) {
             const char *name = get_tok_str(tcc_state, t, NULL);
@@ -6237,7 +6237,7 @@ special_math_val:
             /* for simple function calls, we tolerate undeclared
                external reference to int() function */
             if (!function->old_style)
-            tcc_warning_c(warn_implicit_function_declaration)(
+            tcc_warning_c(tcc_state, warn_implicit_function_declaration,
                 "implicit declaration of function '%s'", name);
             s = external_global_sym(t, &tcc_state->expr->func_old_type);
         }
@@ -6273,7 +6273,7 @@ special_math_val:
     while (1) {
         if (tcc_state->pp->token == TOK_INC || tcc_state->pp->token == TOK_DEC) {
             inc(1, tcc_state->pp->token);
-            next();
+            next(tcc_state);
         } else if (tcc_state->pp->token == '.' || tcc_state->pp->token == TOK_ARROW) {
             int qualifiers, cumofs;
             /* field */ 
@@ -6282,7 +6282,7 @@ special_math_val:
             qualifiers = tcc_state->expr->top->type.t & VT_QUAL;
             test_lvalue();
             /* expect pointer on structure */
-            next();
+            next(tcc_state);
 	    s = find_field(&tcc_state->expr->top->type, tcc_state->pp->token, &cumofs);
             /* add field offset to pointer */
             gaddrof();
@@ -6302,13 +6302,13 @@ special_math_val:
                     tcc_state->expr->top->r |= VT_MUSTBOUND;
 #endif
             }
-            next();
+            next(tcc_state);
         } else if (tcc_state->pp->token == '[') {
-            next();
+            next(tcc_state);
             gexpr();
             gen_op('+');
             indir();
-            skip(']');
+            skip(tcc_state, ']');
         } else if (tcc_state->pp->token == '(') {
             struct neocc_expression_value ret;
             struct neocc_symbol *sa;
@@ -6324,14 +6324,14 @@ special_math_val:
                         goto error_func;
                 } else {
                 error_func:
-                    expect("function pointer");
+                    expect(tcc_state, "function pointer");
                 }
             } else {
                 tcc_state->expr->top->r &= ~VT_LVAL; /* no lvalue */
             }
             /* get return type */
             s = tcc_state->expr->top->type.ref;
-            next();
+            next(tcc_state);
             sa = s->next; /* first parameter */
             nb_args = regsize = 0;
             ret.r2 = VT_CONST;
@@ -6395,7 +6395,7 @@ special_math_val:
                         sa = sa->next;
                     if (tcc_state->pp->token == ')')
                         break;
-                    skip(',');
+                    skip(tcc_state, ',');
                 }
             }
             if (sa)
@@ -6408,7 +6408,7 @@ special_math_val:
                         sa = sa->next, p2 = p2->prev;
                     } while (p2 && sa);
                     p2 = p->prev;
-                    begin_macro(tcc_state, p, 1), next();
+                    begin_macro(tcc_state, p, 1), next(tcc_state);
                     expr_eq();
                     gfunc_param_typed(s, sa);
                     end_macro(tcc_state);
@@ -6416,7 +6416,7 @@ special_math_val:
                 vrev(n);
             }
 
-            next();
+            next(tcc_state);
             vcheck_cmp(); /* the generators don't like VT_CMP on vtop */
             gfunc_call(nb_args);
 
@@ -6500,7 +6500,7 @@ static void expr_prod(void)
 
     unary();
     while ((t = tcc_state->pp->token) == '*' || t == '/' || t == '%') {
-        next();
+        next(tcc_state);
         unary();
         gen_op(t);
     }
@@ -6512,7 +6512,7 @@ static void expr_sum(void)
 
     expr_prod();
     while ((t = tcc_state->pp->token) == '+' || t == '-') {
-        next();
+        next(tcc_state);
         expr_prod();
         gen_op(t);
     }
@@ -6524,7 +6524,7 @@ static void expr_shift(void)
 
     expr_sum();
     while ((t = tcc_state->pp->token) == TOK_SHL || t == TOK_SAR) {
-        next();
+        next(tcc_state);
         expr_sum();
         gen_op(t);
     }
@@ -6537,7 +6537,7 @@ static void expr_cmp(void)
     expr_shift();
     while (((t = tcc_state->pp->token) >= TOK_ULE && t <= TOK_GT) ||
            t == TOK_ULT || t == TOK_UGE) {
-        next();
+        next(tcc_state);
         expr_shift();
         gen_op(t);
     }
@@ -6549,7 +6549,7 @@ static void expr_cmpeq(void)
 
     expr_cmp();
     while ((t = tcc_state->pp->token) == TOK_EQ || t == TOK_NE) {
-        next();
+        next(tcc_state);
         expr_cmp();
         gen_op(t);
     }
@@ -6559,7 +6559,7 @@ static void expr_and(void)
 {
     expr_cmpeq();
     while (tcc_state->pp->token == '&') {
-        next();
+        next(tcc_state);
         expr_cmpeq();
         gen_op('&');
     }
@@ -6569,7 +6569,7 @@ static void expr_xor(void)
 {
     expr_and();
     while (tcc_state->pp->token == '^') {
-        next();
+        next(tcc_state);
         expr_and();
         gen_op('^');
     }
@@ -6579,7 +6579,7 @@ static void expr_or(void)
 {
     expr_xor();
     while (tcc_state->pp->token == '|') {
-        next();
+        next(tcc_state);
         expr_xor();
         gen_op('|');
     }
@@ -6643,7 +6643,7 @@ static void expr_infix(int p)
         if (t == TOK_LOR || t == TOK_LAND) {
             expr_landor(t);
         } else {
-            next();
+            next(tcc_state);
             unary();
             if (precedence(tcc_state->pp->token) > p2)
               expr_infix(p2 + 1);
@@ -6685,7 +6685,7 @@ static void expr_landor(int op)
             t = gvtst(i, t);
         else
             vpop();
-        next();
+        next(tcc_state);
         expr_landor_next(op);
     }
     if (cc || f) {
@@ -6716,7 +6716,7 @@ static void expr_cond(void)
 
     expr_lor();
     if (tcc_state->pp->token == '?') {
-        next();
+        next(tcc_state);
 	c = condition_3way();
         g = (tcc_state->pp->token == ':' && gnu_ext);
         tt = 0;
@@ -6757,7 +6757,7 @@ static void expr_cond(void)
           tcc_state->unit->suppression--;
         if (c == 1)
           tcc_state->unit->suppression++;
-        skip(':');
+        skip(tcc_state, ':');
         expr_cond();
 
         if ((tcc_state->expr->top->type.t & VT_BTYPE) == VT_FUNC)
@@ -6845,7 +6845,7 @@ static void expr_eq(void)
     expr_cond();
     if ((t = tcc_state->pp->token) == '=' || TOK_ASSIGN(t)) {
         test_lvalue();
-        next();
+        next(tcc_state);
         if (t == '=') {
             expr_eq();
         } else {
@@ -6863,7 +6863,7 @@ ST_FUNC void gexpr(void)
     if (tcc_state->pp->token == ',') {
         do {
             vpop();
-            next();
+            next(tcc_state);
             expr_eq();
         } while (tcc_state->pp->token == ',');
 
@@ -6891,7 +6891,7 @@ static inline int64_t expr_const64(void)
     int64_t c;
     expr_const1();
     if ((tcc_state->expr->top->r & (VT_VALMASK | VT_LVAL | VT_SYM | VT_NONCONST)) != VT_CONST)
-        expect("constant expression");
+        expect(tcc_state, "constant expression");
     c = tcc_state->expr->top->c.i;
     vpop();
     return c;
@@ -6899,13 +6899,19 @@ static inline int64_t expr_const64(void)
 
 /* parse an integer constant and return its value.
    Complain if it doesn't fit 32bit (signed or unsigned).  */
-ST_FUNC int expr_const(void)
+ST_FUNC int expr_const(TCCState *s1)
 {
     int c;
-    int64_t wc = expr_const64();
+    int64_t wc;
+
+    /* The semantic parser still uses the active session until P07. Never
+       evaluate a preprocessor expression against a different session. */
+    if (s1 != tcc_state)
+        _tcc_error(s1, "constant expression requires the active semantic session");
+    wc = expr_const64();
     c = wc;
     if (c != wc && (unsigned)c != wc)
-        tcc_error("constant exceeds 32 bit");
+        _tcc_error(s1, "constant exceeds 32 bit");
     return c;
 }
 
@@ -7160,7 +7166,7 @@ static void block_cleanup(struct neocc_scope *o)
         } else {
     remove_pending:
             *pg = g->prev;
-            sym_free(g);
+            sym_free(tcc_state, g);
         }
     }
     gsym(jmp);
@@ -7213,8 +7219,8 @@ static struct neocc_scope *new_scope(void)
     struct neocc_scope *o = scope_push();
 
     /* record local declaration stack position */
-    o->lstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
-    o->llstk = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL_LABEL);
+    o->lstk = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL);
+    o->llstk = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL_LABEL);
     sym_scope_add(1);
     return o;
 }
@@ -7259,7 +7265,7 @@ static void leave_scope(struct neocc_scope *o)
    declare only types (of struct/union/enum) */
 static struct neocc_symbol *new_scope_s(void)
 {
-    struct neocc_symbol *boundary = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    struct neocc_symbol *boundary = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL);
     sym_scope_add(1);
     return boundary;
 }
@@ -7300,7 +7306,7 @@ static void gexpr_decl(void)
         tcc_state->expr->top->sym = s;
     } else {
         if (v)
-            skip(';');
+            skip(tcc_state, ';');
         gexpr();
     }
 }
@@ -7319,22 +7325,22 @@ again:
        invalid code such as f(){"123"4;} */
     if (TOK_HAS_VALUE(t))
         goto expr;
-    next();
+    next(tcc_state);
 
     if (tcc_state->unit->debug_modes)
         tcc_tcov_check_line (tcc_state, 0), tcc_tcov_block_begin (tcc_state);
 
     if (t == TOK_IF) {
         boundary = new_scope_s();
-        skip('(');
+        skip(tcc_state, '(');
         gexpr_decl();
         a = gvtst(1, 0);
-        skip(')');
+        skip(tcc_state, ')');
         block(0);
         if (tcc_state->pp->token == TOK_ELSE) {
             d = gjmp(0);
             gsym(a);
-            next();
+            next(tcc_state);
             block(0);
             gsym(d); /* patch else jmp */
         } else {
@@ -7345,10 +7351,10 @@ again:
     } else if (t == TOK_WHILE) {
         boundary = new_scope_s();
         d = gind();
-        skip('(');
+        skip(tcc_state, '(');
         gexpr();
         a = gvtst(1, 0);
-        skip(')');
+        skip(tcc_state, ')');
         b = 0;
         lblock(&a, &b);
         gjmp_addr(d);
@@ -7364,14 +7370,14 @@ again:
         /* handle local labels declarations */
         while (tcc_state->pp->token == TOK_LABEL) {
             do {
-                next();
+                next(tcc_state);
                 if (tcc_state->pp->token < TOK_UIDENT)
-                    expect("label identifier");
+                    expect(tcc_state, "label identifier");
                 label_push(NEOCC_SYMBOL_STACK_LOCAL_LABEL,
                            tcc_state->pp->token, LABEL_DECLARED);
-                next();
+                next(tcc_state);
             } while (tcc_state->pp->token == ',');
-            skip(';');
+            skip(tcc_state, ';');
         }
 
         while (tcc_state->pp->token != '}') {
@@ -7385,7 +7391,7 @@ again:
         if (tcc_state->unit->debug_modes)
             tcc_debug_stabn(tcc_state, N_RBRAC, tcc_state->unit->instruction - function->start);
         if (sym_scope_get())
-            next();
+            next(tcc_state);
         else if (!tcc_state->unit->suppression)
             check_func_return();
 
@@ -7409,7 +7415,7 @@ again:
         leave_scope(tcc_state->scope->root);
         if (b)
             gfunc_return(&function->type);
-        skip(';');
+        skip(tcc_state, ';');
         /* jump unless last stmt in top-level block */
         if (tcc_state->pp->token != '}' || sym_scope_get() != 1)
             function->return_jumps = gjmp(function->return_jumps);
@@ -7427,7 +7433,7 @@ again:
         else
             leave_scope(tcc_state->scope->loop);
         *tcc_state->scope->current->bsym = gjmp(*tcc_state->scope->current->bsym);
-        skip(';');
+        skip(tcc_state, ';');
 
     } else if (t == TOK_CONTINUE) {
         /* compute jump */
@@ -7435,12 +7441,12 @@ again:
             tcc_error("cannot continue");
         leave_scope(tcc_state->scope->loop);
         *tcc_state->scope->current->csym = gjmp(*tcc_state->scope->current->csym);
-        skip(';');
+        skip(tcc_state, ';');
 
     } else if (t == TOK_FOR) {
         o = new_scope();
 
-        skip('(');
+        skip(tcc_state, '(');
         if (tcc_state->pp->token != ';') {
             /* c99 for-loop init decl? */
             if (!decl(VT_JMP)) {
@@ -7449,14 +7455,14 @@ again:
                 vpop();
             }
         }
-        skip(';');
+        skip(tcc_state, ';');
         a = b = 0;
         c = d = gind();
         if (tcc_state->pp->token != ';') {
             gexpr();
             a = gvtst(1, 0);
         }
-        skip(';');
+        skip(tcc_state, ';');
         if (tcc_state->pp->token != ')') {
             e = gjmp(0);
             d = gind();
@@ -7465,7 +7471,7 @@ again:
             gjmp_addr(c);
             gsym(e);
         }
-        skip(')');
+        skip(tcc_state, ')');
         lblock(&a, &b);
         gjmp_addr(d);
         gsym_addr(b, d);
@@ -7478,12 +7484,12 @@ again:
         d = gind();
         lblock(&a, &b);
         gsym(b);
-        skip(TOK_WHILE);
-        skip('(');
+        skip(tcc_state, TOK_WHILE);
+        skip(tcc_state, '(');
 	gexpr();
         c = gvtst(0, 0);
-        skip(')');
-        skip(';');
+        skip(tcc_state, ')');
+        skip(tcc_state, ';');
 	gsym_addr(c, d);
         gsym(a);
         prev_scope_s(boundary);
@@ -7501,11 +7507,11 @@ again:
         sw->nocode_wanted = tcc_state->unit->suppression;
 
         boundary = new_scope_s();
-        skip('(');
+        skip(tcc_state, '(');
         gexpr_decl();
         if (!is_integer_btype(tcc_state->expr->top->type.t & VT_BTYPE))
             tcc_error("switch value not an integer");
-        skip(')');
+        skip(tcc_state, ')');
         sw->sv = *tcc_state->expr->top--; /* save switch value */
         a = 0;
         b = gjmp(0); /* jump to first case */
@@ -7535,7 +7541,7 @@ again:
         struct neocc_switch *sw = tcc_state->switch_state->current;
         struct neocc_case *cr;
         if (!sw)
-            expect("switch");
+            expect(tcc_state, "switch");
         unsigned int quantity;
         int result = vo_interact1(tcc_state->switches, NEOCC_AC1_SWITCHES_CASE,
             (unsigned char *)&cr, sizeof(cr), &quantity, &neocc_host_caller);
@@ -7544,7 +7550,7 @@ again:
         t = sw->sv.type.t;
         cr->v1 = cr->v2 = value64(expr_const64(), t);
         if (tcc_state->pp->token == TOK_DOTS && gnu_ext) {
-            next();
+            next(tcc_state);
             cr->v2 = value64(expr_const64(), t);
             if (case_cmp(cr->v2, cr->v1, t & VT_UNSIGNED) < 0)
                 tcc_warning("empty case range");
@@ -7553,27 +7559,27 @@ again:
         if (!sw->nocode_wanted)
             cr->ind = gind();
         cr->line = tcc_state->pp->source->line_num;
-        skip(':');
+        skip(tcc_state, ':');
         goto block_after_label;
 
     } else if (t == TOK_DEFAULT) {
         struct neocc_switch *sw = tcc_state->switch_state->current;
         if (!sw)
-            expect("switch");
+            expect(tcc_state, "switch");
         if (sw->def_sym)
             tcc_error("too many 'default'");
         sw->def_sym = sw->nocode_wanted ? -1 : gind();
-        skip(':');
+        skip(tcc_state, ':');
         goto block_after_label;
 
     } else if (t == TOK_GOTO) {
         vla_restore(tcc_state->scope->current->vla.locorig);
         if (tcc_state->pp->token == '*' && gnu_ext) {
             /* computed goto */
-            next();
+            next(tcc_state);
             gexpr();
             if ((tcc_state->expr->top->type.t & VT_BTYPE) != VT_PTR)
-                expect("pointer");
+                expect(tcc_state, "pointer");
             ggoto();
 
         } else if (tcc_state->pp->token >= TOK_UIDENT) {
@@ -7588,9 +7594,9 @@ again:
 	    if (s->r & LABEL_FORWARD) {
 		/* start new goto chain for cleanups, linked via label->next */
 		if (tcc_state->scope->current->cl.s && !tcc_state->unit->suppression) {
-                    sym_push2(&tcc_state->scope->pending_gotos, SYM_FIELD, 0, tcc_state->scope->current->cl.n);
+                    sym_push2(tcc_state, &tcc_state->scope->pending_gotos, SYM_FIELD, 0, tcc_state->scope->current->cl.n);
                     tcc_state->scope->pending_gotos->cleanup_label = s;
-                    s = sym_push2(&s->next, SYM_FIELD, 0, 0);
+                    s = sym_push2(tcc_state, &s->next, SYM_FIELD, 0, 0);
                     tcc_state->scope->pending_gotos->next = s;
                 }
 		s->jnext = gjmp(s->jnext);
@@ -7598,12 +7604,12 @@ again:
 		try_call_cleanup_goto(s->cleanupstate);
 		gjmp_addr(s->jind);
 	    }
-	    next();
+	    next(tcc_state);
 
         } else {
-            expect("label identifier");
+            expect(tcc_state, "label identifier");
         }
-        skip(';');
+        skip(tcc_state, ';');
 
     } else if (t == TOK_ASM1 || t == TOK_ASM2 || t == TOK_ASM3) {
         asm_instr();
@@ -7611,7 +7617,7 @@ again:
     } else {
         if (tcc_state->pp->token == ':' && t >= TOK_UIDENT) {
             /* label case */
-	    next();
+	    next(tcc_state);
             s = label_find(t);
             if (s) {
                 if (s->r == LABEL_DEFINED)
@@ -7645,12 +7651,12 @@ again:
                 /* C23: insert implicit null-statement whithin compound statement */
             } else {
                 /* we accept this, but it is a mistake */
-                tcc_warning_c(warn_all)("deprecated use of label at end of compound statement");
+                tcc_warning_c(tcc_state, warn_all, "deprecated use of label at end of compound statement");
             }
         } else {
             /* expression case */
             if (t != ';') {
-                unget_tok(t);
+                unget_tok(tcc_state, t);
     expr:
                 if (flags & STMT_EXPR) {
                     vpop();
@@ -7659,7 +7665,7 @@ again:
                     gexpr();
                     vpop();
                 }
-                skip(';');
+                skip(tcc_state, ';');
             }
         }
     }
@@ -7695,7 +7701,7 @@ static void skip_or_save_block(struct neocc_token_string *str)
 	}
 	if (str)
 	  tok_str_add_tok(tcc_state, str);
-	next();
+	next(tcc_state);
 	if (t == '{' || t == '(' || t == '[') {
 	    level++;
 	} else if (t == '}' || t == ')' || t == ']') {
@@ -7822,24 +7828,24 @@ static int decl_designator(init_params *p, struct neocc_type *type, unsigned lon
         goto no_designator;
 
     if (gnu_ext && tcc_state->pp->token >= TOK_UIDENT) {
-        l = tcc_state->pp->token, next();
+        l = tcc_state->pp->token, next(tcc_state);
         if (tcc_state->pp->token == ':')
             goto struct_field;
-        unget_tok(l);
+        unget_tok(tcc_state, l);
     }
 
     /* NOTE: we only support ranges for last designator */
     while (nb_elems == 1 && (tcc_state->pp->token == '[' || tcc_state->pp->token == '.')) {
         if (tcc_state->pp->token == '[') {
             if (!(type->t & VT_ARRAY))
-                expect("array type");
-            next();
-            index = index_last = expr_const();
+                expect(tcc_state, "array type");
+            next(tcc_state);
+            index = index_last = expr_const(tcc_state);
             if (tcc_state->pp->token == TOK_DOTS && gnu_ext) {
-                next();
-                index_last = expr_const();
+                next(tcc_state);
+                index_last = expr_const(tcc_state);
             }
-            skip(']');
+            skip(tcc_state, ']');
             s = type->ref;
             decl_design_flex(p, s, index_last);
             if (index < 0 || index_last >= s->c || index_last < index)
@@ -7852,10 +7858,10 @@ static int decl_designator(init_params *p, struct neocc_type *type, unsigned lon
             nb_elems = index_last - index + 1;
         } else {
             int cumofs;
-            next();
+            next(tcc_state);
             l = tcc_state->pp->token;
         struct_field:
-            next();
+            next(tcc_state);
 	    f = find_field(type, l, &cumofs);
             if (cur_field)
                 *cur_field = f;
@@ -7866,9 +7872,9 @@ static int decl_designator(init_params *p, struct neocc_type *type, unsigned lon
     }
     if (!cur_field) {
         if (tcc_state->pp->token == '=') {
-            next();
+            next(tcc_state);
         } else if (!gnu_ext) {
-	    expect("=");
+	    expect(tcc_state, "=");
         }
     } else {
     no_designator:
@@ -8193,7 +8199,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
         no_oblock = 1;
         if (((flags & DIF_FIRST) && tcc_state->pp->token != TOK_LSTR && tcc_state->pp->token != TOK_STR) ||
             tcc_state->pp->token == '{') {
-            skip('{');
+            skip(tcc_state, '{');
             no_oblock = 0;
         }
 
@@ -8224,12 +8230,12 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
                   len += tcc_state->pp->value.str.size / sizeof(nwchar_t);
                 len--;
                 cstr_cat(tcc_state, string, tcc_state->pp->value.str.data, tcc_state->pp->value.str.size);
-                next();
+                next(tcc_state);
             }
             if (tcc_state->pp->token != ')' && tcc_state->pp->token != '}' && tcc_state->pp->token != ',' && tcc_state->pp->token != ';'
                 && tcc_state->pp->token != TOK_EOF) {
                 /* Not a lone literal but part of a bigger expression.  */
-                unget_tok(size1 == 1 ? TOK_STR : TOK_LSTR);
+                unget_tok(tcc_state, size1 == 1 ? TOK_STR : TOK_LSTR);
                 tcc_state->pp->value.str.size = string->size;
                 tcc_state->pp->value.str.data = string->data;
                 goto do_init_array;
@@ -8271,7 +8277,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
                 }
             }
             if (tcc_state->pp->token == ',' && !no_oblock) /* static const char s[] = { "123", }; */
-                next();
+                next(tcc_state);
         } else {
 
           do_init_array:
@@ -8311,11 +8317,11 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
 
 		if (tcc_state->pp->token == '}')
 		    break;
-		skip(',');
+		skip(tcc_state, ',');
 	    }
         }
         if (!no_oblock)
-            skip('}');
+            skip(tcc_state, '}');
 
     } else if ((flags & DIF_HAVE_ELEM)
         /* Use i_c_parameter_t, to strip toplevel qualifiers.
@@ -8327,7 +8333,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
     } else if ((type->t & VT_BTYPE) == VT_STRUCT) {
         no_oblock = 1;
         if ((flags & DIF_FIRST) || tcc_state->pp->token == '{') {
-            skip('{');
+            skip(tcc_state, '{');
             no_oblock = 0;
         }
         s = type->ref;
@@ -8338,10 +8344,10 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
 
     } else if (tcc_state->pp->token == '{') {
         if (flags & DIF_HAVE_ELEM)
-          skip(';');
-        next();
+          skip(tcc_state, ';');
+        next(tcc_state);
         decl_initializer(p, type, c, flags & ~DIF_HAVE_ELEM);
-        skip('}');
+        skip(tcc_state, '}');
 
     } else one_elem: if ((flags & DIF_SIZE_ONLY)) {
 	/* If we supported only ISO C we wouldn't have to accept calling
@@ -8362,7 +8368,7 @@ static void decl_initializer(init_params *p, struct neocc_type *type, unsigned l
 	       the init element above for fear of committing a
 	       string constant to memory too early.  */
 	    if (tcc_state->pp->token != TOK_STR && tcc_state->pp->token != TOK_LSTR)
-	      expect("string constant");
+	      expect(tcc_state, "string constant");
 	    parse_init_elem(!p->sec ? EXPR_ANY : EXPR_CONST);
 	}
         if (!p->sec && (flags & DIF_CLEAR) /* container was already zero'd */
@@ -8457,20 +8463,20 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
             init_str = tok_str_alloc(tcc_state);
             while (tcc_state->pp->token == TOK_STR || tcc_state->pp->token == TOK_LSTR) {
                 tok_str_add_tok(tcc_state, init_str);
-                next();
+                next(tcc_state);
             }
             tok_str_add(tcc_state, init_str, TOK_EOF);
         } else
             skip_or_save_block(init_str = tok_str_alloc(tcc_state));
-        unget_tok(0);
+        unget_tok(tcc_state, 0);
 
         /* compute size */
         begin_macro(tcc_state, init_str, 1);
-        next();
+        next(tcc_state);
         decl_initializer(&p, type, 0, DIF_FIRST | DIF_SIZE_ONLY);
         /* prepare second initializer parsing */
         tcc_state->pp->macro_ptr = init_str->str;
-        next();
+        next(tcc_state);
 
         /* if still unknown size, error */
         size = type_size(type, &align);
@@ -8525,7 +8531,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
 #endif
             sym = sym_push(v, type, r, addr);
 	    if (ad->cleanup_func) {
-		struct neocc_symbol *cls = sym_push2(&tcc_state->scope->all_cleanups,
+		struct neocc_symbol *cls = sym_push2(tcc_state, &tcc_state->scope->all_cleanups,
                     SYM_FIELD | ++tcc_state->scope->current->cl.n, 0, 0);
 		cls->cleanup_sym = sym;
 		cls->cleanup_func = ad->cleanup_func;
@@ -8652,7 +8658,7 @@ static void decl_initializer_alloc(struct neocc_type *type, AttributeDef *ad, in
     /* restore parse state if needed */
     if (init_str) {
         end_macro(tcc_state);
-        next();
+        next(tcc_state);
     }
 
     tcc_state->unit->suppression = saved_nocode_wanted;
@@ -8673,14 +8679,14 @@ static void func_vla_arg_code(struct neocc_symbol *arg)
 	function->stack_offset &= -align;
 	arg->type.ref->c = function->stack_offset;
 
-	unget_tok(0);
+	unget_tok(tcc_state, 0);
 	vla_array_tok = tok_str_alloc(tcc_state);
 	vla_array_tok->str = arg->type.ref->vla_array_str;
 	begin_macro(tcc_state, vla_array_tok, 1);
-	next();
+	next(tcc_state);
 	gexpr();
 	end_macro(tcc_state);
-	next();
+	next(tcc_state);
 	vpush_type_size(&arg->type.ref->type, &align);
 	gen_op('*');
 	vset(&tcc_state->expr->int_type, VT_LOCAL|VT_LVAL, arg->type.ref->c);
@@ -8765,7 +8771,7 @@ static void gen_function(struct neocc_symbol *sym)
     tcc_debug_funcstart(tcc_state, sym);
 
     /* push a dummy symbol to enable local sym storage */
-    sym_stack_push(NEOCC_SYMBOL_STACK_LOCAL, SYM_FIELD, 0, 0);
+    sym_stack_push(tcc_state, NEOCC_SYMBOL_STACK_LOCAL, SYM_FIELD, 0, 0);
     /* push parameters */
     sym_scope_set(1);
     sym_push_params(sym->type.ref);
@@ -8804,7 +8810,7 @@ static void gen_function(struct neocc_symbol *sym)
     check_vstack();
 
     /* do this after funcend debug info */
-    next();
+    next(tcc_state);
 }
 
 static void gen_inline_functions(TCCState *s)
@@ -8829,9 +8835,9 @@ static void gen_inline_functions(TCCState *s)
                 /* the function was used or forced (and then not internal):
                    generate its code and convert it to a normal function */
                 fn->symbol = NULL;
-                tccpp_putfile(fn->filename);
+                tccpp_putfile(s, fn->filename);
                 begin_macro(s, &fn->body, 0);
-                next();
+                next(s);
                 tcc_state->unit->section = text_section;
                 gen_function(sym);
                 end_macro(s);
@@ -8840,7 +8846,7 @@ static void gen_inline_functions(TCCState *s)
             }
         }
     } while (inline_generated);
-    tcc_close();
+    tcc_close(s);
 }
 
 static void do_Static_assert(void)
@@ -8848,18 +8854,18 @@ static void do_Static_assert(void)
     int c;
     const char *msg;
 
-    next();
-    skip('(');
-    c = expr_const();
+    next(tcc_state);
+    skip(tcc_state, '(');
+    c = expr_const(tcc_state);
     msg = "_Static_assert fail";
     if (tcc_state->pp->token == ',') {
-        next();
+        next(tcc_state);
         msg = parse_mult_str("string constant")->data;
     }
-    skip(')');
+    skip(tcc_state, ')');
     if (c == 0)
         tcc_error("%s", msg);
-    skip(';');
+    skip(tcc_state, ';');
 }
 
 #ifdef TCC_TARGET_PE
@@ -8902,7 +8908,7 @@ static int decl(int l)
                 return 0;
             /* skip redundant ';' if not in old parameter decl scope */
             if (tcc_state->pp->token == ';' && l != VT_CMP) {
-                next();
+                next(tcc_state);
                 continue;
             }
             if (tcc_state->pp->token == TOK_STATIC_ASSERT) {
@@ -8923,7 +8929,7 @@ static int decl(int l)
                 oldint = 1;
             } else {
                 if (tcc_state->pp->token != TOK_EOF)
-                    expect("declaration");
+                    expect(tcc_state, "declaration");
                 break;
             }
         }
@@ -8938,7 +8944,7 @@ static int decl(int l)
                 tcc_warning("useless type defines no instances");
             if (l == VT_JMP)
                 return 1;
-            next();
+            next(tcc_state);
             continue;
         }
 
@@ -8982,7 +8988,7 @@ static int decl(int l)
                 /* gcc does not allow __asm__("label") with function definition,
                    but why not ... */
                 if (tcc_state->pp->token == '{')
-                    expect(";");
+                    expect(tcc_state, ";");
             #endif
             }
 
@@ -8993,7 +8999,7 @@ static int decl(int l)
                 if (l != VT_CONST)
                     tcc_error("cannot use local functions");
                 if ((type.t & VT_BTYPE) != VT_FUNC)
-                    expect("function definition");
+                    expect(tcc_state, "function definition");
 
                 /* apply post-declaraton attributes */
                 merge_funcattr(&type.ref->f, &ad.f);
@@ -9005,7 +9011,7 @@ static int decl(int l)
                    make old-style float params double */
                 for (sa = sym->type.ref; (sa = sa->next) != NULL;) {
                     if (!(sa->v & ~SYM_FIELD))
-                        expect("identifier");
+                        expect(tcc_state, "identifier");
                     if (sa->type.t == VT_FLOAT
                         && sym->type.ref->f.func_type == FUNC_OLD) {
                         sa->type.t = VT_DOUBLE;
@@ -9110,7 +9116,7 @@ static int decl(int l)
                             r |= VT_LOCAL;
                         type.t &= ~VT_EXTERN;
                         if (has_init)
-                            next();
+                            next(tcc_state);
                         else if (l == VT_CONST)
                             /* uninitialized global variables may be overridden */
                             type.t |= VT_EXTERN;
@@ -9133,10 +9139,10 @@ static int decl(int l)
                 if (tcc_state->pp->token != ',') {
                     if (l == VT_JMP)
                         return has_init ? v : 1;
-                    skip(';');
+                    skip(tcc_state, ';');
                     break;
                 }
-                next();
+                next(tcc_state);
             }
         }
     }

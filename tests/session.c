@@ -182,6 +182,133 @@ static void preprocessing_context(const char *runtime)
 	tcc_delete(b);
 }
 
+static int lexical_token(struct TCCState *state)
+{
+	do {
+		next(state);
+	} while (state->pp->token == TOK_LINEFEED);
+	return state->pp->token;
+}
+
+static void lexical_context(const char *runtime)
+{
+	static const char *const inputs[] = {
+		"#include \"nested/context_macros.h\"\n"
+		"#include \"nested/./context_macros.h\"\n"
+		"#define BASE 7\n"
+		"#pragma push_macro(\"BASE\")\n#undef BASE\n#define BASE 99\n"
+		"#pragma pop_macro(\"BASE\")\n"
+		"#define CAT_(a,b) a##b\n#define CAT(a,b) CAT_(a,b)\n"
+		"#define STR_(a) #a\n#define STR(a) STR_(a)\n"
+		"#ifdef BASE\n#pragma pack(push,1)\n#line 51 \"context_a.c\"\n"
+		"BASE CAT(to,ken) STR(hello) __LINE__ __COUNTER__ HEADER_NUMBER\n"
+		"#pragma pack(pop)\n#endif\n",
+		"#define BASE 19\n#define HEADER_NUMBER 29\n"
+		"#line 71 \"context_b.c\"\n"
+		"BASE another \"world\" __LINE__ __COUNTER__ HEADER_NUMBER\n",
+	};
+	struct TCCState *states[] = { session(runtime), session(runtime) };
+	const int values[][6] = { { 7, 0, 0, 51, 0, 23 },
+				 { 19, 0, 0, 71, 0, 29 } };
+
+	for (unsigned int i = 0; i < countof(states); i++) {
+		struct TCCState *state = states[i];
+
+		tcc_state = i ? NULL : states[1];
+		tccpp_new(state);
+		tcc_open_bf(state, "tests/cases/context_input.c", strlen(inputs[i]));
+		memcpy(state->pp->source->buffer, inputs[i], strlen(inputs[i]));
+		state->pp->parse_flags = PARSE_FLAG_PREPROCESS | PARSE_FLAG_TOK_NUM |
+			PARSE_FLAG_TOK_STR | PARSE_FLAG_LINEFEED;
+	}
+	for (int token = 0; token < 6; token++) {
+		for (unsigned int i = 0; i < countof(states); i++) {
+			struct TCCState *state = states[i];
+
+			tcc_state = i ? NULL : states[1];
+			lexical_token(state);
+			if (token == 1) {
+				CHECK(!strcmp(get_tok_str(state, state->pp->token, NULL),
+					i ? "another" : "token"));
+			} else if (token == 2) {
+				CHECK(state->pp->token == TOK_STR);
+				CHECK(!strcmp(state->pp->value.str.data,
+					i ? "world" : "hello"));
+			} else {
+				CHECK(state->pp->token == TOK_CINT);
+				CHECK(state->pp->value.i == values[i][token]);
+			}
+			CHECK(tcc_state == (i ? NULL : states[1]));
+			CHECK(!strcmp(state->pp->source->filename,
+				i ? "tests/cases/context_b.c" : "tests/cases/context_a.c"));
+		}
+	}
+	for (unsigned int i = 0; i < countof(states); i++) {
+		struct TCCState *state = states[i];
+
+		tcc_state = i ? NULL : states[1];
+		CHECK(lexical_token(state) == TOK_EOF);
+		CHECK(state->pp->counter == 1);
+		CHECK(!*state->pp->pack_stack_ptr);
+		CHECK(!strcmp(state->pp->source->true_filename,
+			"tests/cases/context_input.c"));
+		free_defines(state, NULL);
+		CHECK(RP(vo_interact0(state->symbols, NEOCC_AC0_SYMBOLS_RESET,
+			&neocc_host_caller)));
+		preprocess_end(state);
+		CHECK(tcc_state == (i ? NULL : states[1]));
+		clean_semantics(state);
+		clean_access(state->sources);
+	}
+	tcc_state = NULL;
+	tcc_delete(states[0]);
+	tcc_delete(states[1]);
+}
+
+static void preprocessing_output_context(const char *runtime)
+{
+	struct TCCState *states[] = { session(runtime), session(runtime) };
+	const char *const inputs[] = {
+		"#define OUT(x) #x\n#ifdef OUT\nOUT(alpha)\n#endif\n",
+		"#define OUT(x) #x\n#ifdef OUT\nOUT(beta)\n#endif\n",
+	};
+
+	for (unsigned int i = 0; i < countof(states); i++) {
+		struct TCCState *state = states[i];
+		char output[1024];
+		size_t length;
+
+		tcc_state = i ? NULL : states[1];
+		tccpp_new(state);
+		tcc_open_bf(state, "output_context.c", strlen(inputs[i]));
+		memcpy(state->pp->source->buffer, inputs[i], strlen(inputs[i]));
+		state->ppfp = tmpfile();
+		CHECK(state->ppfp);
+		state->Pflag = LINE_MACRO_OUTPUT_FORMAT_NONE;
+		state->dflag = 3;
+		CHECK(tcc_preprocess(state) == 0);
+		CHECK(tcc_state == (i ? NULL : states[1]));
+		CHECK(!fseek(state->ppfp, 0, SEEK_SET));
+		length = fread(output, 1, sizeof(output) - 1, state->ppfp);
+		CHECK(!ferror(state->ppfp) && feof(state->ppfp));
+		output[length] = 0;
+		CHECK(strstr(output, "#define OUT(x) #x"));
+		CHECK(strstr(output, i ? "\"beta\"" : "\"alpha\""));
+		CHECK(!strstr(output, i ? "alpha" : "beta"));
+		CHECK(!fclose(state->ppfp));
+		state->ppfp = NULL;
+		free_defines(state, NULL);
+		CHECK(RP(vo_interact0(state->symbols, NEOCC_AC0_SYMBOLS_RESET,
+			&neocc_host_caller)));
+		preprocess_end(state);
+		clean_semantics(state);
+		clean_access(state->sources);
+	}
+	tcc_state = NULL;
+	tcc_delete(states[0]);
+	tcc_delete(states[1]);
+}
+
 static void control_errors(const char *runtime)
 {
 	static const char *const inputs[] = {
@@ -235,6 +362,8 @@ int main(int argc, char **argv)
 	CHECK(argc == 2);
 	CHECK(GetProcessHandleCount(GetCurrentProcess(), &handles_before));
 	preprocessing_context(argv[1]);
+	lexical_context(argv[1]);
+	preprocessing_output_context(argv[1]);
 	control_errors(argv[1]);
 	for (i = 0; i < 64; i++) {
 		a = session(argv[1]);

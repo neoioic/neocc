@@ -1064,11 +1064,11 @@ ST_FUNC void libc_free(void *ptr);
 #define realloc(p, s) use_tcc_realloc(p, s)
 #undef strdup
 #define strdup(s) use_tcc_strdup(s)
-PUB_FUNC int _tcc_error_noabort(const char *fmt, ...) PRINTF_LIKE(1,2);
+PUB_FUNC int _tcc_error_noabort(TCCState *s1, const char *fmt, ...) PRINTF_LIKE(2,3);
 /* Fatal helper failures diagnose the supplied owner after leaving VO. */
 PUB_FUNC NORETURN void _tcc_error(TCCState *s1, const char *fmt, ...)
     PRINTF_LIKE(2,3);
-PUB_FUNC void _tcc_warning(const char *fmt, ...) PRINTF_LIKE(1,2);
+PUB_FUNC void _tcc_warning(TCCState *s1, const char *fmt, ...) PRINTF_LIKE(2,3);
 #define tcc_internal_error(msg) \
     tcc_error("internal compiler error in %s:%d: %s", __FUNCTION__,__LINE__,msg)
 
@@ -1088,7 +1088,7 @@ ST_FUNC int cstr_vprintf(TCCState *s1, struct neocc_string *cstr,
 ST_FUNC void cstr_reset(struct neocc_string *cstr);
 ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
-ST_FUNC void tcc_close(void);
+ST_FUNC void tcc_close(TCCState *s1);
 
 ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags);
 /* flags: */
@@ -1188,31 +1188,31 @@ ST_FUNC int tok_alloc_const(TCCState *s1, const char *str);
 ST_FUNC const char *get_tok_str(TCCState *s1, int v, union neocc_value *cv);
 ST_FUNC void begin_macro(TCCState *s1, struct neocc_token_string *str, int alloc);
 ST_FUNC void end_macro(TCCState *s1);
-ST_FUNC int set_idnum(int c, int val);
+ST_FUNC int set_idnum(TCCState *s1, int c, int val);
 ST_INLN void tok_str_new(struct neocc_token_string *s);
 ST_FUNC struct neocc_token_string *tok_str_alloc(TCCState *s1);
 ST_FUNC void tok_str_free(TCCState *s1, struct neocc_token_string *s);
 ST_FUNC void tok_str_free_str(TCCState *s1, int *str);
 ST_FUNC void tok_str_add(TCCState *s1, struct neocc_token_string *s, int t);
 ST_FUNC void tok_str_add_tok(TCCState *s1, struct neocc_token_string *s);
-ST_INLN void define_push(int v, int macro_type, int *str, struct neocc_symbol *first_arg);
-ST_FUNC void define_undef(struct neocc_symbol *s);
-ST_INLN struct neocc_symbol *define_find(int v);
-ST_FUNC void free_defines(struct neocc_symbol *b);
-ST_FUNC void parse_define(void);
-ST_FUNC void skip_to_eol(int warn);
-ST_FUNC void preprocess(int is_bof);
-ST_FUNC void next(void);
-ST_INLN void unget_tok(int last_tok);
+ST_INLN void define_push(TCCState *s1, int v, int macro_type, int *str, struct neocc_symbol *first_arg);
+ST_FUNC void define_undef(TCCState *s1, struct neocc_symbol *s);
+ST_INLN struct neocc_symbol *define_find(TCCState *s1, int v);
+ST_FUNC void free_defines(TCCState *s1, struct neocc_symbol *b);
+ST_FUNC void parse_define(TCCState *s1);
+ST_FUNC void skip_to_eol(TCCState *s1, int warn);
+ST_FUNC void preprocess(TCCState *s1, int is_bof);
+ST_FUNC void next(TCCState *s1);
+ST_INLN void unget_tok(TCCState *s1, int last_tok);
 ST_FUNC void preprocess_start(TCCState *s1, int filetype);
 ST_FUNC void preprocess_end(TCCState *s1);
 ST_FUNC void tccpp_new(TCCState *s);
 ST_FUNC void tccpp_delete(TCCState *s);
-ST_FUNC void tccpp_putfile(const char *filename);
+ST_FUNC void tccpp_putfile(TCCState *s1, const char *filename);
 ST_FUNC int tcc_preprocess(TCCState *s1);
-ST_FUNC void skip(int c);
-ST_FUNC NORETURN void expect(const char *msg);
-ST_FUNC int pp_error(struct neocc_string *cs);
+ST_FUNC void skip(TCCState *s1, int c);
+ST_FUNC NORETURN void expect(TCCState *s1, const char *msg);
+ST_FUNC int pp_error(TCCState *s1, struct neocc_string *cs);
 
 
 /* space excluding newline */
@@ -1253,11 +1253,11 @@ ST_FUNC void greloc(Section *s, struct neocc_symbol *sym, unsigned long offset, 
 #endif
 ST_FUNC void greloca(Section *s, struct neocc_symbol *sym, unsigned long offset, int type, addr_t addend);
 
-ST_INLN void sym_free(struct neocc_symbol *sym);
-ST_FUNC struct neocc_symbol *sym_stack_push(unsigned int stack, int v, int t, int c);
+ST_INLN void sym_free(TCCState *s1, struct neocc_symbol *sym);
+ST_FUNC struct neocc_symbol *sym_stack_push(TCCState *s1, unsigned int stack, int v, int t, int c);
 ST_FUNC struct neocc_symbol *sym_stack_copy(unsigned int stack, struct neocc_symbol *symbol);
-ST_FUNC struct neocc_symbol *sym_stack_top(unsigned int stack);
-ST_FUNC void sym_stack_drop(unsigned int stack, struct neocc_symbol *symbol);
+ST_FUNC struct neocc_symbol *sym_stack_top(TCCState *s1, unsigned int stack);
+ST_FUNC void sym_stack_drop(TCCState *s1, unsigned int stack, struct neocc_symbol *symbol);
 ST_FUNC int sym_stack_move(unsigned int source, unsigned int destination,
                            struct neocc_symbol *symbol, int copy,
                            struct neocc_symbol **replacement);
@@ -1267,7 +1267,7 @@ ST_FUNC void sym_scope_add(int change);
 ST_FUNC struct neocc_symbol *sym_push(int v, struct neocc_type *type, int r, int c);
 ST_FUNC void sym_pop(unsigned int stack, struct neocc_symbol *b, int keep);
 ST_FUNC void sym_list_pop(struct neocc_symbol **ptop, struct neocc_symbol *b, int keep);
-ST_FUNC struct neocc_symbol *sym_push2(struct neocc_symbol **ps, int v, int t, int c);
+ST_FUNC struct neocc_symbol *sym_push2(TCCState *s1, struct neocc_symbol **ps, int v, int t, int c);
 ST_FUNC struct neocc_symbol *sym_find2(struct neocc_symbol *s, int v);
 ST_INLN struct neocc_symbol *sym_find(int v);
 ST_FUNC struct neocc_symbol *label_find(int v);
@@ -1312,7 +1312,7 @@ ST_FUNC struct neocc_string* parse_asm_str(void);
 ST_FUNC void indir(void);
 ST_FUNC void unary(void);
 ST_FUNC void gexpr(void);
-ST_FUNC int expr_const(void);
+ST_FUNC int expr_const(TCCState *s1);
 #if defined CONFIG_TCC_BCHECK || defined TCC_TARGET_C67
 ST_FUNC struct neocc_symbol *get_sym_ref(struct neocc_type *type, Section *sec, unsigned long offset, unsigned long size);
 #endif
@@ -1785,8 +1785,6 @@ static inline void post_sem(TCCSem *p) {
 #define lbounds_section     TCC_STATE_VAR(lbounds_section)
 #define symtab_section      TCC_STATE_VAR(symtab_section)
 #define gnu_ext             TCC_STATE_VAR(gnu_ext)
-#define tcc_error_noabort   TCC_SET_STATE(_tcc_error_noabort)
-#define tcc_warning         TCC_SET_STATE(_tcc_warning)
 
 #define total_idents        TCC_STATE_VAR(total_idents)
 #define total_lines         TCC_STATE_VAR(total_lines)
@@ -1796,9 +1794,10 @@ PUB_FUNC void tcc_enter_state(TCCState *s1);
 PUB_FUNC void tcc_exit_state(TCCState *s1);
 
 /* conditional warning depending on switch */
-#define tcc_warning_c(sw) TCC_SET_STATE((\
-    tcc_state->warn_num = offsetof(TCCState, sw) \
-    - offsetof(TCCState, warn_none), _tcc_warning))
+#define tcc_warning_c(context, sw, ...) (\
+    (context)->warn_num = offsetof(TCCState, sw) \
+    - offsetof(TCCState, warn_none), \
+    _tcc_warning(context, __VA_ARGS__))
 
 /********************************************************/
 #endif /* _TCC_H */
@@ -1806,15 +1805,21 @@ PUB_FUNC void tcc_exit_state(TCCState *s1);
 #undef TCC_STATE_VAR
 #undef TCC_SET_STATE
 #undef tcc_error
+#undef tcc_error_noabort
+#undef tcc_warning
 
 #ifdef USING_GLOBALS
 # define tcc_error(...) _tcc_error(tcc_state, __VA_ARGS__)
+# define tcc_error_noabort(...) _tcc_error_noabort(tcc_state, __VA_ARGS__)
+# define tcc_warning(...) _tcc_warning(tcc_state, __VA_ARGS__)
 # define TCC_STATE_VAR(sym) tcc_state->sym
 # define TCC_SET_STATE(fn) fn
 # undef USING_GLOBALS
 # undef _tcc_error
 #else
 # define tcc_error(...) TCC_SET_STATE(_tcc_error)(s1, __VA_ARGS__)
+# define tcc_error_noabort(...) TCC_SET_STATE(_tcc_error_noabort)(s1, __VA_ARGS__)
+# define tcc_warning(...) TCC_SET_STATE(_tcc_warning)(s1, __VA_ARGS__)
 # define TCC_STATE_VAR(sym) s1->sym
 # define TCC_SET_STATE(fn) (tcc_enter_state(s1),fn)
 # define _tcc_error use_tcc_error_noabort

@@ -1630,7 +1630,7 @@ ST_FUNC void tcc_debug_stabn(TCCState *s1, int type, int value)
 
 static int check_global(struct neocc_symbol *t)
 {
-    struct neocc_symbol *g = sym_stack_top(NEOCC_SYMBOL_STACK_LOCAL);
+    struct neocc_symbol *g = sym_stack_top(tcc_state, NEOCC_SYMBOL_STACK_LOCAL);
 
     while (g) {
 	if (t == g)
@@ -1776,7 +1776,7 @@ static int stabs_struct_find(TCCState *s1, struct neocc_symbol *t, int *p_id)
         return s && !s->r && t->c >= 0;
     if (NULL == s) {
         /* just use the global symbol stack always */
-        s = sym_stack_push(NEOCC_SYMBOL_STACK_GLOBAL,
+        s = sym_stack_push(s1, NEOCC_SYMBOL_STACK_GLOBAL,
                            SYM_FIELD|0x00DEBBED, 0, ++debug_next_type);
         t->type.ref = s;
     }
